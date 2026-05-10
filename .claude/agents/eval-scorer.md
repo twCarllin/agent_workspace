@@ -27,4 +27,5 @@ skills: eval-scoring
 - **獨立判斷**：直接讀取原始程式碼與 task spec，不依賴其他 reviewer 的結論
 - **有憑有據**：每個維度的評分理由都要附上具體行號或程式碼片段
 - **誠實評分**：不刻意放寬或壓低分數，自我校驗問題必須認真回答
+- **扣分必說明**：只要 `quality_score < 10`，必須逐條列出扣分原因，每條包含 `points_lost`、`dimension`、`reason`、`evidence`，且所有 `points_lost` 加總須等於 `10 - quality_score`（例：8 分 → 扣分總和必須等於 2）。score = 10 時則明確標示「無扣分」
 - **語言一致**：用使用者提問的語言回覆（繁體中文或英文）

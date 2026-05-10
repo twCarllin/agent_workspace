@@ -4,17 +4,24 @@
 
 - **禁止** 未經本地測試就直接部署到遠端
 - 任何程式碼變更，必須先在本地端驗證功能正常後，才能 commit 和部署
-- 部署前必須確認 build 成功（前端 `vite build`、後端模組載入）
-- 部署指令 `./deploy/deploy.sh` 只在使用者明確要求時才執行
-
-## 資料庫操作原則
-
-- 測試時使用獨立的 test database，不可動到 dev 或 prod 資料
 
 ## Eval Flow
 
 **這個 flow 利用 model:claude-sonnet-4-6**：
-當我要求 review + fix 時，執行以下循環（每輪結果寫入 `eval_state.json`）：
+當有一個新的 task 的時候：
+
+### 前置：多面向風險分析（必須在第一次呼叫 code-writer 之前完成）
+
+- 使用 **task-risk-analysis** skill，從 6 大面向（技術、安全、資料、效能、部署、業務維護）逐一思考任務風險
+- 每個面向需明確標註等級：🔴 重大 / 🟡 中等 / 🟢 輕微 / 無風險
+- 產出「風險分析報告」，內容包含：每個面向的判斷、風險描述、對應對策
+- **判斷規則**：
+  - 有 🔴 重大風險 → **不可進入 step 1**。必須先修改 task.md（補上前置條件 / 拆分子任務 / 釐清描述），再重新分析，直到無 🔴
+  - 🟡 中等風險 → 須在 task.md 中明確記錄，由 code-writer 在實作時注意
+  - 🟢 輕微 / 無風險 → 可直接進入 step 1
+- 風險分析結果需附在 `eval_state.json` 對應 sub_task 之 `risk_analysis` 欄位
+
+接著執行以下循環（每輪結果寫入 `eval_state.json`）：
 
 1. 呼叫 `code-writer` subagent 產出程式碼
 2. 將變更檔案 `git add` 進 staging area（確保 code-reviewer / eval-scorer 可透過 `git diff --cached` 讀取）
@@ -52,6 +59,15 @@
       "name": "子 task 名稱",
       "status": "passed | failed | in_progress",
       "warning": false,
+      "risk_analysis": {
+        "technical": "🟢 無風險 | 🟡 ... | 🔴 ...",
+        "security": "...",
+        "data": "...",
+        "performance": "...",
+        "deployment": "...",
+        "business_maintenance": "...",
+        "blocking": false
+      },
       "rounds": [
         {
           "round": 1,
@@ -63,6 +79,14 @@
             "Non-functional": 0,
             "Technical_constraints": 0
           },
+          "deduction_reasons": [
+            {
+              "points_lost": 1,
+              "dimension": "Completeness",
+              "reason": "缺少 X 邊界條件的處理",
+              "evidence": "src/foo.ts:42"
+            }
+          ],
           "brief_sent_to_writer": "改進摘要（score < threshold 時填寫）"
         }
       ]
@@ -75,7 +99,12 @@
 ### eval_state.json 操作規則
 
 - **開始任務時**：建立 `eval_state.json`，填入 `task_id` 與 `sub_tasks` 結構
+- **風險分析完成後**：將 6 大面向結果填入對應 sub_task 的 `risk_analysis`，若有 🔴 設 `blocking: true`，必須修正 task 後重新分析
 - **每輪評分後**：將 `eval-scorer` 的結果 append 到對應 sub_task 的 `rounds` 陣列
+- **quality_score < 10（即使通過 threshold）**：必須在該 round 的 `deduction_reasons` 陣列逐條列出扣分原因
+  - 每筆需含 `points_lost`（扣分）、`dimension`（哪個維度扣的）、`reason`（具體理由）、`evidence`（檔案行號或證據）
+  - 所有 `points_lost` 加總必須等於 `10 - quality_score`（例：8 分 → 扣分總和 = 2）
+  - score = 10 時 `deduction_reasons` 為空陣列 `[]`
 - **score < threshold**：在該 round 的 `brief_sent_to_writer` 填入改進摘要
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`
 - **sub_task 2 輪未過**：`status` 設為 `"failed"`，`warning` 設為 `true`
