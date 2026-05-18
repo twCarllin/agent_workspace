@@ -1,33 +1,35 @@
 # CLAUDE.md
 
-## Definitions
-
-- **auto-mode**: when Claude Code runs with `--dangerously-skip-permissions` or `--enable-auto-mode`(where Bash commands are auto-approved without human-in-the-loop confirmation). When the mode is unclear, assume auto-mode is **OFF**.
-
 ## Deployment Rules (Highest Priority)
 
 - **Forbidden** to deploy directly to remote without local testing first
 - Any code change must be verified locally before commit and deploy
-- Before deploying, confirm the build succeeds
-- Deployment commands are only executed when the user explicitly requests it
-
-## Database Operation Principles
-
-- Use an isolated test database for testing; do not touch dev or prod data
 
 ## Eval Flow
 
 **This flow uses model: claude-sonnet-4-6**.
-When I request review + fix, execute the following loop (each round's result is written to `eval_state.json`). The score threshold and the inner-loop iteration cap are read from `eval_state.json` — they are **not hardcoded** in this document.
+When there is a new task:
+
+### Preflight: Multi-dimensional Risk Analysis (must be completed before the first `code-writer` invocation)
+
+- Use the **task-risk-analysis** skill to think through task risks across 6 dimensions (technical, security, data, performance, deployment, business maintenance), one by one
+- Each dimension must be explicitly labeled: 🔴 critical / 🟡 moderate / 🟢 minor / no risk
+- Produce a "Risk Analysis Report" containing: the judgment for each dimension, risk description, and corresponding countermeasure
+- **Decision rules**:
+  - If any 🔴 critical risk exists → **must not enter step 1**. The task.md must be modified first (add preconditions / split subtasks / clarify description), then re-analyze until no 🔴 remains
+  - 🟡 moderate risk → must be clearly recorded in task.md so that `code-writer` is aware of it during implementation
+  - 🟢 minor / no risk → may proceed directly to step 1
+- The risk analysis result must be attached to the corresponding sub_task's `risk_analysis` field in `eval_state.json`
+
+Then execute the following loop (each round's result is written to `eval_state.json`):
 
 1. Call the `code-writer` subagent to produce code
 2. `git add` the changed files into the staging area (so `code-reviewer` / `eval-scorer` can read them via `git diff --cached`)
-3. Call the `code-reviewer` subagent to review, and parse 🔴 critical issues
-   - If 🔴 exists: fix according to suggestions (or call `code-writer`), then `git add` again and call `code-reviewer` to verify.
-   - **Inner-loop guard**: increment `review_iterations` each time `code-reviewer` is invoked in this round. If it exceeds `max_review_iterations` (default 3) without 🔴 clearing, **stop the eval flow**, write the current state to `eval_state.json`, and escalate to the user with the outstanding 🔴 list.
-4. Once 🔴 is cleared, call the `task-verifier` subagent to confirm feature completeness against the current subtask
-   - Compare task.md vs actual diff (current subtask completed, DoD met, no scope drift)
-   - **If gaps are found, return to step 1** with the gap list as an additional brief — *not* step 3 — so the new code goes through the full review chain again. Record the gaps in `task_verifier_gaps`.
+3. Call the `code-reviewer` subagent to review and parse 🔴 critical issues
+   - If 🔴 exists: fix according to suggestions (or call `code-writer`), then `git add` again and call `code-reviewer` to verify
+4. Once 🔴 is cleared, call the `task-verifier` subagent to confirm feature completeness
+   - Compare task.md vs the actual diff (subtasks completed, DoD met, no scope drift)
+   - If gaps are found, fix them and return to step 3
 5. Call the `eval-scorer` subagent to score independently (reads `git diff --cached`); append the result to `eval_state.json`
 
 ### Subagent Invocation Principles (Save Tokens)
@@ -38,13 +40,13 @@ When I request review + fix, execute the following loop (each round's result is 
 - For agents that don't need Bash, such as **retro / task-reviewer**: they can be run in the background at any time.
 
 6. Evaluate the score:
-   - **score >= threshold** → git commit, clear `eval_state.json`, finish
-   - **score < threshold and rounds < 2** → generate an improvement brief based on the scoring report, return to step 1
-   - **score < threshold and rounds == 2** → read `eval_state.json`, generate a full report, and report back to the user
+   - **score >= 6** → git commit, clear `eval_state.json`, finish
+   - **score < 6 and rounds < 2** → generate an improvement brief based on the scoring report, return to step 1
+   - **score < 6 and rounds == 2** → read `eval_state.json`, generate a full report, and report back to the user
 7. **Conditionally** call the `retro` subagent:
-   - If `code-reviewer` reported 🔴 critical issues at any point → call retro before commit (after fixes). Set `retro_triggered: true`.
-   - If score < threshold in any round (multiple improvement rounds needed) → call retro before final commit. Set `retro_triggered: true`.
-   - If `code-reviewer` had no 🔴 and the score passed in one shot → **do NOT call retro** (no retrospective needed).
+   - If `code-reviewer` reported 🔴 critical issues → call retro before commit (after fixes)
+   - If score < threshold (multiple improvement rounds needed) → call retro before final commit
+   - If `code-reviewer` had no 🔴 and the score passed in one shot → **do NOT call retro** (no retrospective needed)
 
 ### eval_state.json Format
 
@@ -52,13 +54,21 @@ When I request review + fix, execute the following loop (each round's result is 
 {
   "task_id": "short task description",
   "threshold": 6,
-  "max_review_iterations": 3,
   "sub_tasks": [
     {
       "id": 1,
       "name": "subtask name",
       "status": "passed | failed | in_progress",
       "warning": false,
+      "risk_analysis": {
+        "technical": "🟢 no risk | 🟡 ... | 🔴 ...",
+        "security": "...",
+        "data": "...",
+        "performance": "...",
+        "deployment": "...",
+        "business_maintenance": "...",
+        "blocking": false
+      },
       "rounds": [
         {
           "round": 1,
@@ -70,10 +80,14 @@ When I request review + fix, execute the following loop (each round's result is 
             "Non-functional": 0,
             "Technical_constraints": 0
           },
-          "review_iterations": 0,
-          "critical_issues_found": [],
-          "task_verifier_gaps": [],
-          "retro_triggered": false,
+          "deduction_reasons": [
+            {
+              "points_lost": 1,
+              "dimension": "Completeness",
+              "reason": "missing handling of boundary condition X",
+              "evidence": "src/foo.ts:42"
+            }
+          ],
           "brief_sent_to_writer": "improvement summary (filled when score < threshold)"
         }
       ]
@@ -85,29 +99,32 @@ When I request review + fix, execute the following loop (each round's result is 
 
 ### eval_state.json Operation Rules
 
-- **When starting a task**: create `eval_state.json` and fill in `task_id`, `threshold`, `max_review_iterations`, and the `sub_tasks` structure
-- **After each scoring round**: append the `eval-scorer` result to the corresponding sub_task's `rounds` array, including `review_iterations`, `critical_issues_found`, `task_verifier_gaps`, and `retro_triggered`
-- **When the inner review loop hits the cap**: append the partial round with `quality_score: null` and the outstanding 🔴 list in `critical_issues_found`, then halt
+- **When starting a task**: create `eval_state.json` and fill in `task_id` and the `sub_tasks` structure
+- **After risk analysis is complete**: fill the 6-dimension results into the corresponding sub_task's `risk_analysis`; if any 🔴 exists, set `blocking: true` — the task must be fixed and re-analyzed
+- **After each scoring round**: append the `eval-scorer` result to the corresponding sub_task's `rounds` array
+- **When quality_score < 10 (even if it passes the threshold)**: the round's `deduction_reasons` array must list every deduction reason
+  - Each entry must contain `points_lost` (points deducted), `dimension` (which dimension was deducted), `reason` (specific reason), and `evidence` (file:line or evidence)
+  - The sum of all `points_lost` must equal `10 - quality_score` (e.g., 8 points → total deductions = 2)
+  - When score = 10, `deduction_reasons` is an empty array `[]`
 - **When score < threshold**: fill in `brief_sent_to_writer` for that round with the improvement summary
 - **When a sub_task passes**: set that sub_task's `status` to `"passed"`
 - **When a sub_task fails after 2 rounds**: set `status` to `"failed"` and `warning` to `true`
 - **When all subtasks complete and pass**: set the top-level `status` to `"completed"`; clear the file after commit
 - **If any subtask is failed**: set the top-level `status` to `"failed"` and report back to the user
 
-## Task Principles
+## Task Principle
 
-- Task files are placed under the `task/` folder, named by the file's **creation date**: `task/YYYY-MM-DD.md`
-- When adding a new task, append to today's file (e.g., `task/2026-04-18.md`); create the file if it doesn't exist
-- **A task stays in its original file for its entire lifecycle**, even if it spans multiple days. Do not move tasks between files when they're completed late.
+- Task files are placed under the `task/` folder, named by date: `task/YYYY-MM-DD.md`
+- Each time a task is added or read, use **today's date** as the filename (e.g., `task/2026-04-18.md`)
 - The old `task.md` is kept only as a historical record; do not add new tasks to it
 - Call subagents to complete tasks
 - Mark the creation time of each task
 - Tasks that can be parallelized should be marked with [P]
 - Once a task is completed, mark it as [x]
-- **After new tasks are added, you must call the `task-reviewer` subagent to review them**, confirming descriptions are clear, the breakdown is reasonable, and technical constraints are noted, before execution begins
-- Per-subtask verification is handled by `task-verifier` **inside Eval Flow step 4**. No separate end-of-task `task-verifier` call is required — the eval loop already covers it.
+- **After new tasks are added to a task file, you must call the `task-reviewer` subagent to review them**, confirming descriptions are clear, the breakdown is reasonable, and technical constraints are noted, before execution begins
+- **After all subtasks of a task are completed, you must call the `task-verifier` subagent to verify** that the implementation matches the description, before commit
 
-## Subagent Principles
+## Subagent Principle
 
 - After work is completed, if the task came from a task file, mark the task as complete in the corresponding task file once eval-scoring is done
 
