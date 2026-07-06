@@ -6,26 +6,66 @@
 - 任何程式碼變更，必須先在本地端驗證功能正常後，才能 commit 和部署
 
 
-## task 難易度分級
+## 難易度分級（Router，每個需求進來的第一步）
 
-- 改 UI 的操作，影響範圍在 10 行程式碼以內的，直接操作不用走 Eval Flow
+先判 tier，再決定走哪條路。判定的軸不是「行數」，而是三道閘門保護的東西：**風險**（auth／金流／schema／部署）、**歧義**（需求清不清）、**大小**（會不會超過 1 task）。
+
+| Tier | 進入條件（**全部**滿足） | 路徑 |
+|---|---|---|
+| **0 微調** | ≤10 行、單檔、無新行為（純樣式／文案／參數調整） | 直接改，不建任何檔 |
+| **1 明確功能** | 需求無歧義（一句話講得清 DoD）＋ 單一使用路徑（單角色、無分支情境）＋ 預估 ≤1 task（≤5 items／各 ≤300 行）＋ **完全不觸及 auth／權限、金流／交易、DB schema 變更、部署／環境設定** | 走「Tier 1 精簡路徑」 |
+| **2 完整功能** | 以上任一不成立：有歧義 OR 偏大 OR 多角色／多情境 OR 觸及上述任一高風險面 | 走完整「Eval Flow（Tier 2）」 |
+
+### 防濫用規則（避免 agent 為省 token 自我降級）
+
+- **高風險面是硬性排除，不是加權**：只要沾到 auth／權限、金流／交易、schema 變更、部署設定其中任一，**強制 Tier 2**，無裁量空間
+- Tier 1／2 的判定必須在 manifest 寫 `tier` 與 `tier_rationale`（為何判這層），供事後審計
+- **升級逃生門**：Tier 1 執行中若發生下列任一 → **中止，升級 Tier 2**，補跑缺的前置（產 Spec、跑 usage、正式風險分析）：
+  - 分拆後超過 5 items（硬上限）
+  - 出現預估遠超 300 行且無法在 ≤5 item 內合理消化的 item（在 Tier 1 情境下，代表這功能其實不小，應改走完整流程；非要求硬拆）
+  - 冒出需求歧義（DoD 講不清、發現多條使用路徑）
+  - 風險上冒出 🔴
+- 升級不可逆：一旦升 Tier 2，不可再降回 Tier 1
 
 
-## Eval Flow
+## Eval Flow（Tier 2 完整路徑）
 
-**這個 flow 利用 model:claude-sonnet-4-6**：
-當有一個新的 task 的時候：
+當一個需求被 Router 判為 **Tier 2**（需實作的完整 Spec）時，執行以下流程。**Model 不在 flow 層級統一指定**，由每個 agent 依任務性質自行決定（見下「Model 指派原則」）。
 
-### 前置：多面向風險分析（必須在第一次呼叫 code-writer 之前完成）
+### 前置 0：初始化（進入點，必須是第一個動作）
 
-- 使用 **task-risk-analysis** skill，從 6 大面向（技術、安全、資料、效能、部署、業務維護）逐一思考任務風險
+- 接收本次要實作的 **Spec**（來源：Stage A intent→spec 的產出，或使用者手動指定的路徑）
+- 決定 `run_id`：`YYYY-MM-DD-<spec-slug>`（例如 `2026-07-06-partial-settlement`），作為本次 run 貫穿各檔的關聯鍵
+- **建立 run manifest** `run/<run_id>.json`（**冷溯源檔，commit 時隨 code 進 git、永不清除**），填入：
+  - `run_id`、`created_at`
+  - `spec_path`：指向這份 Spec 的實際路徑（進入點在此把 Spec **記錄下來**）
+  - `usage_report_path`、`task_file`、`commit_sha`：先設 `null`
+  - `status`：`"in_progress"`
+- **建立 `eval_state.json`**（**熱評分 scratchpad，commit 後清除**），填入 `run_id`（指回 manifest）、`threshold`、空的 `sub_tasks`
+- **Gate（硬性）**：manifest 的 `spec_path` 未寫入前，**不可進入前置 1（風險分析）**。沒有被記錄的 Spec，等於整條 pipeline 沒有輸入來源
+- 各後續步驟一律用 `eval_state.json.run_id` 定位 `run/<run_id>.json`，從 manifest 讀 `spec_path` / `usage_report_path`，**不重組日期 / 檔名**
+
+### 前置 1：多面向風險分析（必須在第一次呼叫 code-writer 之前完成）
+
+- 使用 **task-risk-analysis** skill，讀取 manifest `run/<run_id>.json` 的 `spec_path` 指向的 Spec，從 6 大面向（技術、安全、資料、效能、部署、業務維護）逐一思考任務風險
 - 每個面向需明確標註等級：🔴 重大 / 🟡 中等 / 🟢 輕微 / 無風險
 - 產出「風險分析報告」，內容包含：每個面向的判斷、風險描述、對應對策
 - **判斷規則**：
-  - 有 🔴 重大風險 → **不可進入 step 1**。必須先修改 task.md（補上前置條件 / 拆分子任務 / 釐清描述），再重新分析，直到無 🔴
-  - 🟡 中等風險 → 須在 task.md 中明確記錄，由 code-writer 在實作時注意
-  - 🟢 輕微 / 無風險 → 可直接進入 step 1
-- 風險分析結果需附在 `eval_state.json` 對應 sub_task 之 `risk_analysis` 欄位
+  - 有 🔴 重大風險 → **不可進入任何後續步驟（含使用情境分析）**。必須先修改 **Spec**（補上前置條件 / 縮小範圍 / 釐清描述），再重新分析，直到無 🔴
+  - 🟡 中等風險 → 記錄於風險報告，並在「分拆 task」時帶入對應 item 的備註，由 code-writer 實作時注意
+  - 🟢 輕微 / 無風險 → 可進入下一步「使用情境分析」
+- 風險分析報告先以 **Spec 為單位**產出；待「分拆 task」完成、`sub_tasks` 建立後，再把對應風險映射到 `eval_state.json` 各 sub_task 的 `risk_analysis` 欄位
+
+### 前置 2：使用情境分析（必須在分拆 task 之前完成）
+
+- 呼叫 **`usage-analyzer` subagent**。它讀 Spec、產出使用情境報告，並在自己的定義與 `usage-scenario-analysis` skill 中規範報告內容、情境 id、邊界盤點與存檔位置。
+- **flow 層級 gate**：報告需經**使用者確認**；未確認前不進入前置 3（usage-analyzer 在確認後才回寫 `manifest.usage_report_path`）。
+
+### 前置 3：分拆 task（必須在第一次呼叫 code-writer 之前完成）
+
+- 呼叫 **`task-decomposer` subagent**。它讀 usage 報告與 Spec、拆成 task 與 item、寫入 `task/YYYY-MM-DD.md`、回寫 `manifest.task_file`、並接 `task-reviewer` 審查。拆分粒度、上限、五要素等規則住在它的定義與 `task-decomposition` skill。
+- **flow 層級 gate**：`manifest.usage_report_path` 為 `null` 不可進入本步（task-decomposer 會自我中止）。
+- task-decomposer 交付（含 task-reviewer 審查通過）後，將每個 task 展開為 `eval_state.json` 的 `sub_tasks`，才進入下方循環。
 
 接著執行以下循環（每輪結果寫入 `eval_state.json`）：
 
@@ -38,14 +78,36 @@
    - 如有遺漏，修正後回步驟 3
 5. 呼叫 `eval-scorer` subagent 獨立打分（讀取 `git diff --cached`），結果 append 進 `eval_state.json`
 
+### Model 指派原則
+
+- Model **不在 flow 層級綁定**；每個 agent 在自己的定義（agent `.md` frontmatter 的 `model` 欄）指定，依任務性質選擇
+- 核心原則：**推理／判斷密集的規劃與審查 → 用強 model；機械式、量大的執行 → 用快 model**。規劃階段一次判斷錯，後面整條 flow 重跑的成本遠高於強 model 的單價
+- 預設對映（依實測調整）：
+
+| Agent／步驟 | 任務性質 | 建議 tier |
+|---|---|---|
+| task-decomposer | 拆分品質決定整條 flow 成敗，需強推理 | 強（如 Opus） |
+| usage-analyzer | 盤點情境、找邊界，需覆蓋度 | 強（如 Opus） |
+| 前置 1 風險分析 | 找隱藏地雷，需推理 | 強（如 Opus） |
+| code-reviewer | 抓 🔴 重大問題，判斷密集 | 強 / 中 |
+| eval-scorer | 獨立打分，需一致判準 | 中 / 強 |
+| task-verifier | 比對 diff vs 描述 | 中（如 Sonnet） |
+| code-writer | 執行實作、量大 | 中（如 Sonnet） |
+| task-reviewer / retro | 輕量檢查 / 回顧 | 中 / 快 |
+
+- Tier 1 精簡路徑共用這些 agent，model 指派沿用同表，不另設
+
 ### Subagent 呼叫原則（省 token）
 
 - **code-reviewer / task-verifier / eval-scorer** 需要讀取程式碼變更時，**必須在 prompt 中指示使用 `git diff --cached`**（Bash 工具），不要用 Read 逐檔讀取完整檔案。`git diff` 只回傳變更部分，token 消耗遠低於讀整檔。
 - **auto-mode 開啟時**：這 3 個 agent 可以放背景執行（`run_in_background: true`），Bash 會自動批准。
 - **非 auto-mode 時**：這 3 個 agent 必須用前景執行，讓使用者能批准 Bash 權限。不可放背景執行（背景 agent 無法彈出權限確認，會導致 Bash 被拒絕）。
 - **retro / task-reviewer** 等不需要 Bash 的 agent：可隨時放背景執行。
+- **usage-analyzer / task-decomposer**（規劃型 agent，不需 Bash）：可背景產出。但兩者產出後都有把關、不可背景直接續跑：
+  - `usage-analyzer` 後接**使用者確認 gate**（前置 2，逐條裁示開放問題）才回寫 `usage_report_path`
+  - `task-decomposer` 後接 **`task-reviewer` 審查**才進循環（審查基準住在其定義／skill）；Tier 1 另由主 flow 做輕量計畫確認
 6. 判斷分數：
-   - **score >= 6** → git commit，清除 `eval_state.json`，結束
+   - **score >= 6** → 把 manifest `run/<run_id>.json` 一併 `git add`，git commit；commit 後將 `commit_sha` 與 `status: "completed"` 回填進 manifest（此檔已在 git 歷史中，作為 Spec↔usage↔task↔commit 的永久溯源）；**只清除 `eval_state.json`**，manifest 保留，結束
    - **score < 6 且 rounds < 2** → 根據評分報告生成改進 brief，回步驟 1
    - **score < 6 且 rounds == 2** → 讀取 `eval_state.json` 生成完整報告，回報使用者
 7. **有條件** 呼叫 `retro` subagent：
@@ -53,11 +115,38 @@
    - score < threshold（需要多輪改進）→ 最終 commit 前呼叫 retro
    - code-reviewer 無 🔴 且 score 一次通過 → **不呼叫 retro**（無需回顧）
 
-### eval_state.json 格式
+### Run Manifest 格式（`run/<run_id>.json`）
+
+冷溯源檔。前置 0 建立，各前置步驟回填路徑，commit 時隨 code 進 git、**永不清除**。
 
 ```json
 {
-  "task_id": "task 簡短描述",
+  "run_id": "2026-07-06-partial-settlement",
+  "created_at": "2026-07-06 14:30",
+  "tier": 2,
+  "tier_rationale": "多角色 + 觸及金流 → 強制 Tier 2",
+  "spec_path": "spec/2026-07-06-partial-settlement.md",
+  "spec_inline": null,
+  "usage_report_path": null,
+  "task_file": null,
+  "commit_sha": null,
+  "status": "in_progress | completed | failed"
+}
+```
+
+- `tier` / `tier_rationale`：Router 判定後寫入（供審計；Tier 1 若升級 Tier 2 須更新）
+- `spec_path` / `spec_inline`：Tier 2 用 `spec_path`（Spec 檔）；Tier 1 用 `spec_inline`（需求原文一句話）。**兩者至少一個非空**，皆空不可往下（intent gate）
+- `usage_report_path`：Tier 2 前置 2 使用者確認後寫入（`null` → 不可分拆 task）；Tier 1 固定為 `"skipped"`
+- `task_file`：分拆／建 task 後寫入
+- `commit_sha` / `status`：step 6 commit 後回填
+
+### eval_state.json 格式
+
+熱評分 scratchpad。靠 `run_id` 關聯 manifest；commit 後清除。
+
+```json
+{
+  "run_id": "2026-07-06-partial-settlement",
   "threshold": 6,
   "sub_tasks": [
     {
@@ -104,8 +193,9 @@
 
 ### eval_state.json 操作規則
 
-- **開始任務時**：建立 `eval_state.json`，填入 `task_id` 與 `sub_tasks` 結構
-- **風險分析完成後**：將 6 大面向結果填入對應 sub_task 的 `risk_analysis`，若有 🔴 設 `blocking: true`，必須修正 task 後重新分析
+- **前置 0（初始化）**：建立 manifest `run/<run_id>.json`（填 `run_id`、`created_at`、`spec_path`，其餘 `null`，`status: "in_progress"`）與 `eval_state.json`（填 `run_id`、`threshold`、空 `sub_tasks`）。manifest 的 `spec_path` 未填不可往下
+- **使用情境分析完成後 / 分拆 task 完成後**：`usage_report_path` 與 `task_file` 分別由 `usage-analyzer`、`task-decomposer` 於各自步驟回寫（時機與條件見 agent 定義）。前者為 `null` 時不可進入分拆 task
+- **風險分析完成後**：將 6 大面向結果填入對應 sub_task 的 `risk_analysis`，若有 🔴 設 `blocking: true`，必須修正 Spec 後重新分析
 - **每輪評分後**：將 `eval-scorer` 的結果 append 到對應 sub_task 的 `rounds` 陣列
 - **quality_score < 10（即使通過 threshold）**：必須在該 round 的 `deduction_reasons` 陣列逐條列出扣分原因
   - 每筆需含 `points_lost`（扣分）、`dimension`（哪個維度扣的）、`reason`（具體理由）、`evidence`（檔案行號或證據）
@@ -114,12 +204,25 @@
 - **score < threshold**：在該 round 的 `brief_sent_to_writer` 填入改進摘要
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`
 - **sub_task 2 輪未過**：`status` 設為 `"failed"`，`warning` 設為 `true`
-- **全部完成且通過**：頂層 `status` 設為 `"completed"`，commit 後清除檔案
-- **有任一 failed**：頂層 `status` 設為 `"failed"`，回報使用者
+- **全部完成且通過**：manifest `status` 設為 `"completed"` 並回填 `commit_sha`；`eval_state.json` 頂層 `status` 設為 `"completed"`，commit 後**只清除 `eval_state.json`**（manifest 保留於 git）
+- **有任一 failed**：manifest 與 `eval_state.json` 的 `status` 皆設為 `"failed"`，回報使用者
+
+## Tier 1 精簡路徑
+
+明確、單一路徑、不觸及高風險面的小功能。**跳過 Spec 檔與 usage 分析，但仍留溯源、仍守大小上限**。風險由 Router 的排除條件把關（觸及高風險面者根本進不到 Tier 1），故不另跑 6 面向分析。
+
+1. **精簡初始化**：建 manifest `run/<run_id>.json`，填 `tier: 1`、`tier_rationale`、**`spec_inline`**（需求原文一句話，取代 `spec_path`）、`usage_report_path: "skipped"`；建 `eval_state.json`（`run_id` + `threshold` + 空 `sub_tasks`）
+   - **intent gate（不可鬆）**：`spec_path` 與 `spec_inline` 至少一個非空，皆空不可往下
+2. **直接建 task 檔**：免呼叫 `task-decomposer` subagent，但上限不變——**1 個 task、≤5 items（硬）、各 item 目標 ≤300 行（軟）**。item 數超 5、或出現遠超 300 行且拆不進 5 item 內的工作 → 觸發升級逃生門（回 Tier 2）
+3. **輕量 HITL**：寫 code 前，把「1 task／N items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。確認後才進循環
+4. **共用循環**：進入 Eval Flow 的步驟 1–7（code-writer → review → verify → score → commit）。commit 時一併 `git add` manifest、回填 `commit_sha`、只清除 `eval_state.json`
+   - sub_task 的 `risk_analysis` 可簡記為 `"router 已篩（Tier 1）"`，不需逐面向填
 
 ## Task Principle
 
 - 任務檔案放在 `task/` 資料夾，以日期命名：`task/YYYY-MM-DD.md`
+- 使用情境報告放在 `usage/` 資料夾，以 run_id 命名：`usage/<run_id>.md`（比照 task 的專屬資料夾慣例）
+- run manifest 放在 `run/` 資料夾：`run/<run_id>.json`（冷溯源，隨 commit 進 git）
 - 每次新增或讀取任務時，使用**當天日期**的檔案（例如 `task/2026-04-18.md`）
 - 舊的 `task.md` 僅作為歷史紀錄保留，不再新增任務到該檔案
 - 呼叫 subagent 完成任務
@@ -127,6 +230,7 @@
 - 可以平行化的任務，標註為可以 [P] 代表可以平行化執行
 - task 完成後，標記為 [x] 代表任務完成
 - **task 檔案有新增任務後，必須呼叫 `task-reviewer` subagent 審查**，確認描述清楚、拆分合理、技術限制已標註，才可以開始執行任務
+  - 拆分合理性依 **task-decomposition** skill 的上限審查（≤5 item 硬、≤300 行/item 軟等，細節見 skill），不在此重述
 - **task 所有子任務完成後，必須呼叫 `task-verifier` subagent 驗證**，確認實作與描述一致，才可以 commit
 
 ## Subagent Principle
