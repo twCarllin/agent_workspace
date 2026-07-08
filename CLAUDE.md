@@ -1,4 +1,4 @@
-：# CLAUDE.md
+# CLAUDE.md
 
 ## 部署規則（最重要）
 
@@ -15,6 +15,8 @@
 | **0 微調** | ≤10 行、單檔、無新行為（純樣式／文案／參數調整） | 直接改，不建任何檔 |
 | **1 明確功能** | 需求無歧義（一句話講得清 DoD）＋ 單一使用路徑（單角色、無分支情境）＋ 預估 ≤1 task（≤5 items／各 ≤300 行）＋ **完全不觸及 auth／權限、金流／交易、DB schema 變更、部署／環境設定** | 走「Tier 1 精簡路徑」 |
 | **2 完整功能** | 以上任一不成立：有歧義 OR 偏大 OR 多角色／多情境 OR 觸及上述任一高風險面 | 走完整「Eval Flow（Tier 2）」 |
+
+- **Tier 0 的 commit 歸屬**：Tier 0 改完後回報變更內容，**不自行 commit**（依全域規則，由使用者決定何時 commit）
 
 ### 防濫用規則（避免 agent 為省 token 自我降級）
 
@@ -69,6 +71,8 @@
 
 接著執行以下循環（每輪結果寫入 `eval_state.json`）：
 
+> **循環中的升級逃生門（Tier 2 也適用）**：循環執行中若冒出 🔴 重大風險、或發現需求歧義（DoD 講不清、Spec 有洞）→ 中止循環，回前置 1 修改 Spec 並重新風險分析；若影響使用情境或拆分，一併重跑前置 2／3。
+
 1. 呼叫 `code-writer` subagent 產出程式碼
 2. 將變更檔案 `git add` 進 staging area（確保 code-reviewer / eval-scorer 可透過 `git diff --cached` 讀取）
 3. 呼叫 `code-reviewer` subagent 審查，解析 🔴 重大問題
@@ -76,44 +80,35 @@
 4. 🔴 清零後，呼叫 `task-verifier` subagent 確認功能完整
    - 比對 task.md vs 實際 diff（子任務完成、DoD 達成、無 scope 偏移）
    - 如有遺漏，修正後回步驟 3
-5. 呼叫 `eval-scorer` subagent 獨立打分（讀取 `git diff --cached`），結果 append 進 `eval_state.json`
+5. **本地測試驗證（硬性 gate，對應「部署規則」）**：執行測試（或無測試框架時，實際運行功能驗證）
+   - 失敗 → 修正後回步驟 3；未通過本步不可進入評分與 commit
+6. 呼叫 `eval-scorer` subagent 獨立打分（讀取 `git diff --cached`），結果 append 進 `eval_state.json`
+   - **多 sub_task 時**：staging area 會累積先前 sub_task 的變更，須在 prompt 中限定 code-reviewer / eval-scorer 只評本 sub_task 涉及的檔案（`git diff --cached -- <本 sub_task 的檔案路徑>`），避免評分範圍互相污染
+7. 判斷分數：
+   - **score >= threshold** → 把 manifest `run/<run_id>.json`、usage 報告、task 檔一併 `git add`，git commit；commit 後將 `commit_sha` 與 `status: "completed"` 回填進 manifest（此檔已在 git 歷史中，作為 Spec↔usage↔task↔commit 的永久溯源）；將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留各輪分數與扣分原因的永久紀錄，於下次 commit 進 git）後**清除 `eval_state.json`**，manifest 保留，結束
+   - **score < threshold 且 rounds < 2** → 根據評分報告生成改進 brief，回步驟 1
+   - **score < threshold 且 rounds == 2** → 讀取 `eval_state.json` 生成完整報告，回報使用者
+8. **有條件** 呼叫 `retro` subagent：
+   - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro
+   - score < threshold（需要多輪改進）→ 最終 commit 前呼叫 retro
+   - code-reviewer 無 🔴 且 score 一次通過 → **不呼叫 retro**（無需回顧）
 
 ### Model 指派原則
 
-- Model **不在 flow 層級綁定**；每個 agent 在自己的定義（agent `.md` frontmatter 的 `model` 欄）指定，依任務性質選擇
-- 核心原則：**推理／判斷密集的規劃與審查 → 用強 model；機械式、量大的執行 → 用快 model**。規劃階段一次判斷錯，後面整條 flow 重跑的成本遠高於強 model 的單價
-- 預設對映（依實測調整）：
-
-| Agent／步驟 | 任務性質 | 建議 tier |
-|---|---|---|
-| task-decomposer | 拆分品質決定整條 flow 成敗，需強推理 | 強（如 Opus） |
-| usage-analyzer | 盤點情境、找邊界，需覆蓋度 | 強（如 Opus） |
-| 前置 1 風險分析 | 找隱藏地雷，需推理 | 強（如 Opus） |
-| code-reviewer | 抓 🔴 重大問題，判斷密集 | 強 / 中 |
-| eval-scorer | 獨立打分，需一致判準 | 中 / 強 |
-| task-verifier | 比對 diff vs 描述 | 中（如 Sonnet） |
-| code-writer | 執行實作、量大 | 中（如 Sonnet） |
-| task-reviewer / retro | 輕量檢查 / 回顧 | 中 / 快 |
-
-- Tier 1 精簡路徑共用這些 agent，model 指派沿用同表，不另設
+- Model 由各 agent 定義檔的 frontmatter `model` 欄指定（single source of truth），本文件不重複列表
+- 指派準則：**推理／判斷密集的規劃與審查（拆解、情境盤點、審查）→ 強 model；機械式、量大的執行 → 快 model**。規劃階段一次判斷錯，整條 flow 重跑的成本遠高於強 model 的單價
+- 例外：前置 1 風險分析是 skill、由主 flow 執行，無 frontmatter 可指定，沿用主 session model
 
 ### Subagent 呼叫原則（省 token）
 
 - **code-reviewer / task-verifier / eval-scorer** 需要讀取程式碼變更時，**必須在 prompt 中指示使用 `git diff --cached`**（Bash 工具），不要用 Read 逐檔讀取完整檔案。`git diff` 只回傳變更部分，token 消耗遠低於讀整檔。
+- **auto-mode 定義**：指使用者在本次 session 中**明確表示**開啟（例如「開 auto-mode」「全自動跑」）。未明示一律視為關閉，不可自行推斷。
 - **auto-mode 開啟時**：這 3 個 agent 可以放背景執行（`run_in_background: true`），Bash 會自動批准。
 - **非 auto-mode 時**：這 3 個 agent 必須用前景執行，讓使用者能批准 Bash 權限。不可放背景執行（背景 agent 無法彈出權限確認，會導致 Bash 被拒絕）。
 - **retro / task-reviewer** 等不需要 Bash 的 agent：可隨時放背景執行。
 - **usage-analyzer / task-decomposer**（規劃型 agent，不需 Bash）：可背景產出。但兩者產出後都有把關、不可背景直接續跑：
   - `usage-analyzer` 後接**使用者確認 gate**（前置 2，逐條裁示開放問題）才回寫 `usage_report_path`
   - `task-decomposer` 後接 **`task-reviewer` 審查**才進循環（審查基準住在其定義／skill）；Tier 1 另由主 flow 做輕量計畫確認
-6. 判斷分數：
-   - **score >= 6** → 把 manifest `run/<run_id>.json` 一併 `git add`，git commit；commit 後將 `commit_sha` 與 `status: "completed"` 回填進 manifest（此檔已在 git 歷史中，作為 Spec↔usage↔task↔commit 的永久溯源）；**只清除 `eval_state.json`**，manifest 保留，結束
-   - **score < 6 且 rounds < 2** → 根據評分報告生成改進 brief，回步驟 1
-   - **score < 6 且 rounds == 2** → 讀取 `eval_state.json` 生成完整報告，回報使用者
-7. **有條件** 呼叫 `retro` subagent：
-   - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro
-   - score < threshold（需要多輪改進）→ 最終 commit 前呼叫 retro
-   - code-reviewer 無 🔴 且 score 一次通過 → **不呼叫 retro**（無需回顧）
 
 ### Run Manifest 格式（`run/<run_id>.json`）
 
@@ -138,11 +133,11 @@
 - `spec_path` / `spec_inline`：Tier 2 用 `spec_path`（Spec 檔）；Tier 1 用 `spec_inline`（需求原文一句話）。**兩者至少一個非空**，皆空不可往下（intent gate）
 - `usage_report_path`：Tier 2 前置 2 使用者確認後寫入（`null` → 不可分拆 task）；Tier 1 固定為 `"skipped"`
 - `task_file`：分拆／建 task 後寫入
-- `commit_sha` / `status`：step 6 commit 後回填
+- `commit_sha` / `status`：step 7 commit 後回填
 
 ### eval_state.json 格式
 
-熱評分 scratchpad。靠 `run_id` 關聯 manifest；commit 後清除。
+熱評分 scratchpad。靠 `run_id` 關聯 manifest；commit 後歸檔為 `run/<run_id>.eval.json` 再清除。
 
 ```json
 {
@@ -204,8 +199,9 @@
 - **score < threshold**：在該 round 的 `brief_sent_to_writer` 填入改進摘要
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`
 - **sub_task 2 輪未過**：`status` 設為 `"failed"`，`warning` 設為 `true`
-- **全部完成且通過**：manifest `status` 設為 `"completed"` 並回填 `commit_sha`；`eval_state.json` 頂層 `status` 設為 `"completed"`，commit 後**只清除 `eval_state.json`**（manifest 保留於 git）
+- **全部完成且通過**：manifest `status` 設為 `"completed"` 並回填 `commit_sha`；`eval_state.json` 頂層 `status` 設為 `"completed"`，commit 後將其**歸檔為 `run/<run_id>.eval.json`**（保留評分歷史與扣分原因，於下次 commit 進 git），再清除 `eval_state.json`（manifest 保留於 git）
 - **有任一 failed**：manifest 與 `eval_state.json` 的 `status` 皆設為 `"failed"`，回報使用者
+  - **失敗收尾**：staging area 保持原狀（已通過 sub_task 的變更留在 staged），**不自行 unstage、不部分 commit、不清除 `eval_state.json`**，由使用者裁決後續（續跑、部分 commit 或放棄）
 
 ## Tier 1 精簡路徑
 
@@ -215,7 +211,7 @@
    - **intent gate（不可鬆）**：`spec_path` 與 `spec_inline` 至少一個非空，皆空不可往下
 2. **直接建 task 檔**：免呼叫 `task-decomposer` subagent，但上限不變——**1 個 task、≤5 items（硬）、各 item 目標 ≤300 行（軟）**。item 數超 5、或出現遠超 300 行且拆不進 5 item 內的工作 → 觸發升級逃生門（回 Tier 2）
 3. **輕量 HITL**：寫 code 前，把「1 task／N items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。確認後才進循環
-4. **共用循環**：進入 Eval Flow 的步驟 1–7（code-writer → review → verify → score → commit）。commit 時一併 `git add` manifest、回填 `commit_sha`、只清除 `eval_state.json`
+4. **共用循環**：進入 Eval Flow 的步驟 1–8（code-writer → review → verify → 本地測試 → score → commit）。commit 時一併 `git add` manifest 與 task 檔、回填 `commit_sha`、歸檔後清除 `eval_state.json`
    - sub_task 的 `risk_analysis` 可簡記為 `"router 已篩（Tier 1）"`，不需逐面向填
 
 ## Task Principle
