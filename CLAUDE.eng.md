@@ -41,7 +41,7 @@ When the Router classifies a request as **Tier 2** (a full Spec to implement), e
 - **Create the run manifest** `run/<run_id>.json` (**cold provenance file — committed to git alongside the code, never deleted**), filling in:
   - `run_id`, `created_at`
   - `spec_path`: the actual path to this Spec (the entry point **records** the Spec here)
-  - `usage_report_path`, `task_file`, `commit_sha`: set to `null` for now
+  - `usage_report_path`, `task_file`: set to `null` for now
   - `status`: `"in_progress"`
 - **Create `eval_state.json`** (**hot scoring scratchpad, cleared after commit**), filling in `run_id` (pointing back to the manifest), `threshold`, and empty `sub_tasks`
 - **Gate (hard)**: until the manifest's `spec_path` is written, **do not enter Preflight 1 (risk analysis)**. A Spec that hasn't been recorded means the whole pipeline has no input source
@@ -81,11 +81,12 @@ Then execute the following loop (each round's result is written to `eval_state.j
    - Compare task.md vs the actual diff (subtasks completed, DoD met, no scope drift)
    - If gaps are found, fix them and return to step 3
 5. **Local test verification (hard gate, corresponds to "Deployment Rules")**: run the tests (or, if no test framework exists, actually run the feature to verify)
+   - Pass → set that sub_task's `local_test_passed` to `true` (the hook enforces this field at commit time)
    - Failure → fix and return to step 3; scoring and commit must not proceed until this step passes
 6. Call the `eval-scorer` subagent to score independently (reads `git diff --cached`); append the result to `eval_state.json`
    - **With multiple sub_tasks**: the staging area accumulates changes from earlier sub_tasks; the prompt must restrict code-reviewer / eval-scorer to the files of the current sub_task only (`git diff --cached -- <paths of this sub_task>`) to avoid cross-contaminating the scoring scope
 7. Evaluate the score:
-   - **score >= threshold** → `git add` the manifest `run/<run_id>.json`, the usage report, and the task file together; git commit; after committing, backfill `commit_sha` and `status: "completed"` into the manifest (this file is now in git history as the permanent Spec↔usage↔task↔commit provenance); archive `eval_state.json` as `run/<run_id>.eval.json` (a permanent record of per-round scores and deduction reasons, committed to git on the next commit) and then **clear `eval_state.json`**; keep the manifest; finish
+   - **score >= threshold** → wrap-up sequence (**hook-enforced**, see "Hard Gate Enforcement"): ① archive `eval_state.json` as `run/<run_id>.eval.json` (a permanent record of per-round scores and deduction reasons), fill the manifest with `status: "completed"`, and **clear `eval_state.json`** ② `git add` the manifest `run/<run_id>.json`, the eval archive, the usage report, and the task file together ③ git commit with a `Run-Id: <run_id>` trailer at the end of the message (the Spec↔usage↔task↔commit provenance is looked up via `git log --grep "Run-Id: <run_id>"`); finish
    - **score < threshold and rounds < 2** → generate an improvement brief from the scoring report, return to step 1
    - **score < threshold and rounds == 2** → read `eval_state.json`, generate a full report, and report back to the user
 8. **Conditionally** call the `retro` subagent:
@@ -124,7 +125,6 @@ Cold provenance file. Created in Preflight 0, paths backfilled by each preflight
   "spec_inline": null,
   "usage_report_path": null,
   "task_file": null,
-  "commit_sha": null,
   "status": "in_progress | completed | failed"
 }
 ```
@@ -133,7 +133,7 @@ Cold provenance file. Created in Preflight 0, paths backfilled by each preflight
 - `spec_path` / `spec_inline`: Tier 2 uses `spec_path` (Spec file); Tier 1 uses `spec_inline` (the original one-sentence requirement). **At least one must be non-empty**; if both are empty, do not proceed (intent gate)
 - `usage_report_path`: written after user confirmation in Tier 2 Preflight 2 (`null` → task decomposition must not start); fixed to `"skipped"` for Tier 1
 - `task_file`: written after decomposition / task-file creation
-- `commit_sha` / `status`: backfilled after the step 7 commit
+- `status`: set to `"completed"` during the step 7 wrap-up (before commit). The manifest↔commit link is not recorded as a `commit_sha`; it is looked up via the commit message's `Run-Id: <run_id>` trailer (`git log --grep`)
 
 ### eval_state.json Format
 
@@ -149,6 +149,7 @@ Hot scoring scratchpad. Linked to the manifest via `run_id`; archived as `run/<r
       "name": "subtask name",
       "status": "passed | failed | in_progress",
       "warning": false,
+      "local_test_passed": false,
       "risk_analysis": {
         "technical": "🟢 no risk | 🟡 ... | 🔴 ...",
         "security": "...",
@@ -191,6 +192,7 @@ Hot scoring scratchpad. Linked to the manifest via `run_id`; archived as `run/<r
 - **Preflight 0 (initialization)**: create the manifest `run/<run_id>.json` (fill `run_id`, `created_at`, `spec_path`; the rest `null`; `status: "in_progress"`) and `eval_state.json` (fill `run_id`, `threshold`, empty `sub_tasks`). Do not proceed until the manifest's `spec_path` is filled
 - **After usage scenario analysis / after task decomposition**: `usage_report_path` and `task_file` are written back by `usage-analyzer` and `task-decomposer` in their respective steps (timing and conditions in the agent definitions). While the former is `null`, task decomposition must not start
 - **After risk analysis**: fill the 6-dimension results into the corresponding sub_task's `risk_analysis`; if any 🔴 exists, set `blocking: true` — the Spec must be revised and re-analyzed
+- **After the local test passes (step 5)**: set that sub_task's `local_test_passed` to `true` (defaults to `false`; at commit time the hook checks that this field is `true` for every sub_task in the archive)
 - **After each scoring round**: append the `eval-scorer` result to the corresponding sub_task's `rounds` array
 - **When quality_score < 10 (even if it passes the threshold)**: the round's `deduction_reasons` array must list every deduction
   - Each entry must contain `points_lost` (points deducted), `dimension` (which dimension), `reason` (specific reason), and `evidence` (file:line or evidence)
@@ -199,9 +201,20 @@ Hot scoring scratchpad. Linked to the manifest via `run_id`; archived as `run/<r
 - **When score < threshold**: fill in that round's `brief_sent_to_writer` with the improvement summary
 - **When a sub_task passes**: set that sub_task's `status` to `"passed"`
 - **When a sub_task fails after 2 rounds**: set `status` to `"failed"` and `warning` to `true`
-- **When everything completes and passes**: set the manifest `status` to `"completed"` and backfill `commit_sha`; set `eval_state.json`'s top-level `status` to `"completed"`; after commit, **archive it as `run/<run_id>.eval.json`** (preserving scoring history and deduction reasons, committed to git on the next commit), then clear `eval_state.json` (the manifest stays in git)
+- **When everything completes and passes**: set `eval_state.json`'s top-level `status` to `"completed"` and **first archive it as `run/<run_id>.eval.json`** (preserving scoring history and deduction reasons), clear `eval_state.json`, set the manifest `status` to `"completed"`, and **then** commit (the archive and manifest go into git in the same batch; the order is hook-enforced — committing while `eval_state.json` still exists is blocked)
 - **If any sub_task is failed**: set both the manifest's and `eval_state.json`'s `status` to `"failed"` and report back to the user
-  - **Failure wrap-up**: leave the staging area as-is (changes from passed sub_tasks stay staged); **do not unstage, do not partially commit, do not clear `eval_state.json`** — the user decides what happens next (continue, partial commit, or abandon)
+  - **Failure wrap-up**: leave the staging area as-is (changes from passed sub_tasks stay staged); **do not unstage, do not partially commit, do not clear `eval_state.json`** — the user decides what happens next (continue, partial commit, or abandon). At this point the hook blocks any `git commit` from Claude (`eval_state.json` still exists) — this is expected; the user can partial-commit from their own terminal (the hook only intercepts Claude's Bash tool)
+
+### Hard Gate Enforcement (hook)
+
+The following gates are enforced by a PreToolUse hook (`.claude/hooks/gate-check.sh` → `eval_gates.py`, configured in `.claude/settings.json`) that intercepts Claude's `git commit` — no longer relying on the prose constraints in this document alone:
+
+1. **Archive gate**: `eval_state.json` still exists → block the commit (prevents skipping the archive step; also blocks during failure wrap-up, which is expected)
+2. **Intent gate**: a staged `run/<run_id>.json` has both `spec_path` and `spec_inline` empty, or `status` is not `"completed"` → block
+3. **Test gate**: the staged manifest's `run/<run_id>.eval.json` is not staged in the same batch, or any sub_task is not `passed` / `local_test_passed` is not `true` → block
+4. **Invariant validation**: any round where the sum of `deduction_reasons.points_lost` ≠ `10 - quality_score`, or the archive's `run_id` doesn't match the manifest → block
+
+When blocked, the hook reports the reason on stderr; fix the state per the message and retry. Self-check at any point in the flow: `python3 .claude/hooks/eval_gates.py --validate eval_state.json`. The hook only intercepts Claude's Bash tool and does not affect git operations in the user's own terminal. The corresponding prose in this document is descriptive; the hook is the actual line of defense.
 
 ## Tier 1 Lightweight Path
 
@@ -211,7 +224,7 @@ For small features that are well-defined, single-path, and touch no high-risk ar
    - **Intent gate (non-negotiable)**: at least one of `spec_path` and `spec_inline` must be non-empty; if both are empty, do not proceed
 2. **Create the task file directly**: skip the `task-decomposer` subagent, but the limits stay — **1 task, ≤5 items (hard), each item targeting ≤300 lines (soft)**. More than 5 items, or work far exceeding 300 lines that can't fit within 5 items → trigger the upgrade escape hatch (back to Tier 2)
 3. **Lightweight HITL**: before writing code, report the "1 task / N items" plan to the user for one confirmation (prevents silently coding on a misjudged tier). Enter the loop only after confirmation
-4. **Shared loop**: enter Eval Flow steps 1–8 (code-writer → review → verify → local test → score → commit). At commit time, also `git add` the manifest and the task file, backfill `commit_sha`, and archive then clear `eval_state.json`
+4. **Shared loop**: enter Eval Flow steps 1–8 (code-writer → review → verify → local test → score → commit). Wrap up as in step 7: first archive and clear `eval_state.json` and mark the manifest `completed`, then `git add` the manifest / task file together and commit (message carries the `Run-Id: <run_id>` trailer)
    - A sub_task's `risk_analysis` may simply read `"screened by router (Tier 1)"` — no per-dimension entries needed
 
 ## Task Principle

@@ -3,15 +3,14 @@
 > 來源：2026-07-08 agent flow 架構檢視（基於 commit 8a06bc6 這一版）。
 > 建議執行順序：#2 → #4 → #3，#1 可隨時獨立進行。
 
-## 1. 用 hooks 把硬性 gate 落地（最大槓桿）
+## 1. 用 hooks 把硬性 gate 落地（最大槓桿）— ✅ 2026-07-09 完成
 
-目前所有 gate 都是散文層級約束，靠 model 遵循，無技術強制。至少三條搬進 pre-commit hook：
+以 PreToolUse hook 實作（`.claude/hooks/gate-check.sh` + `eval_gates.py`，設定於 `.claude/settings.json`，隨 init.sh 部署）：
 
-- [ ] 檢查 `run/<run_id>.json` 存在且 `spec_path`／`spec_inline` 至少一個非空（intent gate）
-- [ ] 確認測試指令已執行且通過（對應循環步驟 5 的本地測試 gate）
-- [ ] 擋住 `eval_state.json` 尚存在時的 commit（防跳過歸檔）
-
-可用 `/update-config` 設定。
+- [x] 檢查 `run/<run_id>.json` 存在且 `spec_path`／`spec_inline` 至少一個非空（intent gate）
+- [x] 確認測試指令已執行且通過（`local_test_passed` 欄位，對應循環步驟 5 的本地測試 gate）
+- [x] 擋住 `eval_state.json` 尚存在時的 commit（防跳過歸檔）
+- [x] 追加：eval 歸檔檔不變量驗證（扣分總和 = 10 − score、run_id 一致）
 
 ## 2. 把 Eval Flow 執行細節抽成 project skill
 
@@ -31,11 +30,9 @@ CLAUDE.md 每個 session 全文載入，但約七成內容（前置 0–3、循�
 
 另注意：專案內還有 `CLAUDE.gl.md`，一併盤點用途。
 
-## 4. 修「commit 後回填」的慢一拍問題（一句話補丁）
+## 4. 修「commit 後回填」的慢一拍問題 — ✅ 2026-07-09 完成
 
-先 commit manifest、再回填 `commit_sha` → git 裡的 manifest 永遠缺 `commit_sha`；`run/<run_id>.eval.json` 也是「下次 commit 才進 git」。若是最後一個 run，溯源鏈最後一環斷在 working tree。
-
-- [ ] 在 CLAUDE.md 補一條：「每次 run 的 commit 前，先把上一輪殘留的 manifest 回填／eval 歸檔檔一併 `git add`」
+改為 commit 前歸檔：評分通過 → 歸檔 eval_state、manifest 標 `completed` → 才 commit，同批進 git。`commit_sha` 欄位移除，溯源改用 commit message 的 `Run-Id: <run_id>` trailer（`git log --grep` 反查）。順序由 hook 強制（見 #1）。
 
 ## 5. 讓「測試存在」成為要求，closing the loop
 

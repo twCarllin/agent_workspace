@@ -41,7 +41,7 @@
 - **建立 run manifest** `run/<run_id>.json`（**冷溯源檔，commit 時隨 code 進 git、永不清除**），填入：
   - `run_id`、`created_at`
   - `spec_path`：指向這份 Spec 的實際路徑（進入點在此把 Spec **記錄下來**）
-  - `usage_report_path`、`task_file`、`commit_sha`：先設 `null`
+  - `usage_report_path`、`task_file`：先設 `null`
   - `status`：`"in_progress"`
 - **建立 `eval_state.json`**（**熱評分 scratchpad，commit 後清除**），填入 `run_id`（指回 manifest）、`threshold`、空的 `sub_tasks`
 - **Gate（硬性）**：manifest 的 `spec_path` 未寫入前，**不可進入前置 1（風險分析）**。沒有被記錄的 Spec，等於整條 pipeline 沒有輸入來源
@@ -81,11 +81,12 @@
    - 比對 task.md vs 實際 diff（子任務完成、DoD 達成、無 scope 偏移）
    - 如有遺漏，修正後回步驟 3
 5. **本地測試驗證（硬性 gate，對應「部署規則」）**：執行測試（或無測試框架時，實際運行功能驗證）
+   - 通過 → 將該 sub_task 的 `local_test_passed` 設為 `true`（hook 於 commit 時強制檢查此欄位）
    - 失敗 → 修正後回步驟 3；未通過本步不可進入評分與 commit
 6. 呼叫 `eval-scorer` subagent 獨立打分（讀取 `git diff --cached`），結果 append 進 `eval_state.json`
    - **多 sub_task 時**：staging area 會累積先前 sub_task 的變更，須在 prompt 中限定 code-reviewer / eval-scorer 只評本 sub_task 涉及的檔案（`git diff --cached -- <本 sub_task 的檔案路徑>`），避免評分範圍互相污染
 7. 判斷分數：
-   - **score >= threshold** → 把 manifest `run/<run_id>.json`、usage 報告、task 檔一併 `git add`，git commit；commit 後將 `commit_sha` 與 `status: "completed"` 回填進 manifest（此檔已在 git 歷史中，作為 Spec↔usage↔task↔commit 的永久溯源）；將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留各輪分數與扣分原因的永久紀錄，於下次 commit 進 git）後**清除 `eval_state.json`**，manifest 保留，結束
+   - **score >= threshold** → 收尾順序（**hook 強制**，見「Gate 的硬性執行」）：①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留各輪分數與扣分原因的永久紀錄），manifest 填 `status: "completed"`，**清除 `eval_state.json`** ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔一併 `git add` ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
    - **score < threshold 且 rounds < 2** → 根據評分報告生成改進 brief，回步驟 1
    - **score < threshold 且 rounds == 2** → 讀取 `eval_state.json` 生成完整報告，回報使用者
 8. **有條件** 呼叫 `retro` subagent：
@@ -124,7 +125,6 @@
   "spec_inline": null,
   "usage_report_path": null,
   "task_file": null,
-  "commit_sha": null,
   "status": "in_progress | completed | failed"
 }
 ```
@@ -133,7 +133,7 @@
 - `spec_path` / `spec_inline`：Tier 2 用 `spec_path`（Spec 檔）；Tier 1 用 `spec_inline`（需求原文一句話）。**兩者至少一個非空**，皆空不可往下（intent gate）
 - `usage_report_path`：Tier 2 前置 2 使用者確認後寫入（`null` → 不可分拆 task）；Tier 1 固定為 `"skipped"`
 - `task_file`：分拆／建 task 後寫入
-- `commit_sha` / `status`：step 7 commit 後回填
+- `status`：step 7 收尾時（commit 前）填 `"completed"`。manifest↔commit 的對應不記 `commit_sha`，改由 commit message 的 `Run-Id: <run_id>` trailer 反查（`git log --grep`）
 
 ### eval_state.json 格式
 
@@ -149,6 +149,7 @@
       "name": "子 task 名稱",
       "status": "passed | failed | in_progress",
       "warning": false,
+      "local_test_passed": false,
       "risk_analysis": {
         "technical": "🟢 無風險 | 🟡 ... | 🔴 ...",
         "security": "...",
@@ -191,6 +192,7 @@
 - **前置 0（初始化）**：建立 manifest `run/<run_id>.json`（填 `run_id`、`created_at`、`spec_path`，其餘 `null`，`status: "in_progress"`）與 `eval_state.json`（填 `run_id`、`threshold`、空 `sub_tasks`）。manifest 的 `spec_path` 未填不可往下
 - **使用情境分析完成後 / 分拆 task 完成後**：`usage_report_path` 與 `task_file` 分別由 `usage-analyzer`、`task-decomposer` 於各自步驟回寫（時機與條件見 agent 定義）。前者為 `null` 時不可進入分拆 task
 - **風險分析完成後**：將 6 大面向結果填入對應 sub_task 的 `risk_analysis`，若有 🔴 設 `blocking: true`，必須修正 Spec 後重新分析
+- **本地測試通過後（step 5）**：將該 sub_task 的 `local_test_passed` 設為 `true`（預設 `false`；hook 於 commit 時檢查歸檔檔中所有 sub_task 此欄皆為 `true`）
 - **每輪評分後**：將 `eval-scorer` 的結果 append 到對應 sub_task 的 `rounds` 陣列
 - **quality_score < 10（即使通過 threshold）**：必須在該 round 的 `deduction_reasons` 陣列逐條列出扣分原因
   - 每筆需含 `points_lost`（扣分）、`dimension`（哪個維度扣的）、`reason`（具體理由）、`evidence`（檔案行號或證據）
@@ -199,9 +201,20 @@
 - **score < threshold**：在該 round 的 `brief_sent_to_writer` 填入改進摘要
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`
 - **sub_task 2 輪未過**：`status` 設為 `"failed"`，`warning` 設為 `true`
-- **全部完成且通過**：manifest `status` 設為 `"completed"` 並回填 `commit_sha`；`eval_state.json` 頂層 `status` 設為 `"completed"`，commit 後將其**歸檔為 `run/<run_id>.eval.json`**（保留評分歷史與扣分原因，於下次 commit 進 git），再清除 `eval_state.json`（manifest 保留於 git）
+- **全部完成且通過**：`eval_state.json` 頂層 `status` 設為 `"completed"` 並**先歸檔為 `run/<run_id>.eval.json`**（保留評分歷史與扣分原因）、清除 `eval_state.json`、manifest `status` 設為 `"completed"`，**再** commit（歸檔檔與 manifest 同批進 git；順序由 hook 強制——`eval_state.json` 尚存在時 commit 會被擋）
 - **有任一 failed**：manifest 與 `eval_state.json` 的 `status` 皆設為 `"failed"`，回報使用者
-  - **失敗收尾**：staging area 保持原狀（已通過 sub_task 的變更留在 staged），**不自行 unstage、不部分 commit、不清除 `eval_state.json`**，由使用者裁決後續（續跑、部分 commit 或放棄）
+  - **失敗收尾**：staging area 保持原狀（已通過 sub_task 的變更留在 staged），**不自行 unstage、不部分 commit、不清除 `eval_state.json`**，由使用者裁決後續（續跑、部分 commit 或放棄）。此時 hook 會擋下 Claude 端的任何 `git commit`（`eval_state.json` 尚存在），屬預期行為；使用者要部分 commit 可在自己的終端執行（hook 只攔 Claude 的 Bash 工具）
+
+### Gate 的硬性執行（hook）
+
+以下 gate 由 PreToolUse hook（`.claude/hooks/gate-check.sh` → `eval_gates.py`，設定於 `.claude/settings.json`）在 Claude 執行 `git commit` 時強制攔截，不再只靠本文件的文字約束：
+
+1. **歸檔 gate**：`eval_state.json` 尚存在 → 擋 commit（防跳過歸檔；失敗收尾時也會擋，屬預期）
+2. **intent gate**：staged 的 `run/<run_id>.json` 中 `spec_path` 與 `spec_inline` 皆空、或 `status` 非 `"completed"` → 擋
+3. **測試 gate**：staged manifest 對應的 `run/<run_id>.eval.json` 未同批 staged、或其中任一 sub_task 非 `passed`／`local_test_passed` 非 `true` → 擋
+4. **不變量驗證**：每輪 `deduction_reasons` 的 `points_lost` 加總 ≠ `10 - quality_score`、或歸檔檔 `run_id` 與 manifest 不一致 → 擋
+
+被擋時 hook 會以 stderr 回報原因，依訊息補齊狀態後重試。流程中亦可隨時自檢：`python3 .claude/hooks/eval_gates.py --validate eval_state.json`。hook 只攔 Claude 的 Bash 工具，不影響使用者自己終端的 git 操作。本文件對應條文為流程說明，實際防線以 hook 為準。
 
 ## Tier 1 精簡路徑
 
@@ -211,7 +224,7 @@
    - **intent gate（不可鬆）**：`spec_path` 與 `spec_inline` 至少一個非空，皆空不可往下
 2. **直接建 task 檔**：免呼叫 `task-decomposer` subagent，但上限不變——**1 個 task、≤5 items（硬）、各 item 目標 ≤300 行（軟）**。item 數超 5、或出現遠超 300 行且拆不進 5 item 內的工作 → 觸發升級逃生門（回 Tier 2）
 3. **輕量 HITL**：寫 code 前，把「1 task／N items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。確認後才進循環
-4. **共用循環**：進入 Eval Flow 的步驟 1–8（code-writer → review → verify → 本地測試 → score → commit）。commit 時一併 `git add` manifest 與 task 檔、回填 `commit_sha`、歸檔後清除 `eval_state.json`
+4. **共用循環**：進入 Eval Flow 的步驟 1–8（code-writer → review → verify → 本地測試 → score → commit）。收尾比照 step 7：先歸檔並清除 `eval_state.json`、manifest 標 `completed`，再一併 `git add` manifest／task 檔並 commit（message 附 `Run-Id: <run_id>` trailer）
    - sub_task 的 `risk_analysis` 可簡記為 `"router 已篩（Tier 1）"`，不需逐面向填
 
 ## Task Principle
