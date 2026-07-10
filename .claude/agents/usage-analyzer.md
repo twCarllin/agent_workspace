@@ -34,8 +34,8 @@ skills: usage-scenario-analysis
 - 使用者確認（且開放問題有裁示）**之前**：
   - **不得**把路徑寫入 `manifest.usage_report_path`（維持 `null`）
   - **不得**觸發或呼叫 `task-decomposer`
-- 使用者確認後，才把 `usage/<run_id>.md` 路徑寫入 `manifest.usage_report_path`
-- 你的工作到「報告被確認、路徑已回寫」為止
+- 使用者確認後，才把 `usage/<run_id>.md` 路徑寫入 `manifest.usage_report_path`，並將 `manifest.phase` 更新為 `"usage_confirmed"`（hook 憑此放行 task-decomposer）
+- 你的工作到「報告被確認、路徑與 phase 已回寫」為止
 
 ## 品質底線（未達即自我重做，別交半成品）
 

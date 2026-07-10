@@ -20,15 +20,13 @@ CLAUDE.md 每個 session 全文載入，但約七成內容（前置 0–3、循�
 - [ ] CLAUDE.md 只留：部署規則、Router 分級表、防濫用規則、「判為 Tier 1/2 → 依 eval-flow skill 執行」的指引
 - 效果：常駐 context 變小、按需載入時遵循率更高、漂移面縮小（與 task-decomposition skill 同一原則）
 
-## 3. 解決雙語文件漂移（做個決定）
+## 3. 解決雙語文件漂移（做個決定）— ✅ 2026-07-10 完成
 
 `CLAUDE.eng.md` 曾落後中文版好幾代而無人發現；兩份手工維護的等價文件必然漂移。三選一：
 
-- [ ] (a) 刪除英文版（推薦——若無明確讀者，僅是維護成本）
-- [ ] (b) 明定中文版為唯一 source of truth，英文版標「generated, do not edit」、由同步指令產生
-- [ ] (c) 只留英文版
-
-另注意：專案內還有 `CLAUDE.gl.md`，一併盤點用途。
+- [x] (a) 刪除英文版（推薦——若無明確讀者，僅是維護成本）→ 採用，`CLAUDE.eng.md` 與 `CLAUDE.gl.md` 皆已刪除，中文版為唯一 source of truth
+- ~~(b) 明定中文版為唯一 source of truth，英文版標「generated, do not edit」、由同步指令產生~~
+- ~~(c) 只留英文版~~
 
 ## 4. 修「commit 後回填」的慢一拍問題 — ✅ 2026-07-09 完成
 

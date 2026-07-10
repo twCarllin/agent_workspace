@@ -37,7 +37,7 @@ skills: task-decomposition
 ## 輸出
 
 1. 拆分結果寫入當天 `task/YYYY-MM-DD.md`
-2. 把該 task 檔路徑寫入 `manifest.task_file`
+2. 把該 task 檔路徑寫入 `manifest.task_file`（`phase` 不由你更新——task-reviewer 審查通過後由主 flow 設為 `"decomposed"`）
 
 ## 交付規則（硬性，你的邊界就在這）
 

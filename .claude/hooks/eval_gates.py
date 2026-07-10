@@ -2,7 +2,9 @@
 """Eval Flow gate 檢查。
 
 兩種模式：
-  --hook            PreToolUse hook：stdin 讀 hook JSON，攔 `git commit`，跑全部 gate
+  --hook            PreToolUse hook：stdin 讀 hook JSON。
+                    Bash → 攔 `git commit`，跑 commit gate；
+                    Task/Agent → 依 manifest.phase 狀態機攔亂序的 subagent 呼叫
   --validate <path> 獨立驗證單一 eval_state / eval 歸檔檔的不變量
 
 exit 0 = 放行；exit 2 = block（stderr 說明原因，回饋給 Claude 修正）。
@@ -15,6 +17,15 @@ import sys
 
 GIT_COMMIT_RE = re.compile(r"\bgit\s+(?:-[A-Za-z0-9-]+(?:[= ]\S+)?\s+)*commit\b")
 MANIFEST_RE = re.compile(r"^run/(?P<run_id>[^/]+?)\.json$")
+
+# phase 狀態機：manifest.phase 依前置步驟推進，subagent 呼叫需達到對應 phase
+PHASES = ["init", "risk_done", "usage_confirmed", "decomposed", "completed"]
+AGENT_MIN_PHASE = {
+    "usage-analyzer": "risk_done",      # 前置 1（風險分析）完成才可跑前置 2
+    "task-decomposer": "usage_confirmed",  # 前置 2 使用者確認後才可分拆
+    "code-writer": "decomposed",        # 前置 3 完成才可進循環
+    "eval-scorer": "decomposed",
+}
 
 
 def block(msg):
@@ -75,17 +86,90 @@ def check_manifest(manifest_path, staged):
     validate_state(archive, archive_path, require_passed=True)
 
 
+def manifest_phase(manifest):
+    """讀 manifest.phase；舊 manifest 無此欄時由既有欄位推導（向後相容）。"""
+    phase = manifest.get("phase")
+    if phase in PHASES:
+        return phase
+    if manifest.get("task_file"):
+        return "decomposed"
+    if manifest.get("usage_report_path"):
+        return "usage_confirmed"
+    return "init"
+
+
+def check_task_gate(tool_input):
+    agent = tool_input.get("subagent_type", "")
+    required = AGENT_MIN_PHASE.get(agent)
+    if not required:
+        sys.exit(0)  # 非流程管制的 agent，不擋
+
+    if not os.path.exists("eval_state.json"):
+        block(f"呼叫 {agent} 前須完成前置 0：eval_state.json 不存在（run 未初始化）")
+    state = load_json("eval_state.json")
+    run_id = state.get("run_id")
+    if not run_id:
+        block(f"eval_state.json 缺 run_id，無法定位 manifest；呼叫 {agent} 被擋")
+    manifest_path = f"run/{run_id}.json"
+    if not os.path.exists(manifest_path):
+        block(f"{manifest_path} 不存在（前置 0 未完成），不可呼叫 {agent}")
+    manifest = load_json(manifest_path)
+
+    if not (manifest.get("spec_path") or manifest.get("spec_inline")):
+        block(f"{manifest_path} intent gate 未過：spec_path 與 spec_inline 皆空，不可呼叫 {agent}")
+
+    phase = manifest_phase(manifest)
+    if PHASES.index(phase) < PHASES.index(required):
+        block(
+            f"phase 狀態機：呼叫 {agent} 需 manifest.phase >= {required}，"
+            f"目前為 {phase}。請先完成缺少的前置步驟並更新 manifest.phase"
+        )
+
+    if agent == "task-decomposer":
+        urp = manifest.get("usage_report_path")
+        if not urp:
+            block(f"{manifest_path} usage_report_path 為空：前置 2 未經使用者確認，不可分拆 task")
+        if urp == "skipped":
+            block("Tier 1（usage_report_path: skipped）不呼叫 task-decomposer，由主 flow 直接建 task 檔")
+
+    if agent == "code-writer":
+        if not manifest.get("task_file"):
+            block(f"{manifest_path} task_file 為空：前置 3 未完成，不可呼叫 code-writer")
+        for st in state.get("sub_tasks", []):
+            if (st.get("risk_analysis") or {}).get("blocking") is True:
+                name = st.get("name") or st.get("id")
+                block(f"sub_task「{name}」風險分析 blocking=true（🔴），須先修改 Spec 重新分析")
+
+    if agent == "eval-scorer":
+        in_progress = [st for st in state.get("sub_tasks", []) if st.get("status") == "in_progress"]
+        if not in_progress:
+            block("eval-scorer 被擋：eval_state.json 無 in_progress 的 sub_task 可評分")
+        for st in in_progress:
+            if st.get("local_test_passed") is not True:
+                name = st.get("name") or st.get("id")
+                block(f"eval-scorer 被擋：sub_task「{name}」local_test_passed 非 true（step 5 本地測試 gate 未通過）")
+
+    sys.exit(0)
+
+
 def run_hook():
     try:
         payload = json.load(sys.stdin)
     except json.JSONDecodeError:
         sys.exit(0)  # 非預期輸入，不擋
-    command = (payload.get("tool_input") or {}).get("command", "")
-    if not GIT_COMMIT_RE.search(command):
-        sys.exit(0)
 
     root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd()
     os.chdir(root)
+
+    tool_name = payload.get("tool_name", "")
+    tool_input = payload.get("tool_input") or {}
+
+    if tool_name in ("Task", "Agent"):
+        check_task_gate(tool_input)
+
+    command = tool_input.get("command", "")
+    if not GIT_COMMIT_RE.search(command):
+        sys.exit(0)
 
     if os.path.exists("eval_state.json"):
         block(

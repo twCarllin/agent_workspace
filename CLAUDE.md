@@ -42,6 +42,7 @@
   - `run_id`、`created_at`
   - `spec_path`：指向這份 Spec 的實際路徑（進入點在此把 Spec **記錄下來**）
   - `usage_report_path`、`task_file`：先設 `null`
+  - `phase`：`"init"`
   - `status`：`"in_progress"`
 - **建立 `eval_state.json`**（**熱評分 scratchpad，commit 後清除**），填入 `run_id`（指回 manifest）、`threshold`、空的 `sub_tasks`
 - **Gate（硬性）**：manifest 的 `spec_path` 未寫入前，**不可進入前置 1（風險分析）**。沒有被記錄的 Spec，等於整條 pipeline 沒有輸入來源
@@ -56,18 +57,19 @@
   - 有 🔴 重大風險 → **不可進入任何後續步驟（含使用情境分析）**。必須先修改 **Spec**（補上前置條件 / 縮小範圍 / 釐清描述），再重新分析，直到無 🔴
   - 🟡 中等風險 → 記錄於風險報告，並在「分拆 task」時帶入對應 item 的備註，由 code-writer 實作時注意
   - 🟢 輕微 / 無風險 → 可進入下一步「使用情境分析」
+- 無 🔴 確認後，將 manifest 的 `phase` 更新為 `"risk_done"`（hook 憑此放行 usage-analyzer 呼叫）
 - 風險分析報告先以 **Spec 為單位**產出；待「分拆 task」完成、`sub_tasks` 建立後，再把對應風險映射到 `eval_state.json` 各 sub_task 的 `risk_analysis` 欄位
 
 ### 前置 2：使用情境分析（必須在分拆 task 之前完成）
 
 - 呼叫 **`usage-analyzer` subagent**。它讀 Spec、產出使用情境報告，並在自己的定義與 `usage-scenario-analysis` skill 中規範報告內容、情境 id、邊界盤點與存檔位置。
-- **flow 層級 gate**：報告需經**使用者確認**；未確認前不進入前置 3（usage-analyzer 在確認後才回寫 `manifest.usage_report_path`）。
+- **flow 層級 gate**：報告需經**使用者確認**；未確認前不進入前置 3（usage-analyzer 在確認後才回寫 `manifest.usage_report_path`，並將 `phase` 更新為 `"usage_confirmed"`）。
 
 ### 前置 3：分拆 task（必須在第一次呼叫 code-writer 之前完成）
 
 - 呼叫 **`task-decomposer` subagent**。它讀 usage 報告與 Spec、拆成 task 與 item、寫入 `task/YYYY-MM-DD.md`、回寫 `manifest.task_file`、並接 `task-reviewer` 審查。拆分粒度、上限、五要素等規則住在它的定義與 `task-decomposition` skill。
 - **flow 層級 gate**：`manifest.usage_report_path` 為 `null` 不可進入本步（task-decomposer 會自我中止）。
-- task-decomposer 交付（含 task-reviewer 審查通過）後，將每個 task 展開為 `eval_state.json` 的 `sub_tasks`，才進入下方循環。
+- task-decomposer 交付（含 task-reviewer 審查通過）後，將每個 task 展開為 `eval_state.json` 的 `sub_tasks`，並將 manifest 的 `phase` 更新為 `"decomposed"`（hook 憑此放行 code-writer / eval-scorer），才進入下方循環。
 
 接著執行以下循環（每輪結果寫入 `eval_state.json`）：
 
@@ -86,7 +88,7 @@
 6. 呼叫 `eval-scorer` subagent 獨立打分（讀取 `git diff --cached`），結果 append 進 `eval_state.json`
    - **多 sub_task 時**：staging area 會累積先前 sub_task 的變更，須在 prompt 中限定 code-reviewer / eval-scorer 只評本 sub_task 涉及的檔案（`git diff --cached -- <本 sub_task 的檔案路徑>`），避免評分範圍互相污染
 7. 判斷分數：
-   - **score >= threshold** → 收尾順序（**hook 強制**，見「Gate 的硬性執行」）：①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留各輪分數與扣分原因的永久紀錄），manifest 填 `status: "completed"`，**清除 `eval_state.json`** ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔一併 `git add` ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
+   - **score >= threshold** → 收尾順序（**hook 強制**，見「Gate 的硬性執行」）：①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留各輪分數與扣分原因的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json`** ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔一併 `git add` ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
    - **score < threshold 且 rounds < 2** → 根據評分報告生成改進 brief，回步驟 1
    - **score < threshold 且 rounds == 2** → 讀取 `eval_state.json` 生成完整報告，回報使用者
 8. **有條件** 呼叫 `retro` subagent：
@@ -121,6 +123,7 @@
   "created_at": "2026-07-06 14:30",
   "tier": 2,
   "tier_rationale": "多角色 + 觸及金流 → 強制 Tier 2",
+  "phase": "init | risk_done | usage_confirmed | decomposed | completed",
   "spec_path": "spec/2026-07-06-partial-settlement.md",
   "spec_inline": null,
   "usage_report_path": null,
@@ -130,6 +133,7 @@
 ```
 
 - `tier` / `tier_rationale`：Router 判定後寫入（供審計；Tier 1 若升級 Tier 2 須更新）
+- `phase`：流程狀態機欄位，hook 憑此攔亂序的 subagent 呼叫（見「Gate 的硬性執行」gate 5）。轉移時機：前置 0 建立 `"init"` → 前置 1 無 🔴 `"risk_done"` → 前置 2 使用者確認 `"usage_confirmed"` → 前置 3 審查通過 `"decomposed"` → step 7 收尾 `"completed"`。Tier 1 於輕量 HITL 確認後直接設 `"decomposed"`。舊 manifest 無此欄時 hook 以 `task_file` / `usage_report_path` 推導（向後相容）
 - `spec_path` / `spec_inline`：Tier 2 用 `spec_path`（Spec 檔）；Tier 1 用 `spec_inline`（需求原文一句話）。**兩者至少一個非空**，皆空不可往下（intent gate）
 - `usage_report_path`：Tier 2 前置 2 使用者確認後寫入（`null` → 不可分拆 task）；Tier 1 固定為 `"skipped"`
 - `task_file`：分拆／建 task 後寫入
@@ -207,12 +211,18 @@
 
 ### Gate 的硬性執行（hook）
 
-以下 gate 由 PreToolUse hook（`.claude/hooks/gate-check.sh` → `eval_gates.py`，設定於 `.claude/settings.json`）在 Claude 執行 `git commit` 時強制攔截，不再只靠本文件的文字約束：
+以下 gate 由 PreToolUse hook（`.claude/hooks/gate-check.sh` → `eval_gates.py`，設定於 `.claude/settings.json`，matcher `Bash|Task|Agent`）強制攔截，不再只靠本文件的文字約束。攔截點有二：Claude 執行 `git commit` 時（gate 1–4），與呼叫流程管制的 subagent 時（gate 5）：
 
 1. **歸檔 gate**：`eval_state.json` 尚存在 → 擋 commit（防跳過歸檔；失敗收尾時也會擋，屬預期）
 2. **intent gate**：staged 的 `run/<run_id>.json` 中 `spec_path` 與 `spec_inline` 皆空、或 `status` 非 `"completed"` → 擋
 3. **測試 gate**：staged manifest 對應的 `run/<run_id>.eval.json` 未同批 staged、或其中任一 sub_task 非 `passed`／`local_test_passed` 非 `true` → 擋
 4. **不變量驗證**：每輪 `deduction_reasons` 的 `points_lost` 加總 ≠ `10 - quality_score`、或歸檔檔 `run_id` 與 manifest 不一致 → 擋
+5. **phase 狀態機（subagent 呼叫攔截）**：依 `eval_state.json.run_id` 定位 manifest，檢查 `phase` 是否達到該 agent 的最低要求，未達 → 擋呼叫：
+   - `usage-analyzer` 需 `phase >= risk_done`（前置 1 未完不可跑前置 2）
+   - `task-decomposer` 需 `phase >= usage_confirmed` 且 `usage_report_path` 非空；為 `"skipped"`（Tier 1）也擋
+   - `code-writer` 需 `phase >= decomposed` 且 `task_file` 非空；任一 sub_task `risk_analysis.blocking: true` 也擋
+   - `eval-scorer` 需 `phase >= decomposed`，且 in_progress 的 sub_task `local_test_passed` 為 `true`（step 5 未過不可評分）
+   - 共通前提：`eval_state.json` 與 manifest 存在、intent gate 通過；缺任一 → 擋（前置 0 未完成）
 
 被擋時 hook 會以 stderr 回報原因，依訊息補齊狀態後重試。流程中亦可隨時自檢：`python3 .claude/hooks/eval_gates.py --validate eval_state.json`。hook 只攔 Claude 的 Bash 工具，不影響使用者自己終端的 git 操作。本文件對應條文為流程說明，實際防線以 hook 為準。
 
@@ -220,10 +230,10 @@
 
 明確、單一路徑、不觸及高風險面的小功能。**跳過 Spec 檔與 usage 分析，但仍留溯源、仍守大小上限**。風險由 Router 的排除條件把關（觸及高風險面者根本進不到 Tier 1），故不另跑 6 面向分析。
 
-1. **精簡初始化**：建 manifest `run/<run_id>.json`，填 `tier: 1`、`tier_rationale`、**`spec_inline`**（需求原文一句話，取代 `spec_path`）、`usage_report_path: "skipped"`；建 `eval_state.json`（`run_id` + `threshold` + 空 `sub_tasks`）
+1. **精簡初始化**：建 manifest `run/<run_id>.json`，填 `tier: 1`、`tier_rationale`、**`spec_inline`**（需求原文一句話，取代 `spec_path`）、`usage_report_path: "skipped"`、`phase: "init"`；建 `eval_state.json`（`run_id` + `threshold` + 空 `sub_tasks`）
    - **intent gate（不可鬆）**：`spec_path` 與 `spec_inline` 至少一個非空，皆空不可往下
 2. **直接建 task 檔**：免呼叫 `task-decomposer` subagent，但上限不變——**1 個 task、≤5 items（硬）、各 item 目標 ≤300 行（軟）**。item 數超 5、或出現遠超 300 行且拆不進 5 item 內的工作 → 觸發升級逃生門（回 Tier 2）
-3. **輕量 HITL**：寫 code 前，把「1 task／N items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。確認後才進循環
+3. **輕量 HITL**：寫 code 前，把「1 task／N items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。確認後將 manifest 的 `phase` 設為 `"decomposed"`（hook 憑此放行 code-writer），才進循環
 4. **共用循環**：進入 Eval Flow 的步驟 1–8（code-writer → review → verify → 本地測試 → score → commit）。收尾比照 step 7：先歸檔並清除 `eval_state.json`、manifest 標 `completed`，再一併 `git add` manifest／task 檔並 commit（message 附 `Run-Id: <run_id>` trailer）
    - sub_task 的 `risk_analysis` 可簡記為 `"router 已篩（Tier 1）"`，不需逐面向填
 
