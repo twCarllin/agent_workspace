@@ -12,12 +12,12 @@
 - [x] 擋住 `eval_state.json` 尚存在時的 commit（防跳過歸檔）
 - [x] 追加：eval 歸檔檔不變量驗證（扣分總和 = 10 − score、run_id 一致）
 
-## 2. 把 Eval Flow 執行細節抽成 project skill
+## 2. 把 Eval Flow 執行細節抽成 project skill — ✅ 2026-07-13 完成
 
 CLAUDE.md 每個 session 全文載入，但約七成內容（前置 0–3、循環 1–8、兩個 JSON schema、操作規則）只在實際執行 Tier 2 run 時需要。
 
-- [ ] 新建 `eval-flow` skill，承載流程執行細節
-- [ ] CLAUDE.md 只留：部署規則、Router 分級表、防濫用規則、「判為 Tier 1/2 → 依 eval-flow skill 執行」的指引
+- [x] 新建 `eval-flow` skill，承載流程執行細節（含 Tier 1 精簡路徑、manifest／eval_state 格式、gate 清單、中斷恢復指引）
+- [x] CLAUDE.md 只留：部署規則、Router 分級表、防濫用規則、「判為 Tier 1/2 → 載入 eval-flow skill 執行」的指引（另保留 Task Principle 等一般性原則），277 行 → 64 行
 - 效果：常駐 context 變小、按需載入時遵循率更高、漂移面縮小（與 task-decomposition skill 同一原則）
 
 ## 3. 解決雙語文件漂移（做個決定）— ✅ 2026-07-10 完成

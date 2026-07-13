@@ -28,8 +28,14 @@ AGENT_MIN_PHASE = {
 }
 
 
+# hook 模式下被擋時附上；流程細節不在常駐 context，被擋常代表 skill 未載入或已被 compact
+SKILL_HINT = "（流程細節住在 eval-flow skill：若尚未載入或 context 被 compact，先載入 skills/eval-flow/SKILL.md，再依檔案狀態修正）"
+_hint_enabled = False
+
+
 def block(msg):
-    print(f"[gate-check] BLOCK: {msg}", file=sys.stderr)
+    hint = f"\n[gate-check] {SKILL_HINT}" if _hint_enabled else ""
+    print(f"[gate-check] BLOCK: {msg}{hint}", file=sys.stderr)
     sys.exit(2)
 
 
@@ -153,6 +159,8 @@ def check_task_gate(tool_input):
 
 
 def run_hook():
+    global _hint_enabled
+    _hint_enabled = True  # 只在 hook 模式附提示；--validate 為人工自檢，不需要
     try:
         payload = json.load(sys.stdin)
     except json.JSONDecodeError:

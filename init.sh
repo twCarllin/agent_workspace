@@ -77,26 +77,21 @@ else
   echo "[4/5] Skipped: $SRC_SETTINGS not found"
 fi
 
-# 5. skills/* -> ~/.claude/skills/  (skip if same-named folder already exists)
+# 5. skills/* -> ~/.claude/skills/  (always overwrite: repo is source of truth)
 SRC_SKILLS="$SCRIPT_DIR/skills"
 if [ -d "$SRC_SKILLS" ]; then
   mkdir -p "$USER_SKILLS_DIR"
-  added=0
-  skipped=0
+  synced=0
   for skill_path in "$SRC_SKILLS"/*/; do
     [ -d "$skill_path" ] || continue
     skill_name="$(basename "$skill_path")"
     target="$USER_SKILLS_DIR/$skill_name"
-    if [ -e "$target" ]; then
-      echo "      - skip   $skill_name (already exists)"
-      skipped=$((skipped + 1))
-    else
-      cp -R "$skill_path" "$target"
-      echo "      + copy   $skill_name"
-      added=$((added + 1))
-    fi
+    mkdir -p "$target"
+    cp -Rf "$skill_path"/. "$target/"
+    echo "      + sync   $skill_name"
+    synced=$((synced + 1))
   done
-  echo "[5/5] Skills synced: $added added, $skipped skipped"
+  echo "[5/5] Skills synced: $synced overwritten with repo version"
 else
   echo "[5/5] Skipped: $SRC_SKILLS not found"
 fi
