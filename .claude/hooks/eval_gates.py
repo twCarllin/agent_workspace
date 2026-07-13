@@ -9,6 +9,7 @@
 
 exit 0 = 放行；exit 2 = block（stderr 說明原因，回饋給 Claude 修正）。
 """
+import glob
 import json
 import os
 import re
@@ -83,6 +84,11 @@ def check_manifest(manifest_path, staged):
     if m.get("status") != "completed":
         block(f"{manifest_path} status 非 completed（{m.get('status')}），不可 commit")
 
+    if m.get("tier") == "hotfix":
+        if not isinstance(m.get("debt"), list):
+            block(f"{manifest_path} 為 hotfix 但缺 debt 欄位（欠帳清單，如 [\"risk\", \"test\", \"retro\"]）")
+        return  # hotfix 不走循環評分，豁免 eval 歸檔檔要求；欠帳由 debt gate 追討
+
     archive_path = f"run/{run_id}.eval.json"
     if archive_path not in staged:
         block(f"{manifest_path} 已 staged，但 {archive_path} 未 staged：須先歸檔 eval_state 再 commit")
@@ -104,6 +110,36 @@ def manifest_phase(manifest):
     return "init"
 
 
+def load_json_quiet(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def check_other_runs(current_run_id):
+    """欠帳 gate ＋ 單一 run gate：掃本工作區的其他 manifest。"""
+    for path in sorted(glob.glob("run/*.json")):
+        if path.endswith(".eval.json"):
+            continue
+        other = load_json_quiet(path)
+        if not isinstance(other, dict):
+            continue
+        other_id = other.get("run_id")
+        if other.get("debt"):
+            block(
+                f"{path} 有未清欠帳 debt={other.get('debt')}（hotfix 遺留）："
+                f"須先還清（補 risk 分析／回歸測試／retro，還一項移除一項）才可啟動新 run"
+            )
+        if other_id != current_run_id and other.get("status") == "in_progress":
+            block(
+                f"本工作區已有另一個 in_progress 的 run（{path}）："
+                f"一個 worktree 同時只允許一個 run。先收尾／封存該 run，"
+                f"要並行請開 git worktree，中斷續跑依 eval-flow-resume skill"
+            )
+
+
 def check_task_gate(tool_input):
     agent = tool_input.get("subagent_type", "")
     required = AGENT_MIN_PHASE.get(agent)
@@ -120,6 +156,8 @@ def check_task_gate(tool_input):
     if not os.path.exists(manifest_path):
         block(f"{manifest_path} 不存在（前置 0 未完成），不可呼叫 {agent}")
     manifest = load_json(manifest_path)
+
+    check_other_runs(run_id)
 
     if not (manifest.get("spec_path") or manifest.get("spec_inline")):
         block(f"{manifest_path} intent gate 未過：spec_path 與 spec_inline 皆空，不可呼叫 {agent}")

@@ -120,6 +120,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 - `task_file`：分拆／建 task 後寫入
 - `status`：step 7 收尾時（commit 前）填 `"completed"`。manifest↔commit 的對應不記 `commit_sha`，改由 commit message 的 `Run-Id: <run_id>` trailer 反查（`git log --grep`）
 - `failed_reason`：`status` 設為 `"failed"` 時必填，一句話寫死因（哪個 sub_task、卡在哪一步、為什麼），讓接手者不用翻對話記錄
+- `debt`：僅 hotfix 通道使用（見「Hotfix 通道」），記錄欠下的流程債，如 `["risk", "test", "retro"]`；還清一項移除一項，清空後才可啟動新 run（hook 強制）
 
 ## eval_state.json 格式
 
@@ -225,6 +226,26 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 3. **輕量 HITL**：寫 code 前，把「1 task／N items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。確認後將 manifest 的 `phase` 設為 `"decomposed"`（hook 憑此放行 code-writer），才進循環
 4. **共用循環**：進入上方循環的步驟 1–8（code-writer → review → verify → 本地測試 → score → commit）。收尾比照 step 7：先歸檔並清除 `eval_state.json`、manifest 標 `completed`，再一併 `git add` manifest／task 檔並 commit（message 附 `Run-Id: <run_id>` trailer）
    - sub_task 的 `risk_analysis` 可簡記為 `"router 已篩（Tier 1）"`，不需逐面向填
+
+## Hotfix 通道（先止血、後補債；債是硬性的）
+
+僅限**使用者明確宣告**緊急（線上事故／資損進行中）時啟用，agent 不可自行認定。Bugfix 的診斷前判規則見 CLAUDE.md「工作型態前判」。
+
+1. **止血**：診斷（重現 → 根因 → 修法）→ 直接修 ＋ 本地測試驗證（部署規則不豁免：未經本地驗證仍不可 commit／部署）
+2. **精簡溯源**：建 manifest `run/<run_id>.json`，填 `tier: "hotfix"`、`tier_rationale`（含使用者宣告緊急的依據）、`spec_inline`（診斷結論）、`phase: "hotfix"`、`risk_report_path` / `usage_report_path: "deferred"`、**`debt: ["risk", "test", "retro"]`**。**不建 `eval_state.json`**（不走循環評分）
+3. **commit**：manifest 標 `status: "completed"` 後隨修正一併 commit，message 附 `Run-Id: <run_id>` 與 `Hotfix: true` trailer（hook 對 `tier: "hotfix"` 的 manifest 豁免 eval 歸檔檔要求，但 intent gate 照常）
+4. **補債（事後必須，不是可選）**：事故解除後依序還債，還清一項就從 manifest 的 `debt` 移除一項：
+   - `risk`：補跑 task-risk-analysis，產出 `risk/<run_id>.md`、回填 `risk_report_path`（發現 🔴 → 立即回報使用者，可能需要 follow-up run 修正）
+   - `test`：補上覆蓋該 bug 的回歸測試，本地跑過後隨 follow-up commit 進 git（同樣附 `Run-Id: <run_id>` trailer）
+   - `retro`：強制呼叫 retro subagent，根因寫入 `retro/RETRO.md`
+5. **欠帳 gate（hook 強制）**：任一 manifest 的 `debt` 非空時，**不可啟動新 run**（流程管制的 subagent 呼叫會被擋，還債所屬的原 run 不受影響）——防止「緊急」變成常態逃生門
+
+## 單一 run 原則與併發（worktree 隔離）
+
+- **一個 worktree 同一時間只允許一個 in_progress 的 run**。這不是任意規定：`eval_state.json` 是單例、git staging area 也是單例，同工作區並行兩個 run 必然互相污染（staged 變更分不開、commit 切不乾淨）
+- **要並行 → 開 `git worktree`**：每個 run 在自己的 worktree／branch 裡跑，單例假設在 worktree 內自然成立，收尾各自 commit 後合回主線
+- **插單（run 跑到一半來了急件）**：原 run 的 worktree **原地凍結**（狀態已全在 manifest／`eval_state.json`／staging area 裡，不需要任何「暫停」操作），急件在新 worktree 處理，完成後回原 worktree 依 `eval-flow-resume` skill 接續
+- hook 強制：呼叫流程管制的 subagent 時，若本工作區存在**其他** in_progress 的 manifest（run_id 與 `eval_state.json` 不一致）→ 擋，並提示「先收尾／封存既有 run，或開 worktree 並行」
 
 ## 適用範圍
 
