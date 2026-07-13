@@ -53,6 +53,7 @@
 - 使用 **task-risk-analysis** skill，讀取 manifest `run/<run_id>.json` 的 `spec_path` 指向的 Spec，從 6 大面向（技術、安全、資料、效能、部署、業務維護）逐一思考任務風險
 - 每個面向需明確標註等級：🔴 重大 / 🟡 中等 / 🟢 輕微 / 無風險
 - 產出「風險分析報告」，內容包含：每個面向的判斷、風險描述、對應對策
+- **報告存檔（不可只留在對話裡）**：寫入 `risk/<run_id>.md`，並回寫 manifest 的 `risk_report_path`——中斷在前置 1 與前置 2 之間時，接手者才有報告可讀
 - **判斷規則**：
   - 有 🔴 重大風險 → **不可進入任何後續步驟（含使用情境分析）**。必須先修改 **Spec**（補上前置條件 / 縮小範圍 / 釐清描述），再重新分析，直到無 🔴
   - 🟡 中等風險 → 記錄於風險報告，並在「分拆 task」時帶入對應 item 的備註，由 code-writer 實作時注意
@@ -86,7 +87,7 @@
    - 通過 → 將該 sub_task 的 `local_test_passed` 設為 `true`（hook 於 commit 時強制檢查此欄位）
    - 失敗 → 修正後回步驟 3；未通過本步不可進入評分與 commit
 6. 呼叫 `eval-scorer` subagent 獨立打分（讀取 `git diff --cached`），結果 append 進 `eval_state.json`
-   - **多 sub_task 時**：staging area 會累積先前 sub_task 的變更，須在 prompt 中限定 code-reviewer / eval-scorer 只評本 sub_task 涉及的檔案（`git diff --cached -- <本 sub_task 的檔案路徑>`），避免評分範圍互相污染
+   - **多 sub_task 時**：staging area 會累積先前 sub_task 的變更，須在 prompt 中限定 code-reviewer / eval-scorer 只評本 sub_task 涉及的檔案（`git diff --cached -- <本 sub_task 的檔案路徑>`，清單以 `eval_state.json` 該 sub_task 的 `files` 欄為準），避免評分範圍互相污染
 7. 判斷分數：
    - **score >= threshold** → 收尾順序（**hook 強制**，見「Gate 的硬性執行」）：①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留各輪分數與扣分原因的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json`** ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔一併 `git add` ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
    - **score < threshold 且 rounds < 2** → 根據評分報告生成改進 brief，回步驟 1
@@ -126,18 +127,22 @@
   "phase": "init | risk_done | usage_confirmed | decomposed | completed",
   "spec_path": "spec/2026-07-06-partial-settlement.md",
   "spec_inline": null,
+  "risk_report_path": null,
   "usage_report_path": null,
   "task_file": null,
-  "status": "in_progress | completed | failed"
+  "status": "in_progress | completed | failed",
+  "failed_reason": null
 }
 ```
 
 - `tier` / `tier_rationale`：Router 判定後寫入（供審計；Tier 1 若升級 Tier 2 須更新）
 - `phase`：流程狀態機欄位，hook 憑此攔亂序的 subagent 呼叫（見「Gate 的硬性執行」gate 5）。轉移時機：前置 0 建立 `"init"` → 前置 1 無 🔴 `"risk_done"` → 前置 2 使用者確認 `"usage_confirmed"` → 前置 3 審查通過 `"decomposed"` → step 7 收尾 `"completed"`。Tier 1 於輕量 HITL 確認後直接設 `"decomposed"`。舊 manifest 無此欄時 hook 以 `task_file` / `usage_report_path` 推導（向後相容）
 - `spec_path` / `spec_inline`：Tier 2 用 `spec_path`（Spec 檔）；Tier 1 用 `spec_inline`（需求原文一句話）。**兩者至少一個非空**，皆空不可往下（intent gate）
+- `risk_report_path`：前置 1 產出 `risk/<run_id>.md` 後寫入；Tier 1 固定為 `"skipped"`
 - `usage_report_path`：Tier 2 前置 2 使用者確認後寫入（`null` → 不可分拆 task）；Tier 1 固定為 `"skipped"`
 - `task_file`：分拆／建 task 後寫入
 - `status`：step 7 收尾時（commit 前）填 `"completed"`。manifest↔commit 的對應不記 `commit_sha`，改由 commit message 的 `Run-Id: <run_id>` trailer 反查（`git log --grep`）
+- `failed_reason`：`status` 設為 `"failed"` 時必填，一句話寫死因（哪個 sub_task、卡在哪一步、為什麼），讓接手者不用翻對話記錄
 
 ### eval_state.json 格式
 
@@ -152,6 +157,8 @@
       "id": 1,
       "name": "子 task 名稱",
       "status": "passed | failed | in_progress",
+      "step": "writing | reviewing | fixing | verifying | testing | scoring | done",
+      "files": ["src/foo.ts", "src/bar.ts"],
       "warning": false,
       "local_test_passed": false,
       "risk_analysis": {
@@ -196,6 +203,7 @@
 - **前置 0（初始化）**：建立 manifest `run/<run_id>.json`（填 `run_id`、`created_at`、`spec_path`，其餘 `null`，`status: "in_progress"`）與 `eval_state.json`（填 `run_id`、`threshold`、空 `sub_tasks`）。manifest 的 `spec_path` 未填不可往下
 - **使用情境分析完成後 / 分拆 task 完成後**：`usage_report_path` 與 `task_file` 分別由 `usage-analyzer`、`task-decomposer` 於各自步驟回寫（時機與條件見 agent 定義）。前者為 `null` 時不可進入分拆 task
 - **風險分析完成後**：將 6 大面向結果填入對應 sub_task 的 `risk_analysis`，若有 🔴 設 `blocking: true`，必須修正 Spec 後重新分析
+- **循環進度記錄（write-ahead，中斷恢復的關鍵）**：每個循環步驟**開始前**先把該 sub_task 的 `step` 寫入 `eval_state.json`（`writing`→`reviewing`→`fixing`（有 🔴 時）→`verifying`→`testing`→`scoring`→`done`），步驟完成後再更新為下一步。code-writer 交付後立刻把本 sub_task 涉及的檔案清單寫入 `files`（修正時同步增補）——staged 變更與 sub_task 的對應關係只准活在這裡，不准只活在對話裡
 - **本地測試通過後（step 5）**：將該 sub_task 的 `local_test_passed` 設為 `true`（預設 `false`；hook 於 commit 時檢查歸檔檔中所有 sub_task 此欄皆為 `true`）
 - **每輪評分後**：將 `eval-scorer` 的結果 append 到對應 sub_task 的 `rounds` 陣列
 - **quality_score < 10（即使通過 threshold）**：必須在該 round 的 `deduction_reasons` 陣列逐條列出扣分原因
@@ -206,7 +214,7 @@
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`
 - **sub_task 2 輪未過**：`status` 設為 `"failed"`，`warning` 設為 `true`
 - **全部完成且通過**：`eval_state.json` 頂層 `status` 設為 `"completed"` 並**先歸檔為 `run/<run_id>.eval.json`**（保留評分歷史與扣分原因）、清除 `eval_state.json`、manifest `status` 設為 `"completed"`，**再** commit（歸檔檔與 manifest 同批進 git；順序由 hook 強制——`eval_state.json` 尚存在時 commit 會被擋）
-- **有任一 failed**：manifest 與 `eval_state.json` 的 `status` 皆設為 `"failed"`，回報使用者
+- **有任一 failed**：manifest 與 `eval_state.json` 的 `status` 皆設為 `"failed"`，並在 manifest 的 `failed_reason` 寫一句話死因（哪個 sub_task、卡在哪步、為什麼），回報使用者
   - **失敗收尾**：staging area 保持原狀（已通過 sub_task 的變更留在 staged），**不自行 unstage、不部分 commit、不清除 `eval_state.json`**，由使用者裁決後續（續跑、部分 commit 或放棄）。此時 hook 會擋下 Claude 端的任何 `git commit`（`eval_state.json` 尚存在），屬預期行為；使用者要部分 commit 可在自己的終端執行（hook 只攔 Claude 的 Bash 工具）
 
 ### Gate 的硬性執行（hook）
@@ -226,11 +234,15 @@
 
 被擋時 hook 會以 stderr 回報原因，依訊息補齊狀態後重試。流程中亦可隨時自檢：`python3 .claude/hooks/eval_gates.py --validate eval_state.json`。hook 只攔 Claude 的 Bash 工具，不影響使用者自己終端的 git 操作。本文件對應條文為流程說明，實際防線以 hook 為準。
 
+## 中斷恢復（Resume）
+
+執行中斷（session 掛掉、compact 掉狀態、換 AI 接手）後要續跑時，**依 `eval-flow-resume` skill 的確定性程序恢復**，不靠記憶或猜測：掃 `run/` 找 `status: "in_progress"` 的 manifest → 依 `phase` 定位前置進度 → 已 `decomposed` 則讀 `eval_state.json` 的 in_progress sub_task 及其 `step`／`files` → 用 `git diff --cached -- <files>` 還原工作現場 → 從該步驟繼續。已 `passed` 的 sub_task 不重跑；hook gates 照常生效。
+
 ## Tier 1 精簡路徑
 
 明確、單一路徑、不觸及高風險面的小功能。**跳過 Spec 檔與 usage 分析，但仍留溯源、仍守大小上限**。風險由 Router 的排除條件把關（觸及高風險面者根本進不到 Tier 1），故不另跑 6 面向分析。
 
-1. **精簡初始化**：建 manifest `run/<run_id>.json`，填 `tier: 1`、`tier_rationale`、**`spec_inline`**（需求原文一句話，取代 `spec_path`）、`usage_report_path: "skipped"`、`phase: "init"`；建 `eval_state.json`（`run_id` + `threshold` + 空 `sub_tasks`）
+1. **精簡初始化**：建 manifest `run/<run_id>.json`，填 `tier: 1`、`tier_rationale`、**`spec_inline`**（需求原文一句話，取代 `spec_path`）、`risk_report_path: "skipped"`、`usage_report_path: "skipped"`、`phase: "init"`；建 `eval_state.json`（`run_id` + `threshold` + 空 `sub_tasks`）
    - **intent gate（不可鬆）**：`spec_path` 與 `spec_inline` 至少一個非空，皆空不可往下
 2. **直接建 task 檔**：免呼叫 `task-decomposer` subagent，但上限不變——**1 個 task、≤5 items（硬）、各 item 目標 ≤300 行（軟）**。item 數超 5、或出現遠超 300 行且拆不進 5 item 內的工作 → 觸發升級逃生門（回 Tier 2）
 3. **輕量 HITL**：寫 code 前，把「1 task／N items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。確認後將 manifest 的 `phase` 設為 `"decomposed"`（hook 憑此放行 code-writer），才進循環
@@ -241,7 +253,9 @@
 
 - 任務檔案放在 `task/` 資料夾，以日期命名：`task/YYYY-MM-DD.md`
 - 使用情境報告放在 `usage/` 資料夾，以 run_id 命名：`usage/<run_id>.md`（比照 task 的專屬資料夾慣例）
+- 風險分析報告放在 `risk/` 資料夾：`risk/<run_id>.md`（前置 1 產出即存檔）
 - run manifest 放在 `run/` 資料夾：`run/<run_id>.json`（冷溯源，隨 commit 進 git）
+- **產出物自足性（換手的前提）**：Spec、usage 報告、task 檔、風險報告必須**不依賴對話上下文**即可讀懂——不得出現「如上所述」「依先前討論」等指涉對話的內容；task item 必須寫明確檔案路徑與 DoD。標準是：任何未參與對話的 AI／工程師讀檔即可接手
 - 每次新增或讀取任務時，使用**當天日期**的檔案（例如 `task/2026-04-18.md`）
 - 舊的 `task.md` 僅作為歷史紀錄保留，不再新增任務到該檔案
 - 呼叫 subagent 完成任務
