@@ -28,7 +28,7 @@ if [ -d "$SRC_AGENTS" ]; then
   while IFS= read -r -d '' file; do
     cp "$file" "$DST_AGENTS/"
     copied=$((copied + 1))
-  done < <(find "$SRC_AGENTS" -mindepth 1 -maxdepth 1 -print0)
+  done < <(find "$SRC_AGENTS" -mindepth 1 -maxdepth 1 ! -name '.DS_Store' -print0)
   echo "[2/5] Copied $copied item(s) -> $DST_AGENTS/"
 else
   echo "[2/5] Skipped: $SRC_AGENTS not found"
@@ -88,6 +88,7 @@ if [ -d "$SRC_SKILLS" ]; then
     target="$USER_SKILLS_DIR/$skill_name"
     mkdir -p "$target"
     cp -Rf "$skill_path"/. "$target/"
+    rm -f "$target/.DS_Store"
     echo "      + sync   $skill_name"
     synced=$((synced + 1))
   done
