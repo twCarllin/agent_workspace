@@ -89,6 +89,14 @@ def check_manifest(manifest_path, staged):
             block(f"{manifest_path} 為 hotfix 但缺 debt 欄位（欠帳清單，如 [\"risk\", \"test\", \"retro\"]）")
         return  # hotfix 不走循環評分，豁免 eval 歸檔檔要求；欠帳由 debt gate 追討
 
+    if m.get("tier") == "B":
+        if m.get("bootstrap_verified") is not True:
+            block(
+                f"{manifest_path} 為 Tier B 但 bootstrap_verified 非 true："
+                f"DoD 兩條（本地 build/run 跑得通、測試框架＋示範測試會跑）未驗證，不可 commit"
+            )
+        return  # Tier B 不走循環評分，豁免 eval 歸檔檔要求
+
     archive_path = f"run/{run_id}.eval.json"
     if archive_path not in staged:
         block(f"{manifest_path} 已 staged，但 {archive_path} 未 staged：須先歸檔 eval_state 再 commit")
