@@ -14,6 +14,7 @@ agent_workspace/
 ├── skills/              # 共用 skill 模板
 │   ├── eval-flow/           # Eval Flow 執行細節（前置、循環、Tier 1/B、hotfix、格式與 gate 清單）
 │   ├── eval-flow-resume/    # 中斷恢復的確定性程序
+│   ├── parallel-run/        # ≥2 個互不相依的 Tier 1 需求並行（worktree ＋背景 agent）
 │   ├── eval-scoring/        # eval-scorer 的五維度評分基準
 │   ├── report-format/
 │   ├── review-checklist/
@@ -34,6 +35,7 @@ agent_workspace/
 - **eval-flow skill（按需）**：Router 判為 Tier 1／2／B 時才載入，承載流程執行細節（前置 0–3、循環 1–8、manifest／eval_state 格式、操作規則、gate 清單）。抽離的目的是減少常駐 context；「skill 不在 context 就不可憑印象跑」的錨點規則留在 CLAUDE.md，hook 被擋時的 stderr 也會提示重新載入。
 - **hooks（防線）**：文件是流程說明，實際防線是 hook 的確定性攔截（見下）。三者若有出入，以 hook 行為為準。
 - **狀態全在檔案**：run manifest（`run/`，冷溯源）＋ `eval_state.json`（熱 scratchpad，含循環步驟 `step` 與檔案歸屬 `files` 的 write-ahead 記錄）。對話隨時可拋，中斷後依 `eval-flow-resume` skill 從檔案還原現場。
+- **並行（parallel-run skill）**：並行的單位是 run、隔離的單位是 worktree——`eval_state.json` 與 git staging area 都是單例，同工作區並行必互相污染，故一個 worktree 只跑一個 run。**≥2 個互不相依的 Tier 1** 同時進來才並行：主 session 批次判級＋批次輕量 HITL 後，一需求一 worktree 一背景 agent 各跑 eval-flow（commit 限 feat branch、task 檔加 slug 防衝突），完成後彙整回報、經使用者確認再 merge 回 main。Tier 0 一律序列、單一 Tier 1 走原流程、Tier 2 不進並行（HITL gate 多，不適合背景）。並行省 wall-clock、不省 token（每 run 約 +10–20% 編排開銷）。
 
 ## 使用方式
 
