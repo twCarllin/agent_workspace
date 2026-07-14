@@ -45,3 +45,5 @@ CLAUDE.md 每個 session 全文載入，但約七成內容（前置 0–3、循�
 
 - [ ] **Tier 分佈統計**：manifest 已記 `tier`，跑一陣子後統計——若 Tier 1 幾乎為零，代表分級未發揮省成本作用，門檻應放寬
 - [ ] **RETRO.md 增長控制**：code-writer 每次都讀，遲早膨脹。加一條「超過 N 條時，retro agent 合併同根因條目」
+- [ ] **豁免率統計**：manifest 已記 `test_policy`，跑一陣子後統計 waive 率——比例異常升高代表豁免窗口變質為常態後門（同 tier 分佈統計的邏輯）
+- [ ] **baseline 欠帳彙報**：retro 時彙報 `run/<run_id>.test_baseline.json` 的 stable_failures／flaky 數量走勢，讓記錄級欠帳看得見

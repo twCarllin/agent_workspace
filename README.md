@@ -9,7 +9,7 @@ agent_workspace/
 ├── CLAUDE.md            # 常駐規範（部署規則、Router 分級表、防濫用規則、task／subagent 原則）
 ├── .claude/
 │   ├── agents/          # subagent 定義（code-writer / code-reviewer / eval-scorer / retro / task-reviewer / task-verifier / usage-analyzer / task-decomposer）
-│   ├── hooks/           # gate 強制腳本（gate-check.sh + eval_gates.py）
+│   ├── hooks/           # gate 強制腳本（gate-check.sh + eval_gates.py）與測試 gate 判定端（test_baseline.py）
 │   └── settings.json    # PreToolUse hook 設定
 ├── skills/              # 共用 skill 模板
 │   ├── eval-flow/           # Eval Flow 執行細節（前置、循環、Tier 1/B、hotfix、格式與 gate 清單）
@@ -22,7 +22,9 @@ agent_workspace/
 │   ├── task-decomposition/
 │   ├── task-risk-analysis/
 │   ├── task-verify-checklist/
+│   ├── test-strategy/       # step 5 測試 gate：baseline「無新增失敗」、flaky 過濾、豁免窗口
 │   └── usage-scenario-analysis/
+├── tests/               # gate script 自己的測試（python3 -m unittest discover -s tests）
 └── init.sh              # 安裝腳本
 ```
 

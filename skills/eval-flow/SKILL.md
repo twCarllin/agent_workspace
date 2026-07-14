@@ -60,15 +60,15 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 4. 🔴 清零後，呼叫 `task-verifier` subagent 確認功能完整
    - 比對 task.md vs 實際 diff（子任務完成、DoD 達成、無 scope 偏移）
    - 如有遺漏，修正後回步驟 3
-5. **本地測試驗證（硬性 gate，對應 CLAUDE.md「部署規則」）**：驗證強度依 tier 分級：
-   - **Tier 2：新行為必須有自動化測試且通過**（測試 item 由前置 3 分拆時建立，見 task-decomposition skill）。既有測試失敗時**先分類再動手**：①code 錯 → 修 code；②測試斷言的是被 Spec 有意改掉的舊行為 → 可更新測試，但必須在 `local_test_evidence` 註明改了哪個測試、舊斷言為何不再成立、對應的 Spec／task 依據。**無依據的放寬斷言／刪 case／加 skip 視同 🔴**（code-reviewer 的審查重點）
-   - **Tier 1：自動化測試或實際運行功能驗證皆可**（高風險面已被 Router 排除在 Tier 1 之外，不強制建測試）
-   - **不分 tier**：通過後將該 sub_task 的 `local_test_passed` 設為 `true`，並把驗證證據寫入 `local_test_evidence`（跑了什麼指令、看到什麼結果，一兩句即可）——hook 於 commit 時檢查兩欄皆已填
-   - 失敗 → 修正後回步驟 3；未通過本步不可進入評分與 commit
+5. **本地測試驗證（硬性 gate，對應 CLAUDE.md「部署規則」）**：依 **test-strategy** skill 執行。gate 條件＝**無新增穩定失敗**（以 `.claude/hooks/test_baseline.py check` 的判定為準；baseline 於第一次 step 5 前建立，flaky 由 script 自動過濾）
+   - **Tier 2：新行為必須有自動化測試**（測試 item 由前置 3 分拆時建立）；**Tier 1**：自動化測試或實際運行功能驗證皆可
+   - 通過 → `local_test_passed: true`、`local_test_evidence` 填 script 輸出摘要（hook 於 commit 時檢查兩欄皆已填）
+   - 真新失敗 → 依 skill 的失敗分類決策樹處置（測試過時須記依據；無依據改弱測試視同 🔴）；同一 sub_task 累計 2 次真失敗 → 停止自行修復，回報使用者
+   - 未通過本步不可進入評分與 commit。細則（相關測試選擇、零測試專案、豁免窗口）住在 test-strategy skill，不在此重述
 6. 呼叫 `eval-scorer` subagent 獨立打分（讀取 `git diff --cached`），結果 append 進 `eval_state.json`
    - **多 sub_task 時**：staging area 會累積先前 sub_task 的變更，須在 prompt 中限定 code-reviewer / eval-scorer 只評本 sub_task 涉及的檔案（`git diff --cached -- <本 sub_task 的檔案路徑>`，清單以 `eval_state.json` 該 sub_task 的 `files` 欄為準），避免評分範圍互相污染
 7. 判斷分數：
-   - **score >= threshold** → 收尾順序（**hook 強制**，見「Gate 的硬性執行」）：①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留各輪分數與扣分原因的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json`** ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔一併 `git add` ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
+   - **score >= threshold** → 收尾順序（**hook 強制**，見「Gate 的硬性執行」）：⓪先跑**全套測試檢查**（`test_baseline.py check --cmd "<全套指令>" --strike-key full_suite`，見 test-strategy skill）——出現新失敗代表相關測試沒抓到的跨 sub_task 破壞，依 skill 的「重開路徑」把肇事 sub_task 改回 in_progress 從步驟 3 重走，**不可收尾** ①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留各輪分數與扣分原因的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json`** ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔一併 `git add` ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
    - **score < threshold 且 rounds < 2** → 根據評分報告生成改進 brief，回步驟 1
    - **score < threshold 且 rounds == 2** → 讀取 `eval_state.json` 生成完整報告，回報使用者
 8. **有條件** 呼叫 `retro` subagent：
@@ -106,6 +106,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
   "phase": "init | risk_done | usage_confirmed | decomposed | completed",
   "spec_path": "spec/2026-07-06-partial-settlement.md",
   "spec_inline": null,
+  "test_command": null,
   "risk_report_path": null,
   "usage_report_path": null,
   "task_file": null,
@@ -117,6 +118,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 - `tier` / `tier_rationale`：Router 判定後寫入（供審計；Tier 1 若升級 Tier 2 須更新）
 - `phase`：流程狀態機欄位，hook 憑此攔亂序的 subagent 呼叫（見「Gate 的硬性執行」gate 5）。轉移時機：前置 0 建立 `"init"` → 前置 1 無 🔴 `"risk_done"` → 前置 2 使用者確認 `"usage_confirmed"` → 前置 3 審查通過 `"decomposed"` → step 7 收尾 `"completed"`。Tier 1 於輕量 HITL 確認後直接設 `"decomposed"`。舊 manifest 無此欄時 hook 以 `task_file` / `usage_report_path` 推導（向後相容）
 - `spec_path` / `spec_inline`：Tier 2 用 `spec_path`（Spec 檔）；Tier 1 用 `spec_inline`（需求原文一句話）。**兩者至少一個非空**，皆空不可往下（intent gate）
+- `test_command`：本專案的**全套測試指令**（test-strategy script 省略 `--cmd` 時的預設來源，single source of truth——保證 baseline 與 check 範圍一致）。前置 0 可先 `null`，**第一次 step 5 前必須寫入**；同專案的後續 run 沿用前一個 manifest 的值；Tier B 於 DoD 驗證時寫入
 - `risk_report_path`：前置 1 產出 `risk/<run_id>.md` 後寫入；Tier 1 固定為 `"skipped"`
 - `usage_report_path`：Tier 2 前置 2 使用者確認後寫入（`null` → 不可分拆 task）；Tier 1 固定為 `"skipped"`
 - `task_file`：分拆／建 task 後寫入
@@ -239,7 +241,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 2. **精簡風險分析**：只跑部署、資料兩面向（其餘四面向對空骨架無意義），結論併入清單檔，不另建 `risk/` 檔
 3. **一次 HITL（硬性）**：清單交使用者確認**選型**後才動工——選型錯了整個骨架重來，這是 Tier B 唯一真正的風險
 4. **建 manifest**：`tier: "B"`、`spec_path` 指向清單檔、`usage_report_path: "skipped"`、`risk_report_path: "inline"`、確認後 `phase: "decomposed"`。**不建 `eval_state.json`**（骨架多為 CLI 與樣板產出，不走循環評分——eval 維度對 scaffolding 不對口）
-5. **DoD 固定兩條（hook 強制）**：①本地 build／run 指令跑得通 ②**測試框架已建立且有至少一個會跑的示範測試**——此後這個專案所有 run 的本地測試 gate 都沒有「無測試框架」的後門可走。兩條都過才把 manifest 標 `bootstrap_verified: true`
+5. **DoD 固定兩條（hook 強制）**：①本地 build／run 指令跑得通 ②**測試框架已建立且有至少一個會跑的示範測試**——此後這個專案所有 run 的本地測試 gate 都沒有「無測試框架」的後門可走。兩條都過才把 manifest 標 `bootstrap_verified: true`，並把全套測試指令寫入 manifest 的 `test_command`（後續 run 的 test-strategy script 從此讀）
 6. **收尾**：manifest 標 `status: "completed"` 隨骨架一併 commit（附 `Run-Id: <run_id>` trailer）。hook 對 `tier: "B"` 豁免 eval 歸檔檔要求，但 `bootstrap_verified` 非 `true` 擋 commit
 
 ## Hotfix 通道（先止血、後補債；債是硬性的）

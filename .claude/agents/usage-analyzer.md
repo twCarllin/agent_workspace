@@ -2,7 +2,7 @@
 name: usage-analyzer
 description: Eval Flow 前置 2 專用。從 manifest 的 spec_path（或 spec_inline）指向的 Spec 盤點使用情境，產出使用情境報告到 usage/<run_id>.md。產出後停在 HITL gate 等使用者確認，不自行往下、不回寫 manifest 直到確認。Router 判為 Tier 2 時使用；Tier 0／1 不呼叫。
 tools: Read, Grep, Glob, Write, Edit
-model: claude-opus-4-7
+model: claude-opus-4-8
 skills: usage-scenario-analysis
 ---
 
