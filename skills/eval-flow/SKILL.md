@@ -60,8 +60,10 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 4. 🔴 清零後，呼叫 `task-verifier` subagent 確認功能完整
    - 比對 task.md vs 實際 diff（子任務完成、DoD 達成、無 scope 偏移）
    - 如有遺漏，修正後回步驟 3
-5. **本地測試驗證（硬性 gate，對應 CLAUDE.md「部署規則」）**：執行測試（或無測試框架時，實際運行功能驗證）
-   - 通過 → 將該 sub_task 的 `local_test_passed` 設為 `true`（hook 於 commit 時強制檢查此欄位）
+5. **本地測試驗證（硬性 gate，對應 CLAUDE.md「部署規則」）**：驗證強度依 tier 分級：
+   - **Tier 2：新行為必須有自動化測試且通過**（測試 item 由前置 3 分拆時建立，見 task-decomposition skill）。既有測試失敗時**先分類再動手**：①code 錯 → 修 code；②測試斷言的是被 Spec 有意改掉的舊行為 → 可更新測試，但必須在 `local_test_evidence` 註明改了哪個測試、舊斷言為何不再成立、對應的 Spec／task 依據。**無依據的放寬斷言／刪 case／加 skip 視同 🔴**（code-reviewer 的審查重點）
+   - **Tier 1：自動化測試或實際運行功能驗證皆可**（高風險面已被 Router 排除在 Tier 1 之外，不強制建測試）
+   - **不分 tier**：通過後將該 sub_task 的 `local_test_passed` 設為 `true`，並把驗證證據寫入 `local_test_evidence`（跑了什麼指令、看到什麼結果，一兩句即可）——hook 於 commit 時檢查兩欄皆已填
    - 失敗 → 修正後回步驟 3；未通過本步不可進入評分與 commit
 6. 呼叫 `eval-scorer` subagent 獨立打分（讀取 `git diff --cached`），結果 append 進 `eval_state.json`
    - **多 sub_task 時**：staging area 會累積先前 sub_task 的變更，須在 prompt 中限定 code-reviewer / eval-scorer 只評本 sub_task 涉及的檔案（`git diff --cached -- <本 sub_task 的檔案路徑>`，清單以 `eval_state.json` 該 sub_task 的 `files` 欄為準），避免評分範圍互相污染
@@ -139,6 +141,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
       "files": ["src/foo.ts", "src/bar.ts"],
       "warning": false,
       "local_test_passed": false,
+      "local_test_evidence": null,
       "risk_analysis": {
         "technical": "🟢 無風險 | 🟡 ... | 🔴 ...",
         "security": "...",
@@ -182,7 +185,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 - **使用情境分析完成後 / 分拆 task 完成後**：`usage_report_path` 與 `task_file` 分別由 `usage-analyzer`、`task-decomposer` 於各自步驟回寫（時機與條件見 agent 定義）。前者為 `null` 時不可進入分拆 task
 - **風險分析完成後**：將 6 大面向結果填入對應 sub_task 的 `risk_analysis`，若有 🔴 設 `blocking: true`，必須修正 Spec 後重新分析
 - **循環進度記錄（write-ahead，中斷恢復的關鍵）**：每個循環步驟**開始前**先把該 sub_task 的 `step` 寫入 `eval_state.json`（`writing`→`reviewing`→`fixing`（有 🔴 時）→`verifying`→`testing`→`scoring`→`done`），步驟完成後再更新為下一步。code-writer 交付後立刻把本 sub_task 涉及的檔案清單寫入 `files`（修正時同步增補）——staged 變更與 sub_task 的對應關係只准活在這裡，不准只活在對話裡
-- **本地測試通過後（step 5）**：將該 sub_task 的 `local_test_passed` 設為 `true`（預設 `false`；hook 於 commit 時檢查歸檔檔中所有 sub_task 此欄皆為 `true`）
+- **本地測試通過後（step 5）**：將該 sub_task 的 `local_test_passed` 設為 `true`、`local_test_evidence` 填入驗證證據（指令＋結果摘要；Tier 2 若更新過既有測試，一併註明 Spec／task 依據）。預設 `false`／`null`；hook 於 commit 時檢查歸檔檔中所有 sub_task 兩欄皆已填
 - **每輪評分後**：將 `eval-scorer` 的結果 append 到對應 sub_task 的 `rounds` 陣列
 - **quality_score < 10（即使通過 threshold）**：必須在該 round 的 `deduction_reasons` 陣列逐條列出扣分原因
   - 每筆需含 `points_lost`（扣分）、`dimension`（哪個維度扣的）、`reason`（具體理由）、`evidence`（檔案行號或證據）
@@ -226,6 +229,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 3. **輕量 HITL**：寫 code 前，把「1 task／N items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。確認後將 manifest 的 `phase` 設為 `"decomposed"`（hook 憑此放行 code-writer），才進循環
 4. **共用循環**：進入上方循環的步驟 1–8（code-writer → review → verify → 本地測試 → score → commit）。收尾比照 step 7：先歸檔並清除 `eval_state.json`、manifest 標 `completed`，再一併 `git add` manifest／task 檔並 commit（message 附 `Run-Id: <run_id>` trailer）
    - sub_task 的 `risk_analysis` 可簡記為 `"router 已篩（Tier 1）"`，不需逐面向填
+   - step 5 可用實際運行功能驗證取代自動化測試（不強制建測試），但 `local_test_evidence` 照填——證據要求不分 tier
 
 ## Tier B Bootstrap 路徑（骨架工作，無業務邏輯）
 

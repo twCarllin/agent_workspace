@@ -73,6 +73,12 @@ def validate_state(state, source, require_passed=False):
                 block(f"{source} sub_task「{name}」status 非 passed（{st.get('status')}）")
             if st.get("local_test_passed") is not True:
                 block(f"{source} sub_task「{name}」local_test_passed 非 true：本地測試 gate 未通過")
+            evidence = st.get("local_test_evidence")
+            if not (isinstance(evidence, str) and evidence.strip()):
+                block(
+                    f"{source} sub_task「{name}」local_test_evidence 為空："
+                    f"step 5 須記錄驗證證據（跑了什麼指令、看到什麼結果）"
+                )
 
 
 def check_manifest(manifest_path, staged):

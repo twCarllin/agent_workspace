@@ -14,11 +14,12 @@ agent_workspace/
 ├── skills/              # 共用 skill 模板
 │   ├── eval-flow/           # Eval Flow 執行細節（前置、循環、Tier 1/B、hotfix、格式與 gate 清單）
 │   ├── eval-flow-resume/    # 中斷恢復的確定性程序
+│   ├── eval-scoring/        # eval-scorer 的五維度評分基準
 │   ├── report-format/
 │   ├── review-checklist/
 │   ├── root-cause-table/
 │   ├── task-checklist/
-│   ├── task-decomposer/
+│   ├── task-decomposition/
 │   ├── task-risk-analysis/
 │   ├── task-verify-checklist/
 │   └── usage-scenario-analysis/

@@ -32,11 +32,14 @@ CLAUDE.md 每個 session 全文載入，但約七成內容（前置 0–3、循�
 
 改為 commit 前歸檔：評分通過 → 歸檔 eval_state、manifest 標 `completed` → 才 commit，同批進 git。`commit_sha` 欄位移除，溯源改用 commit message 的 `Run-Id: <run_id>` trailer（`git log --grep` 反查）。順序由 hook 強制（見 #1）。
 
-## 5. 讓「測試存在」成為要求，closing the loop
+## 5. 讓「測試存在」成為要求，closing the loop — ✅ 2026-07-14 完成（採風險分級，非一刀切）
 
-循環步驟 5 允許「無測試框架時實際運行驗證」——專案只要一直沒測試，gate 就一直走後門。
+循環步驟 5 允許「無測試框架時實際運行驗證」——專案只要一直沒測試，gate 就一直走後門。討論後決定不強制全面測試（測試斷言過細會跟不上程式碼變化），改為風險分級：
 
-- [ ] 在 task-decomposer 的 item 五要素（或 DoD）明定「新行為需附測試」，使步驟 5 有測試可跑，與 Testability 評分維度閉環
+- [x] **Tier 2**：引入新行為的 task 強制含測試 item（task-decomposition skill 硬性要求＋task-reviewer 把關），step 5 必須跑測試
+- [x] **Tier 1**：維持自動化測試或實際運行驗證皆可（高風險面已被 Router 排除）；Tier 0 不變
+- [x] **不分 tier 補「驗證證據」**：step 5 須在 eval_state 記 `local_test_evidence`（指令＋結果摘要），hook 於 commit 時強制非空
+- [x] **防改弱測試**：既有測試失敗先分類（code 錯 vs 測試過時）；無 Spec/task 依據的放寬斷言／刪 case／加 skip，code-reviewer 視同 🔴
 
 ## 6. 持續追蹤項
 

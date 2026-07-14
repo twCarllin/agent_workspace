@@ -24,6 +24,8 @@ description: 依「使用情境報告」與 Spec，把工作拆成可執行、�
 
 上限是為了讓每個 item 的 `git diff --cached` 小到 code-reviewer / eval-scorer 能一次讀完並打準分。**300 行是「新增 + 修改」的總和，不含自動生成的 lockfile / migration 樣板。**
 
+**測試要求（Tier 2 硬性）**：每個引入新行為的 task 至少含一個測試 item，其 DoD 寫明涵蓋哪些情境——沒有測試 item 的新行為 task，task-reviewer 打回。這讓循環 step 5 的本地測試 gate 有測試可跑（Tier 1 不經本 skill，維持可用實際運行驗證）。
+
 ---
 
 ## Step 1：以使用情境為切割主軸
@@ -109,6 +111,7 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 
 - item 沒有估計行數，或估計明顯灌水以躲過 300 行上限
 - 一個 item 同時包含實作 + 測試（測試必須獨立）
+- task 引入新行為卻沒有任何對應的測試 item（Tier 2 硬性要求）
 - 一個 item 觸及 >3 個檔案還宣稱 <300 行
 - task 塞滿 5 個 item 只為了不開新 task（湊數，不是內聚）
 - item 描述是「實作 X 功能」這種無邊界的整包，無法對映單一情境或 DoD
