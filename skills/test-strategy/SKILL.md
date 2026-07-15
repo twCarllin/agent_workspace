@@ -20,6 +20,14 @@ python3 .claude/hooks/test_baseline.py baseline
 - **既有壞測試 = 記錄級欠帳，不是攔截級**：與 hotfix `debt` 不同——不擋新 run、本 run 不修（修它是 scope 偏移），但 retro 時彙報數量與清單，讓債看得見
 - 無任何測試框架的專案不建 baseline，改走「零測試專案」節
 
+## 前端／UI 實機驗證的定位（best-effort，非阻塞）
+
+> 阻塞 gate 是**功能正確性的自動化測試**（下方 step 5 的 baseline check），**不是**前端 UI 的瀏覽器實機驗證。
+
+- **前端 UI 實機驗證屬 best-effort**：能備妥環境就做，備不妥就記 best-effort、以功能測試為準，**不阻塞收尾**。目前現況下前端實機驗證成本高、不易穩定備妥，驗證重心明確放在功能正確性
+- **不從零手刻平行 runtime**：起 app 前先找專案既有的啟動把手（`start-dev.sh`／`Makefile`／`package.json` scripts），有就一鍵起（正確 port／JWT secret／DB 已內建）。沒有或起不來 → 記 best-effort，**不自訂 port／secret／DB 手搭一套平行環境**——那是鑽牛角尖，不是驗證
+- **實測教訓**：一次 run 的「測試鬼打牆」全在 UI 實機環境（docker 缺、port 被 dev server 佔、JWT secret 沒帶導致 server 崩、Playwright 選擇器對不上、npx 誤裝套件 500），自動化 gate 反而一次就過。問題從來不是測試邏輯，是 UI runtime 環境——所以把力氣放在功能正確性測試，不放在前端實機
+
 ## Step 5 執行順序（每個 sub_task）
 
 0. **行為驗證紀律**：寫任何驗證程式（含臨時 harness）前，先確認實際介面——`inspect.signature`、讀函式定義，**不憑印象寫**（實測：憑印象的 harness 連錯 5 次，每次都反證實作是對的、純浪費輪次）。驗證碼不是 throwaway：它就是本 sub_task 單元測試的草稿，直接寫進該 item 的測試檔（單元測試隨實作 item，見 task-decomposition skill）

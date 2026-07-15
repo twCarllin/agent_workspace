@@ -66,16 +66,19 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
    - 通過 → `local_test_passed: true`、`local_test_evidence` 填 script 輸出摘要（hook 於 commit 時檢查兩欄皆已填）
    - 真新失敗 → 依 skill 的失敗分類決策樹處置（測試過時須記依據；無依據改弱測試視同 🔴）；同一 sub_task 累計 2 次真失敗 → 停止自行修復，回報使用者
    - 未通過本步不可進入評分與 commit。細則（相關測試選擇、零測試專案、豁免窗口）住在 test-strategy skill，不在此重述
-6. 呼叫 `eval-scorer` subagent 獨立打分（讀取 `git diff --cached`），結果 append 進 `eval_state.json`
-   - **多 sub_task 時**：staging area 會累積先前 sub_task 的變更，須在 prompt 中限定 code-reviewer / eval-scorer 只評本 sub_task 涉及的檔案（`git diff --cached -- <本 sub_task 的檔案路徑>`，清單以 `eval_state.json` 該 sub_task 的 `files` 欄為準），避免評分範圍互相污染
+6. **評分（條件式——code-reviewer 零 🔴 時跳過，比照 step 8 跳過 retro 的規則）**：
+   - **本 sub_task 的 code-reviewer 首輪即零 🔴（無 fixing 迭代）→ 跳過 `eval-scorer`**。實測：reviewer 零 🔴 時 score 幾乎必然過門檻，那個數字不改變任何決定、不觸發任何重跑；per-subtask 打分只是把同一個 round 複製到各 sub_task，零信號。直接把本 sub_task 設 `passed`（`rounds` 留空、不 append round——hook 的 `check_rounds_invariant` 只遍歷既有 rounds，空陣列照過），視同通過 threshold，進步驟 7 收尾。`local_test_passed`／`local_test_evidence` 仍須照 step 5 填妥（跳的是評分，不是測試）
+   - **code-reviewer 曾有 🔴（修正後）→ 才呼叫 `eval-scorer`**：這時分數才有迭代意義（比較修正前後、判斷品質是否回穩、決定要不要再回 writer 一輪）。呼叫 `eval-scorer` 獨立打分（讀取 `git diff --cached`），結果 append 進 `eval_state.json`，走步驟 7 的 threshold 判斷
+   - **多 sub_task 且有評分時**：staging area 會累積先前 sub_task 的變更，須在 prompt 中限定 code-reviewer / eval-scorer 只評本 sub_task 涉及的檔案（`git diff --cached -- <本 sub_task 的檔案路徑>`，清單以 `eval_state.json` 該 sub_task 的 `files` 欄為準），避免評分範圍互相污染
 7. 判斷分數：
+   - **step 6 跳過評分者** → sub_task 已設 `passed`，比照下方 score >= threshold 進收尾順序
    - **score >= threshold** → 收尾順序（**hook 強制**，見「Gate 的硬性執行」）：⓪先跑**全套測試檢查**（`test_baseline.py check --cmd "<全套指令>" --strike-key full_suite`，見 test-strategy skill）——出現新失敗代表相關測試沒抓到的跨 sub_task 破壞，依 skill 的「重開路徑」把肇事 sub_task 改回 in_progress 從步驟 3 重走，**不可收尾** ①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留各輪分數與扣分原因的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json`** ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔一併 `git add` ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
    - **score < threshold 且 rounds < 2** → 根據評分報告生成改進 brief，回步驟 1
    - **score < threshold 且 rounds == 2** → 讀取 `eval_state.json` 生成完整報告，回報使用者
 8. **有條件** 呼叫 `retro` subagent：
    - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro
    - score < threshold（需要多輪改進）→ 最終 commit 前呼叫 retro
-   - code-reviewer 無 🔴 且 score 一次通過 → **不呼叫 retro**（無需回顧）
+   - code-reviewer 無 🔴 → **不呼叫 retro**（此路徑評分也已於 step 6 跳過；reviewer 一次過即無回顧價值）
 
 ## Model 指派原則
 
@@ -202,6 +205,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
   - score = 10 時 `deduction_reasons` 為空陣列 `[]`
 - **score < threshold**：在該 round 的 `brief_sent_to_writer` 填入改進摘要
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`
+- **評分跳過路徑（code-reviewer 零 🔴）**：不呼叫 `eval-scorer`、不 append round，`rounds` 留空即設 `status: "passed"`（測試欄位仍須填）。`stats.py` 對空 `rounds` 的 sub_task 視同「reviewer 一次過、無評分」，非資料缺漏——這是刻意省掉的零信號打分，不是漏記
 - **sub_task 2 輪未過**：`status` 設為 `"failed"`，`warning` 設為 `true`
 - **全部完成且通過**：`eval_state.json` 頂層 `status` 設為 `"completed"` 並**先歸檔為 `run/<run_id>.eval.json`**（保留評分歷史與扣分原因）、清除 `eval_state.json`、manifest `status` 設為 `"completed"`，**再** commit（歸檔檔與 manifest 同批進 git；順序由 hook 強制——`eval_state.json` 尚存在時 commit 會被擋）
 - **有任一 failed**：manifest 與 `eval_state.json` 的 `status` 皆設為 `"failed"`，並在 manifest 的 `failed_reason` 寫一句話死因（哪個 sub_task、卡在哪步、為什麼），回報使用者
