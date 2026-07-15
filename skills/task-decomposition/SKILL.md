@@ -24,7 +24,7 @@ description: 依「使用情境報告」與 Spec，把工作拆成可執行、�
 
 上限是為了讓每個 item 的 `git diff --cached` 小到 code-reviewer / eval-scorer 能一次讀完並打準分。**300 行是「新增 + 修改」的總和，不含自動生成的 lockfile / migration 樣板。**
 
-**測試要求（Tier 2 硬性）**：每個引入新行為的 task 至少含一個測試 item，其 DoD 寫明涵蓋哪些情境——沒有測試 item 的新行為 task，task-reviewer 打回。這讓循環 step 5 的本地測試 gate 有測試可跑（Tier 1 不經本 skill，維持可用實際運行驗證）。
+**測試要求（Tier 2 硬性）**：每個引入新行為的**實作 item**，DoD 必須綁定該 item 的單元測試——測試與實作同 item、同 writer、同 diff（介面知識最熱的時候寫測試，行為驗證的程式碼直接落成測試，不寫 throwaway harness）。每個 task 尾端保留一個**整合測試 item**，只做跨 item 的整合層驗證＋ mutation self-check（見 test-strategy skill），不塞單元測試。DoD 沒綁測試的新行為 item、或整合測試 item 膨脹成單元測試大雜燴，task-reviewer 打回。這讓循環 step 5 的本地測試 gate 有測試可跑，且測試品質風險分散在各 item，不集中在最後一個 writer 身上（Tier 1 不經本 skill，維持可用實際運行驗證）。
 
 ---
 
@@ -51,9 +51,11 @@ description: 依「使用情境報告」與 Spec，把工作拆成可執行、�
 | 新增 service / 商業邏輯模組 | 100–250 | 超過 → 沿函式職責再拆 |
 | 新增前端元件（表單 / 表格 / 互動） | 100–250 | 元件 + 狀態 + API 串接常超標，拆分層 |
 | 設定 / wiring / DI 註冊 | 20–50 | 可併入相鄰 item |
-| 該 item 的測試 | 另計 | **測試永遠是獨立 item**，不塞進實作 item |
+| 該 item 的單元測試 | 實作行數的 0.5–1 倍 | **併入該 item 估算**（測試隨實作，見上「測試要求」）；獨立成 item 的只有整合測試 |
 
-**估算捷徑：** item 觸及的檔案數 × 每檔平均行數。觸及 **>3 個檔案**，幾乎必然超標或職責過雜 → 拆。
+**校準（實測教訓）：** 上表是「邏輯骨架」的量級，實際 diff 還有 docstring、錯誤路徑、常數表——實測顯示 naive 粗估**系統性低估 2–3 倍**。申報行數 = 表列量級估出的數 **×2**。寧可高估觸發再拆，不可低估躲 300 行上限（低估會讓軟上限形同虛設）。
+
+**估算捷徑：** item 觸及的檔案數 × 每檔平均行數（含測試檔）。觸及 **>3 個檔案**，幾乎必然超標或職責過雜 → 拆。
 
 **檢驗問題：** 如果現在就開一個 code-writer 去寫這個 item，產出的 `git diff` 會不會超過一個螢幕能審完的量？會 → 拆。
 
@@ -61,13 +63,12 @@ description: 依「使用情境報告」與 Spec，把工作拆成可執行、�
 
 ## Step 3：判斷 item 拆分方向
 
-單一 item 超標時，依序嘗試以下切法（由上而下優先）：
+單一 item 超標時，依序嘗試以下切法（由上而下優先）。**注意：單元測試不是切割線**——把測試從實作 item 抽走會讓新行為裸奔到整合階段，測試要跟著它驗證的實作一起走：
 
-1. **測試 vs 實作** — 把測試抽成獨立 item。這是最常見、最乾淨的一刀。
-2. **分層** — 同一情境的 backend / frontend / DB 拆成不同 item（也順便解鎖平行化）。
-3. **職責 / 函式群** — 一個 service 裡多個獨立函式群 → 各自成 item。
-4. **happy-path vs 邊界** — 先把正常流程做成一個 item，錯誤處理 / 重試 / 併發保護做成另一個 item。
-5. **CRUD 拆讀寫** — Create/Update（有副作用、需驗證）與 Read（查詢、序列化）拆開。
+1. **分層** — 同一情境的 backend / frontend / DB 拆成不同 item（各自帶各自的測試，也順便解鎖平行化）。
+2. **職責 / 函式群** — 一個 service 裡多個獨立函式群 → 各自成 item。
+3. **happy-path vs 邊界** — 先把正常流程做成一個 item，錯誤處理 / 重試 / 併發保護做成另一個 item。
+4. **CRUD 拆讀寫** — Create/Update（有副作用、需驗證）與 Read（查詢、序列化）拆開。
 
 task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎抽離。
 
@@ -91,12 +92,12 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 
 ## Task 1: <對映的使用情境名稱>
 - 依賴: 無
-- [ ] 1.1 <item 描述>  ~<估計行數>行  files: <路徑>
-      DoD: <可驗收條件>  情境: <usage 報告中的情境 id>
-- [ ] 1.2 [P] <item 描述>  ~<行數>行  files: <路徑>
+- [ ] 1.1 <item 描述＋單元測試>  ~<估計行數（含測試、已 ×2 校準）>行  files: <實作路徑>, tests/...
+      DoD: <可驗收條件；測試涵蓋哪些 case>  情境: <usage 報告中的情境 id>
+- [ ] 1.2 [P] <item 描述＋單元測試>  ~<行數>行  files: <路徑>, tests/...
       DoD: ...  情境: ...
-- [ ] 1.3 <item 的測試>  ~<行數>行  files: tests/...
-      DoD: <測試涵蓋哪些情境>
+- [ ] 1.3 整合測試（跨 item）＋ mutation self-check  ~<行數>行  files: tests/...
+      DoD: <整合層涵蓋哪些情境；sabotage 哪些行為點須 FAIL>
 
 ## Task 2: <另一個情境>  depends: Task 1
 - [ ] 2.1 ...
@@ -109,9 +110,9 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 
 ## 反模式（要 reject 重拆的分拆）
 
-- item 沒有估計行數，或估計明顯灌水以躲過 300 行上限
-- 一個 item 同時包含實作 + 測試（測試必須獨立）
-- task 引入新行為卻沒有任何對應的測試 item（Tier 2 硬性要求）
+- item 沒有估計行數，或估計明顯灌水以躲過 300 行上限（含未套 ×2 校準的系統性低估）
+- 引入新行為的實作 item，DoD 沒綁該 item 的單元測試（測試被推遲到整合階段，新行為裸奔）
+- 整合測試 item 塞滿單元測試——單一 writer 一次寫 60+ 個測試，假測試與覆蓋缺口的風險全集中在這裡（單元測試住在各實作 item，整合 item 只做跨 item 驗證＋ mutation self-check）
 - 一個 item 觸及 >3 個檔案還宣稱 <300 行
 - task 塞滿 5 個 item 只為了不開新 task（湊數，不是內聚）
 - item 描述是「實作 X 功能」這種無邊界的整包，無法對映單一情境或 DoD
@@ -130,23 +131,21 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 ```
 ## Task 1: 部分沖銷資料模型與餘額計算  (情境 B 的基礎)
 - 依賴: 無
-- [ ] 1.1 新增 settlement 資料表 + migration  ~60行  files: models/settlement.py, migrations/
-      DoD: 表建立、外鍵指向 payment_request  情境: B
-- [ ] 1.2 未結餘額計算函式（申請額 − Σ已沖銷）  ~40行  files: services/balance.py
-      DoD: 多筆部分沖銷加總正確  情境: B
-- [ ] 1.3 [P] 餘額計算單元測試  ~80行  files: tests/test_balance.py
-      DoD: 涵蓋零沖銷 / 多筆 / 全額三種  情境: B
+- [ ] 1.1 新增 settlement 資料表 + migration ＋ model 層測試  ~180行  files: models/settlement.py, migrations/, tests/test_settlement_model.py
+      DoD: 表建立、外鍵指向 payment_request；測試涵蓋建立與外鍵約束  情境: B
+- [ ] 1.2 未結餘額計算函式（申請額 − Σ已沖銷）＋單元測試  ~200行  files: services/balance.py, tests/test_balance.py
+      DoD: 多筆部分沖銷加總正確；測試涵蓋零沖銷 / 多筆 / 全額三種  情境: B
 
 ## Task 2: 部分沖銷登記 API  depends: Task 1
-- [ ] 2.1 POST /settlements endpoint + 驗證  ~120行  files: routes/settlement.py
-      DoD: 成功登記回 201、寫入 settlement 表  情境: A
-- [ ] 2.2 超額沖銷防呆（金額 > 未結餘額 → 422）  ~50行  files: routes/settlement.py
-      DoD: 超額回 422 + 錯誤訊息  情境: C
-- [ ] 2.3 [P] endpoint 整合測試  ~150行  files: tests/test_settlement_api.py
-      DoD: 涵蓋情境 A 成功、C 被擋  情境: A, C
+- [ ] 2.1 POST /settlements endpoint + 驗證＋單元測試  ~280行  files: routes/settlement.py, tests/test_settlement_api.py
+      DoD: 成功登記回 201、寫入 settlement 表；測試涵蓋成功與欄位驗證失敗  情境: A
+- [ ] 2.2 超額沖銷防呆（金額 > 未結餘額 → 422）＋單元測試  ~140行  files: routes/settlement.py, tests/test_settlement_api.py
+      DoD: 超額回 422 + 錯誤訊息；測試涵蓋剛好等額 / 超額兩種邊界  情境: C
+- [ ] 2.3 整合測試（登記 → 餘額更新 → 超額被擋全流程）＋ mutation self-check  ~150行  files: tests/test_settlement_integration.py
+      DoD: 情境 A→B→C 全流程串通過；sabotage 餘額計算與防呆條件各一處，對應測試須 FAIL  情境: A, B, C
 ```
 
-兩個 task、各 3 個 item，皆 ≤300 行，測試獨立，情境 B 的基礎抽成 Task 1 供 Task 2 依賴。
+兩個 task、共 5 個 item，皆 ≤300 行（估算含測試、已 ×2 校準）；單元測試隨各實作 item，整合測試收尾；情境 B 的基礎抽成 Task 1 供 Task 2 依賴。
 
 ---
 

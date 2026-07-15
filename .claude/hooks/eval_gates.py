@@ -17,7 +17,14 @@ import subprocess
 import sys
 
 GIT_COMMIT_RE = re.compile(r"\bgit\s+(?:-[A-Za-z0-9-]+(?:[= ]\S+)?\s+)*commit\b")
-MANIFEST_RE = re.compile(r"^run/(?P<run_id>[^/]+?)\.json$")
+# 衍生檔（.eval.json / .test_baseline.json）的排除寫進 pattern 本身（單一判定點），
+# 不散落在各呼叫點用 endswith 補丁——新增衍生檔種類時只改這裡
+MANIFEST_RE = re.compile(
+    r"^run/(?P<run_id>[^/]+?)(?<!\.eval)(?<!\.test_baseline)\.json$"
+)
+
+TEST_FILE_NAME_RE = re.compile(r"^(test_.*|.*_test)\.py$")
+TEST_DIR_NAMES = {"test", "tests", "__tests__", "spec"}
 
 # phase 狀態機：manifest.phase 依前置步驟推進，subagent 呼叫需達到對應 phase
 PHASES = ["init", "risk_done", "usage_confirmed", "decomposed", "completed"]
@@ -34,7 +41,23 @@ SKILL_HINT = "（流程細節住在 eval-flow skill：若尚未載入或 context
 _hint_enabled = False
 
 
+def log_gate_hit(msg):
+    """gate 命中遙測：append 到 run/gate_hits.log（stats.py 彙總用）。
+    只在 run/ 已存在時寫（不在非 flow 專案留檔）；失敗不影響攔截本身。"""
+    if not os.path.isdir("run"):
+        return
+    try:
+        from datetime import datetime
+        first_line = msg.splitlines()[0][:200]
+        with open("run/gate_hits.log", "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}\t{first_line}\n")
+    except OSError:
+        pass
+
+
 def block(msg):
+    if _hint_enabled:
+        log_gate_hit(msg)
     hint = f"\n[gate-check] {SKILL_HINT}" if _hint_enabled else ""
     print(f"[gate-check] BLOCK: {msg}{hint}", file=sys.stderr)
     sys.exit(2)
@@ -135,7 +158,7 @@ def load_json_quiet(path):
 def check_other_runs(current_run_id):
     """欠帳 gate ＋ 單一 run gate：掃本工作區的其他 manifest。"""
     for path in sorted(glob.glob("run/*.json")):
-        if path.endswith(".eval.json"):
+        if not MANIFEST_RE.match(path):
             continue
         other = load_json_quiet(path)
         if not isinstance(other, dict):
@@ -152,6 +175,30 @@ def check_other_runs(current_run_id):
                 f"一個 worktree 同時只允許一個 run。先收尾／封存該 run，"
                 f"要並行請開 git worktree，中斷續跑依 eval-flow-resume skill"
             )
+
+
+def is_test_file(path):
+    if not path.endswith(".py"):
+        return False
+    if TEST_FILE_NAME_RE.match(os.path.basename(path)):
+        return True
+    return any(part in TEST_DIR_NAMES for part in path.split("/")[:-1])
+
+
+def check_staged_test_lint(staged):
+    """假測試 lint gate：flow 收尾 commit 時，staged 的 Python 測試檔須通過 test_lint.py。"""
+    test_files = [p for p in sorted(staged) if is_test_file(p) and os.path.exists(p)]
+    if not test_files:
+        return
+    lint = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_lint.py")
+    if not os.path.exists(lint):
+        return  # 部署未含 lint script 時不擋（防線以存在的工具為準）
+    p = subprocess.run(
+        [sys.executable, lint, *test_files], capture_output=True, text=True
+    )
+    if p.returncode != 0:
+        detail = (p.stdout + p.stderr).strip()
+        block(f"假測試 lint 未過（修測試或以行尾 `# testlint: allow` 豁免並留痕）：\n{detail}")
 
 
 def check_task_gate(tool_input):
@@ -246,9 +293,11 @@ def run_hook():
         sys.exit(0)  # 非 git repo 等情況，不擋
     staged = set(out.split())
 
-    for path in sorted(staged):
-        if MANIFEST_RE.match(path) and not path.endswith(".eval.json"):
-            check_manifest(path, staged)
+    manifests = [p for p in sorted(staged) if MANIFEST_RE.match(p)]
+    for path in manifests:
+        check_manifest(path, staged)
+    if manifests:
+        check_staged_test_lint(staged)
     sys.exit(0)
 
 

@@ -34,10 +34,10 @@ def make_sub_task(**overrides):
 
 
 class RoundsInvariantTest(unittest.TestCase):
-    def test_valid_deduction_sum_passes(self):
+    def test_valid_deduction_sum_passes(self):  # testlint: allow — 斷言的是「不拋例外」
         eval_gates.check_rounds_invariant(make_sub_task(), "test")
 
-    def test_perfect_score_with_empty_deductions_passes(self):
+    def test_perfect_score_with_empty_deductions_passes(self):  # testlint: allow — 斷言的是「不拋例外」
         st = make_sub_task(rounds=[{"round": 1, "quality_score": 10, "deduction_reasons": []}])
         eval_gates.check_rounds_invariant(st, "test")
 
@@ -57,7 +57,7 @@ class ValidateStateTest(unittest.TestCase):
     def state(self, **overrides):
         return {"run_id": "t", "sub_tasks": [make_sub_task(**overrides)]}
 
-    def test_complete_passed_state_passes(self):
+    def test_complete_passed_state_passes(self):  # testlint: allow — 斷言的是「不拋例外」
         eval_gates.validate_state(self.state(), "test", require_passed=True)
 
     def test_missing_run_id_blocks(self):
@@ -78,7 +78,7 @@ class ValidateStateTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             eval_gates.validate_state(self.state(local_test_evidence=None), "test", require_passed=True)
 
-    def test_require_passed_false_skips_status_checks(self):
+    def test_require_passed_false_skips_status_checks(self):  # testlint: allow — 斷言的是「不拋例外」
         eval_gates.validate_state(self.state(status="in_progress", local_test_passed=False), "test")
 
 
@@ -99,6 +99,76 @@ class ManifestPhaseTest(unittest.TestCase):
 
     def test_unknown_phase_falls_back_to_derivation(self):
         self.assertEqual(eval_gates.manifest_phase({"phase": "bogus"}), "init")
+
+
+class ManifestRegexTest(unittest.TestCase):
+    def test_matches_plain_manifest(self):
+        m = eval_gates.MANIFEST_RE.match("run/2026-07-15-foo.json")
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group("run_id"), "2026-07-15-foo")
+
+    def test_ignores_eval_archive(self):
+        self.assertIsNone(eval_gates.MANIFEST_RE.match("run/2026-07-15-foo.eval.json"))
+
+    def test_ignores_test_baseline(self):
+        self.assertIsNone(
+            eval_gates.MANIFEST_RE.match("run/2026-07-15-foo.test_baseline.json")
+        )
+
+    def test_ignores_nested_paths(self):
+        self.assertIsNone(eval_gates.MANIFEST_RE.match("run/sub/foo.json"))
+
+
+class TestFileDetectionTest(unittest.TestCase):
+    def test_conventional_names(self):
+        self.assertTrue(eval_gates.is_test_file("test_foo.py"))
+        self.assertTrue(eval_gates.is_test_file("src/foo_test.py"))
+        self.assertTrue(eval_gates.is_test_file("tests/helpers.py"))
+
+    def test_non_test_files(self):
+        self.assertFalse(eval_gates.is_test_file("src/foo.py"))
+        self.assertFalse(eval_gates.is_test_file("tests/foo.js"))
+
+
+class GateHitLogTest(unittest.TestCase):
+    def setUp(self):
+        import os
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+
+    def tearDown(self):
+        import os
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+        eval_gates._hint_enabled = False
+
+    def test_block_in_hook_mode_logs_hit_when_run_dir_exists(self):
+        import os
+        os.makedirs("run")
+        eval_gates._hint_enabled = True
+        with self.assertRaises(SystemExit):
+            eval_gates.block("測試訊息：第一行\n第二行不記")
+        with open("run/gate_hits.log", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("測試訊息：第一行", content)
+        self.assertNotIn("第二行", content)
+
+    def test_no_log_without_run_dir(self):
+        import os
+        eval_gates._hint_enabled = True
+        with self.assertRaises(SystemExit):
+            eval_gates.block("x")
+        self.assertFalse(os.path.exists("run"))
+
+    def test_validate_mode_does_not_log(self):
+        import os
+        os.makedirs("run")
+        eval_gates._hint_enabled = False
+        with self.assertRaises(SystemExit):
+            eval_gates.block("x")
+        self.assertFalse(os.path.exists("run/gate_hits.log"))
 
 
 class GitCommitRegexTest(unittest.TestCase):

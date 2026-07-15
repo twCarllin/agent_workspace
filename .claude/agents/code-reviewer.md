@@ -5,7 +5,7 @@ description: |
   負責檢查：安全漏洞、效能問題、邏輯錯誤、可維護性、符合最佳實踐。
   不修改任何檔案，僅輸出結構化審查報告。
 tools: Read, Grep, Glob, Bash
-model: claude-sonnet-4-6
+model: claude-opus-4-8  # 刻意與 code-writer（sonnet）不同 model：去相關化驗證——同一顆腦互審抓不到共同盲點；亦符合「審查→強 model」指派原則
 skills: review-checklist, report-format
 ---
 

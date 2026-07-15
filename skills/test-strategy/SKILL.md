@@ -1,6 +1,6 @@
 ---
 name: test-strategy
-description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無新增穩定失敗」機制（script 判定）、flaky 過濾、失敗四分類決策樹、兩次舉手上限、相關測試選擇、commit 前全套檢查與重開 passed sub_task 的路徑、零測試專案處置、全 tier 驗證豁免窗口。觸發語：Eval Flow 循環進入 step 5 時、「測試失敗怎麼辦」、「建測試 baseline」。不適用於：測試框架選型（Tier B bootstrap 的 HITL 決定）、eval 評分（走 eval-scoring）。
+description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無新增穩定失敗」機制（script 判定）、flaky 過濾、失敗四分類決策樹、兩次舉手上限、相關測試選擇（累積聯集）、假測試 lint、mutation self-check、commit 前全套檢查與重開 passed sub_task 的路徑、零測試專案處置、全 tier 驗證豁免窗口。觸發語：Eval Flow 循環進入 step 5 時、「測試失敗怎麼辦」、「建測試 baseline」。不適用於：測試框架選型（Tier B bootstrap 的 HITL 決定）、eval 評分（走 eval-scoring）。
 ---
 
 # Test Strategy（本地測試 gate 執行細節）
@@ -22,24 +22,40 @@ python3 .claude/hooks/test_baseline.py baseline
 
 ## Step 5 執行順序（每個 sub_task）
 
-1. **選相關測試**（範圍分層：逐 sub_task 只跑相關的，快、歸因清楚）：
+0. **行為驗證紀律**：寫任何驗證程式（含臨時 harness）前，先確認實際介面——`inspect.signature`、讀函式定義，**不憑印象寫**（實測：憑印象的 harness 連錯 5 次，每次都反證實作是對的、純浪費輪次）。驗證碼不是 throwaway：它就是本 sub_task 單元測試的草稿，直接寫進該 item 的測試檔（單元測試隨實作 item，見 task-decomposition skill）
+1. **選相關測試（累積聯集）**：
    ```
-   python3 .claude/hooks/test_baseline.py related --files <本 sub_task 的 files 清單>
+   python3 .claude/hooks/test_baseline.py related --files $(python3 .claude/hooks/eval_state.py list-files)
    ```
-   script 用「測試檔命名慣例 + grep 引用」找；**輸出只是候選起點**，agent 要補上：本 sub_task 新寫的測試 item、以及改到 shared module 時自己判斷的追加範圍。寧可多選不可少選
-2. **跑 gate 判定**：
+   `--files` 餵的是**本 run 至今所有 sub_task 的 files 聯集**（`eval_state.py list-files` 直接輸出），不是只有本 item——跨 item 破壞幾乎都落在本 run 碰過的檔案輻射範圍內，累積回歸集讓破壞在**肇因 item 當場爆、歸因免費**（唯一的新變數就是現在這個 item，在循環內修即可），而不是拖到收尾全套才發現、走昂貴的重開路徑。script 用「測試檔命名慣例 + grep 引用」找；**輸出只是候選起點**，agent 要補上：本 sub_task 新寫的測試、以及改到 shared module 時自己判斷的追加範圍。寧可多選不可少選
+2. **假測試 lint**（跑測試前先驗測試本身）：
+   ```
+   python3 .claude/hooks/test_lint.py <本 sub_task 新增/修改的測試檔>
+   ```
+   抓機械可辨的假測試模式：if-guard 藏斷言、無斷言測試、恆真斷言（實測：這類模式寫 60+ 測試時必然重現，retro 散文擋不住，只有 lint 擋得住）。exit 2 → 修測試；確認誤報（如「不拋例外即通過」型測試）→ 行尾加 `# testlint: allow` 並在 `local_test_evidence` 註明理由。commit 時 hook 會對 staged 測試檔再跑一次（硬防線）
+3. **跑 gate 判定**：
    ```
    python3 .claude/hooks/test_baseline.py check --cmd "<相關測試指令>" --strike-key sub_task_<id>
    ```
    - exit 0（無新增穩定失敗）→ gate 通過：`local_test_passed: true`，`local_test_evidence` 填 script 輸出摘要（指令＋PASS 行＋略過的 baseline 失敗數）
    - exit 2 → 有真的新增失敗，進下方分類決策樹
-3. **flaky 由 script 自動處置**：非 baseline 的失敗會自動重跑一次，重跑通過 → 判定 flaky、併入名單放行（不為它空轉）。flaky 名單累積在 baseline 檔裡，retro 時一併彙報
+4. **flaky 由 script 自動處置**：非 baseline 的失敗會自動重跑一次，重跑通過 → 判定 flaky、併入名單放行（不為它空轉）。flaky 名單累積在 baseline 檔裡，retro 時一併彙報
+
+## Mutation self-check（整合測試 item 的 DoD 一部分，Tier 2）
+
+測試會跑不代表斷言有效——實測靠事後補做 mutation test 才確認斷言真的抓得到破壞（sabotage 後測試真的 FAIL），此步制度化為整合測試 item 的收尾動作：
+
+1. 挑本 task 至少 2 個**關鍵行為點**（計算邏輯、防呆條件——被弄壞會直接造成錯誤結果的那種）
+2. 逐一 sabotage（改壞實作的一行）→ 跑對應測試，**必須 FAIL**；恢復原狀 → 跑測試，**必須 PASS**
+3. **每次 sabotage 與恢復後清 `__pycache__`**（`find . -name __pycache__ -type d -exec rm -rf {} +`）——stale `.pyc` 會讓判定失真（實測誤判 2 個測試壞掉）
+4. 任一 sabotage 沒讓測試 FAIL → 斷言無效，修測試後重做；結果（sabotage 了哪些點、FAIL/PASS 確認）記入 `local_test_evidence`
 
 ## 失敗分類決策樹（script 過濾後剩下的真新失敗才進這裡）
 
 | 分類 | 判定 | 處置 |
 |---|---|---|
-| **code 錯** | 測試斷言的是 Spec 要的行為，diff 沒做到 | 修 code，回循環步驟 3 |
+| **code 錯（本 item）** | 測試斷言的是 Spec 要的行為，本 item 的 diff 沒做到 | 修 code，回循環步驟 3 |
+| **肇因非本 item** | 累積聯集照出的失敗，肇因是**先前已 passed 的 sub_task**（潛伏 bug 被本 item 新測試或新路徑照到；用 `git diff --cached -- <各 sub_task 的 files>` 定位肇事者） | 走「重開路徑」重開肇事 sub_task（同 commit 前全套檢查的處置）；本 item 不動。**strike 不算本 item 的**：script 的計數不分肇因，若因此累計到 2 次觸發舉手，回報時註明肇因歸屬，由使用者裁決是否續跑 |
 | **測試過時** | 測試斷言的是被 Spec **有意**改掉的舊行為 | 可更新測試，但必須在 `local_test_evidence` 註明：改了哪個測試、舊斷言為何不再成立、對應的 Spec／task 依據。**無依據的放寬斷言／刪 case／加 skip 視同 🔴**（code-reviewer 審查重點） |
 | **無關的既有失敗** | 理論上不會出現（baseline 已濾）；出現代表 baseline 漏建或測試指令範圍不一致 | 檢查 baseline 是否涵蓋該測試範圍，必要時重建 baseline |
 | **flaky** | script 已自動重跑過濾 | 不需人工處置；若懷疑 script 誤判（例如依時間才觸發的失敗），記錄後照「code 錯」保守處理 |
