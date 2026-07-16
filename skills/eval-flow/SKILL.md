@@ -57,6 +57,8 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
    - **retro 前置（硬性步驟）**：呼叫前，主 flow 從 `retro/RETRO.md` 挑出與本 item 相關的條目（同模組／同類操作／同類風險面），**原文貼進 writer prompt 的硬性約束區**——不是叫 writer「自己去讀 retro」。實測：writer 讀了 retro、檔頭還引用教訓，仍寫出一模一樣的問題模式；教訓只有以明文約束前置進 prompt 才有效。無相關條目時在 prompt 註明「retro 無相關條目」（留痕，防跳步）
 2. 將變更檔案 `git add` 進 staging area（確保 code-reviewer / eval-scorer 可透過 `git diff --cached` 讀取）
 3. 呼叫 `code-reviewer` subagent 審查，解析 🔴 重大問題
+   - **審查報告 write-ahead（硬性步驟）**：**每一輪** code-reviewer 交付後，主 flow 立即把審查報告全文落檔 `run/<run_id>.review-st<id>-r<N>.md`（st＝sub_task id、r＝該 sub_task 的審查輪次，逐輪遞增），再進入解析／修正——比照 `step` 欄位的 write-ahead 原則（中斷在 fixing 時整輪 reviewer 只活在對話裡會作廢，落檔後接手者讀報告續修，不重跑 reviewer）。`set-review <id> <🔴數>` 僅於**首輪**落檔後執行（記修正前原始數，與操作規則條呼應）。落檔是熱 scratchpad（只為中斷恢復服務），step 7 收尾時隨 `eval_state.json` 一併清除、不進 git
+   - **🔴 重裁條款**：主 flow 對每條 🔴 先做事實核對——至少讀 producer 端證據（上游 schema、函式定義、實際輸出），有反證 → 送獨立重裁（重呼叫 reviewer 附上反證，或取第二意見），**不可未經查證直接派 writer 照修**（reviewer 可能只讀消費面就下錯誤斷言，照修會把正確的 code 改壞）
    - 如果有 🔴：根據建議修正（或呼叫 `code-writer`），重新 `git add` 後再次呼叫 `code-reviewer` 驗證
 4. 🔴 清零後，呼叫 `task-verifier` subagent 確認功能完整
    - 比對 task.md vs 實際 diff（子任務完成、DoD 達成、無 scope 偏移）
@@ -72,7 +74,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
    - **多 sub_task 且有評分時**：staging area 會累積先前 sub_task 的變更，須在 prompt 中限定 code-reviewer / eval-scorer 只評本 sub_task 涉及的檔案（`git diff --cached -- <本 sub_task 的檔案路徑>`，清單以 `eval_state.json` 該 sub_task 的 `files` 欄為準），避免評分範圍互相污染
 7. 判斷分數：
    - **step 6 跳過評分者** → sub_task 已設 `passed`，比照下方 score >= threshold 進收尾順序
-   - **score >= threshold** → 收尾順序（**hook 強制**，見「Gate 的硬性執行」）：⓪先跑**全套測試檢查**（`test_baseline.py check --cmd "<全套指令>" --strike-key full_suite`，見 test-strategy skill）——出現新失敗代表相關測試沒抓到的跨 sub_task 破壞，依 skill 的「重開路徑」把肇事 sub_task 改回 in_progress 從步驟 3 重走，**不可收尾** ①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留各輪分數與扣分原因的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json`** ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔一併 `git add` ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
+   - **score >= threshold** → 收尾順序（**hook 強制**，見「Gate 的硬性執行」）：⓪先跑**全套測試檢查**（`test_baseline.py check --cmd "<全套指令>" --strike-key full_suite`，見 test-strategy skill）——出現新失敗代表相關測試沒抓到的跨 sub_task 破壞，依 skill 的「重開路徑」把肇事 sub_task 改回 in_progress 從步驟 3 重走，**不可收尾** ①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留各輪分數與扣分原因的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json` 與本 run 的 `run/<run_id>.review-st*-r*.md`**（審查落檔是熱 scratchpad，收尾即清；失敗收尾則與 eval_state 一樣保留現場） ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔一併 `git add` ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
    - **Floor 規則（優先於總分判斷）**：任一維度 0 分 → 不論總分，視同 score < threshold（0 分缺失不得被其他維度補償，定義見 eval-scorer）
    - **score < threshold 且 rounds < 2** → 根據評分報告生成改進 brief，回步驟 1
    - **score < threshold 且 rounds == 2** → 讀取 `eval_state.json` 生成完整報告，回報使用者

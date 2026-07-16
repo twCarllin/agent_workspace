@@ -1,0 +1,62 @@
+{
+  "run_id": "2026-07-16-review-writeahead-fixture-rules",
+  "threshold": 6,
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "eval-flow step 3 審查 write-ahead＋重裁條款、resume 同步",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/eval-flow/SKILL.md",
+        "skills/eval-flow-resume/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "prose item：test_baseline.py baseline 建立（全套 93 tests 無 stable failure）；check --cmd 'unittest tests.test_docs_consistency' --strike-key sub_task_1: PASS 無新增穩定失敗；無測試檔變更，test_lint 不適用",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "rounds": []
+    },
+    {
+      "id": 2,
+      "name": "task-decomposition fixture-producer 硬要求、test-strategy 複審重放",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/task-decomposition/SKILL.md",
+        "skills/test-strategy/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "prose item：test_baseline.py check --cmd 'unittest tests.test_docs_consistency' --strike-key sub_task_2: PASS 無新增穩定失敗（5 tests OK）；verifier 另跑全套 93 tests OK；無測試檔變更，test_lint 不適用",
+      "review_reds": 1,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "rounds": [
+        {
+          "round": 1,
+          "review_reds": 1,
+          "quality_score": 9,
+          "dimensions": {
+            "Clarity": 1,
+            "Completeness": 2,
+            "Testability": 2,
+            "Non_functional": 2,
+            "Technical_constraints": 2
+          },
+          "deduction_reasons": [
+            {
+              "points_lost": 1,
+              "dimension": "Clarity",
+              "reason": "task-decomposition 測試要求段增補後超過 250 字，兩條新硬要求以散文連句附段尾、無法快速掃描，與反模式清單的分行格式不一致",
+              "evidence": "skills/task-decomposition/SKILL.md:27"
+            }
+          ],
+          "brief_sent_to_writer": ""
+        }
+      ]
+    }
+  ]
+}

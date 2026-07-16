@@ -1,0 +1,17 @@
+{
+  "run_id": "2026-07-16-review-writeahead-fixture-rules",
+  "created_at": "2026-07-16 16:25",
+  "framework_version": "2026.07.15",
+  "tier": 1,
+  "tier_rationale": "真實 run 回饋的流程規則增補：4 個 skill 檔純文件變更（超出 Tier 0 的 2 檔上限）、DoD 明確、單一路徑、不觸及 auth／金流／DB schema／部署設定 → Tier 1。回饋驅動迭代（真實 run＋使用者裁示），不違反 5-run 凍結",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "真實 Tier 2 run 回饋落地（使用者複選裁示 2/4 組）：(1) 審查 write-ahead＋重裁條款——eval-flow 循環 step 3 增補「code-reviewer 交付後主 flow 立即將報告全文落檔 run/<run_id>.review-st<id>-r<N>.md（比照 step 欄位 write-ahead 原則，中斷在 fixing 時接手者讀落檔報告續修、不重跑 reviewer）」與「主 flow 對 🔴 先事實核對（讀 producer 端證據），有反證送獨立重裁，不可未經查證直接派修」；eval-flow-resume 的 fixing 列同步改為讀落檔報告續修。(2) fixture-producer 硬要求——task-decomposition 測試要求段與反模式清單加「fixture 逐區塊附 producer 行號依據、fixture 為測試實際載入的 single source」硬要求（根因已四度現形，散文 retro 擋不住）；test-strategy mutation 節加「複審者親自重放 mutation，不採信 writer 自報」一句。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-16 16:25 — 使用者以複選裁示確認範圍（4 組候選中選「審查 write-ahead＋重裁條款」與「fixture-producer 硬要求」，題目明示選定即實作），1 task／2 items",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "task_file": "task/2026-07-16.md",
+  "status": "completed",
+  "failed_reason": null
+}

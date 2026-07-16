@@ -57,6 +57,7 @@ python3 .claude/hooks/test_baseline.py baseline
 2. 逐一 sabotage（改壞實作的一行）→ 跑對應測試，**必須 FAIL**；恢復原狀 → 跑測試，**必須 PASS**
 3. **每次 sabotage 與恢復後清 `__pycache__`**（`find . -name __pycache__ -type d -exec rm -rf {} +`）——stale `.pyc` 會讓判定失真（實測誤判 2 個測試壞掉）
 4. 任一 sabotage 沒讓測試 FAIL → 斷言無效，修測試後重做；結果（sabotage 了哪些點、FAIL/PASS 確認）記入 `local_test_evidence`
+5. **獨立重放（主 flow 執行，不採信自報）**：整合測試 item 的 step 5 收尾時，**主 flow 親自重放至少一組 sabotage→FAIL→恢復→PASS**，不採信 writer 的自報結果（實測「主 flow 重放」抓到自報遺漏）。重放主體是主 flow 而非 code-reviewer——reviewer 是只讀角色，不改檔；重放同樣遵守第 3 步清 `__pycache__`，做完恢復原狀
 
 ## 失敗分類決策樹（script 過濾後剩下的真新失敗才進這裡）
 

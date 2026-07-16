@@ -24,7 +24,7 @@ description: 依「使用情境報告」與 Spec，把工作拆成可執行、�
 
 上限是為了讓每個 item 的 `git diff --cached` 小到 code-reviewer / eval-scorer 能一次讀完並打準分。**300 行是「新增 + 修改」的總和，不含自動生成的 lockfile / migration 樣板。**
 
-**測試要求（Tier 2 硬性）**：每個引入新行為的**實作 item**，DoD 必須綁定該 item 的單元測試——測試與實作同 item、同 writer、同 diff（介面知識最熱的時候寫測試，行為驗證的程式碼直接落成測試，不寫 throwaway harness）。每個 task 尾端保留一個**整合測試 item**，只做跨 item 的整合層驗證＋ mutation self-check（見 test-strategy skill），不塞單元測試。DoD 沒綁測試的新行為 item、或整合測試 item 膨脹成單元測試大雜燴，交付前自檢不通過即重拆。這讓循環 step 5 的本地測試 gate 有測試可跑，且測試品質風險分散在各 item，不集中在最後一個 writer 身上（Tier 1 不經本 skill，維持可用實際運行驗證）。
+**測試要求（Tier 2 硬性）**：每個引入新行為的**實作 item**，DoD 必須綁定該 item 的單元測試——測試與實作同 item、同 writer、同 diff（介面知識最熱的時候寫測試，行為驗證的程式碼直接落成測試，不寫 throwaway harness）。每個 task 尾端保留一個**整合測試 item**，只做跨 item 的整合層驗證＋ mutation self-check（見 test-strategy skill），不塞單元測試。DoD 沒綁測試的新行為 item、或整合測試 item 膨脹成單元測試大雜燴，交付前自檢不通過即重拆。這讓循環 step 5 的本地測試 gate 有測試可跑，且測試品質風險分散在各 item，不集中在最後一個 writer 身上（Tier 1 不經本 skill，維持可用實際運行驗證）。測試類 item（含各實作 item 的單元測試與整合測試 item）的 DoD 另附兩條硬要求：**fixture 逐區塊附 producer 行號依據**（fixture 的每個資料區塊須以註解標明「依據 &lt;producer 檔:行&gt;」，證明與 producer 實際輸出對齊，防漂移後消費路徑零覆蓋且全綠）；**fixture 為測試實際載入的 single source**（不得另存一份測試不讀的副本）。交付前自檢不符即重拆。
 
 ---
 
@@ -119,6 +119,8 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 - 把邊界 / 異常處理整包吞進 happy-path item，讓 diff 爆量
 - 標 `[P]` 但兩個 item 共用檔案或有資料依賴
 - 前置基礎（schema / 共用 client）沒抽出來，導致多個 item 重複定義
+- fixture 手寫、無 producer 行號依據（與 producer 漂移後消費路徑零覆蓋且全綠——此根因已四度現形，retro 散文擋不住）
+- fixture 存在測試實際不載入的副本（single source 破功——改了副本、測試仍讀舊值，對齊證明形同虛設）
 
 ---
 
