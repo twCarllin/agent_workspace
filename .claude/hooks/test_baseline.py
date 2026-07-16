@@ -2,7 +2,7 @@
 """test-strategy skill 的執行端：測試 baseline 建立與「新增失敗」判定。
 
 用法：
-  python3 .claude/hooks/test_baseline.py baseline [--cmd "pytest -q"] [--runs 2] [--run-id ID]
+  python3 .claude/hooks/test_baseline.py baseline [--cmd "pytest -q"] [--runs 2] [--run-id ID] [--fresh]
   python3 .claude/hooks/test_baseline.py check    [--cmd "pytest -q"] [--strike-key sub_task_1] [--run-id ID]
   python3 .claude/hooks/test_baseline.py related  --files src/a.py src/b.py
 
@@ -11,6 +11,9 @@ single source of truth，保證 baseline 與 check 的範圍一致。
 
 baseline：跑 --runs 次（預設 2），每次都失敗的測試記為 stable（既有壞測試，
           之後不擋），只失敗部分次數的記為 flaky。寫入 run/<run_id>.test_baseline.json。
+          既有 baseline 檔中存在「head_sha == 目前 HEAD 且 cmd 相同」者 → 直接沿用
+          其 stable/flaky 名單（baseline 記的是進場 HEAD 的既有失敗快照，同進場 HEAD
+          即可沿用，免重跑全套；本 run 工作樹的新變更由 check 把關），--fresh 強制重建。
 check：   跑一次，扣掉 baseline 的 stable / flaky 後若有新失敗，重跑一次過濾 flaky：
           重跑仍失敗 → 真的新增失敗，exit 2；重跑通過 → 併入 flaky 名單，放行。
           --strike-key 提供時累計該 key 的連續真失敗次數（通過即歸零），
@@ -21,6 +24,7 @@ run_id 未指定時讀 eval_state.json 的 run_id。
 exit 0 = gate 通過；exit 2 = 有新增穩定失敗（stderr 列清單）；exit 1 = 使用錯誤。
 """
 import argparse
+import glob
 import json
 import os
 import re
@@ -90,9 +94,60 @@ def resolve_cmd(args, run_id):
     return cmd
 
 
+def git_head():
+    try:
+        p = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+        )
+        return p.stdout.strip() or None
+    except (OSError, subprocess.CalledProcessError):
+        return None  # 非 git repo：不重用，照常全新建立
+
+
+def find_reusable_baseline(run_id, cmd, head):
+    """掃既有 baseline 檔，找「head_sha == 目前 HEAD 且 cmd 相同」者供沿用。
+    多個符合時取排序最後者——契約：run_id 以可字典序排序的日期開頭
+    （YYYY-MM-DD-slug），字典序即時序；命名慣例若變，此處要換排序鍵。
+    找不到回 None。"""
+    if not head:
+        return None
+    own = baseline_path(run_id)
+    candidate = None
+    for path in sorted(glob.glob("run/*.test_baseline.json")):
+        if path == own:
+            continue
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if data.get("head_sha") == head and data.get("cmd") == cmd:
+            candidate = data
+    return candidate
+
+
 def cmd_baseline(args):
     run_id = resolve_run_id(args)
     cmd = resolve_cmd(args, run_id)
+    head = git_head()
+    if not args.fresh:
+        prev = find_reusable_baseline(run_id, cmd, head)
+        if prev:
+            os.makedirs("run", exist_ok=True)
+            _save(baseline_path(run_id), {
+                "run_id": run_id,
+                "cmd": cmd,
+                "head_sha": head,
+                "reused_from": prev.get("run_id"),
+                "stable_failures": prev.get("stable_failures", []),
+                "flaky": prev.get("flaky", []),
+                "strikes": {},
+            })
+            print(
+                f"[test-gate] 沿用 {prev.get('run_id')} 的 baseline"
+                f"（HEAD 未變、cmd 相同），免重跑全套建基準；要強制重建用 --fresh"
+            )
+            return
     results = []
     for i in range(args.runs):
         fails, _ = run_tests(cmd)
@@ -104,6 +159,7 @@ def cmd_baseline(args):
     data = {
         "run_id": run_id,
         "cmd": cmd,
+        "head_sha": head,
         "stable_failures": sorted(stable),
         "flaky": sorted(flaky),
         "strikes": {},
@@ -217,6 +273,7 @@ def main():
     p_base.add_argument("--cmd")
     p_base.add_argument("--runs", type=int, default=2)
     p_base.add_argument("--run-id")
+    p_base.add_argument("--fresh", action="store_true")
     p_base.set_defaults(func=cmd_baseline)
 
     p_check = sub.add_parser("check")

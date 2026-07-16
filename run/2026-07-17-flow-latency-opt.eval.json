@@ -1,0 +1,42 @@
+{
+  "run_id": "2026-07-17-flow-latency-opt",
+  "threshold": 6,
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "review∥verify 並行化＋Tier 1 直寫捷徑（prose）",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/eval-flow/SKILL.md",
+        "skills/eval-flow-resume/SKILL.md",
+        "CLAUDE.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "prose item：baseline 建立（全套 93 tests 無 stable failure）；check --cmd 'unittest tests.test_docs_consistency' --strike-key sub_task_1: PASS 無新增穩定失敗；無測試檔變更，test_lint 不適用。並行 review∥verify 首次實吃：verifier 先回、reviewer 後回，匯合點零 🔴＋通過",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "rounds": []
+    },
+    {
+      "id": 2,
+      "name": "baseline 重用（test_baseline.py＋tests＋prose）",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/hooks/test_baseline.py",
+        "tests/test_test_baseline.py",
+        "skills/test-strategy/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_lint.py tests/test_test_baseline.py: PASS；check --cmd 'unittest tests.test_test_baseline tests.test_docs_consistency' --strike-key sub_task_2: PASS 無新增穩定失敗（13＋5 tests）；全套 97 tests OK 已於 staged 前驗。本 item 由主 flow 直寫捷徑實作（純實作 ~50 行；含測試 diff ~120 行，超 ≤100 估的邊界已由 verifier 記錄）",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "rounds": []
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "run_id": "2026-07-17-flow-latency-opt",
+  "created_at": "2026-07-17 00:49",
+  "framework_version": "2026.07.15",
+  "tier": 1,
+  "tier_rationale": "flow 延遲優化：3 個 skill prose ＋ test_baseline.py 重用邏輯（含測試），多檔含 code 超出 Tier 0，DoD 明確、單一路徑、不觸及 auth／金流／DB schema／部署設定 → Tier 1",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "流程延遲優化三項（不削防線，砍重複與序列化開銷）：(1) review ∥ verify 並行化——code-reviewer 與 task-verifier 皆唯讀、讀同一 staged diff、互不依賴輸出，eval-flow 循環 step 3/4 改為同一訊息並發呼叫，兩者皆回且 reviewer 零 🔴＋verifier 通過才進 step 5；reviewer 有 🔴 時 verifier 該輪作廢，fixing 後兩者一併重跑（🔴 率低時期望值為正）。resume 表格同步。(2) Tier 1 主 flow 直寫捷徑——Tier 1 且單 item 預估 ≤100 行時，主 flow 可直接寫 code、不 spawn code-writer（省一次全新 agent 重建 context 的 60–180 秒稅）；「寫的人 ≠ 審的人」防線不變（reviewer 照常獨立審），retro 前置改由主 flow 自查並留痕。CLAUDE.md「呼叫 subagent 完成任務」加例外註記。(3) baseline 重用——test_baseline.py 的 baseline 記錄 HEAD sha 與 cmd，新 run 建 baseline 時若已有相同 HEAD＋相同 cmd 的既有 baseline 檔則沿用（免跑兩次全套），log 標明沿用來源；加 --fresh 旗標強制重建；tests 補案例；test-strategy skill baseline 節同步一句。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-17 00:52 — 使用者確認 1 task／2 items 計畫（並行化＋直寫捷徑 prose、baseline 重用 code；三項全做）",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "task_file": "task/2026-07-17.md",
+  "status": "completed",
+  "failed_reason": null
+}

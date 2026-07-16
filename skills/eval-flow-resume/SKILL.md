@@ -38,9 +38,9 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 | step | 含義 | 從哪續跑 |
 |---|---|---|
 | `writing` | code-writer 執行中被斷 | 重跑循環步驟 1（code-writer；prompt 附上已 staged 的部分成果供其接續） |
-| `reviewing` | code 已寫完、review 中被斷 | 重跑循環步驟 3（code-reviewer） |
-| `fixing` | review 有 🔴、修正中被斷 | 讀 `run/<run_id>.review-st<id>-r<N>.md` 的落檔審查報告續修（`<id>`＝該 in_progress sub_task 的 id，`<N>` 取現存檔名中最大者＝最新一輪；無落檔報告＝舊版 run 的現場，重跑步驟 3） → 回步驟 3 |
-| `verifying` | task-verifier 執行中被斷 | 重跑循環步驟 4 |
+| `reviewing` | 並行審查／驗證中被斷 | 重跑循環步驟 3（並發呼叫 code-reviewer 與 task-verifier） |
+| `fixing` | review 有 🔴、修正中被斷 | 讀 `run/<run_id>.review-st<id>-r<N>.md` 的落檔審查報告續修（`<id>`＝該 in_progress sub_task 的 id，`<N>` 取現存檔名中最大者＝最新一輪；無落檔報告＝舊版 run 的現場，重跑步驟 3）；回步驟 3 時 verifier 隨 reviewer 一併重跑（該輪 verify 結果已作廢） → 回步驟 3 |
+| `verifying` | （舊版序列 run 的現場）task-verifier 執行中被斷 | 重跑循環步驟 4 |
 | `testing` | 本地測試中被斷 | 重跑循環步驟 5（`local_test_passed` 為 `false` 一律重測，不採信中斷前的口頭結果） |
 | `scoring` | eval-scorer 執行中被斷 | 檢查 `rounds`：本輪已有分數 → 從步驟 7 的分數判斷續跑；沒有 → 重跑步驟 6 |
 | `done` | 該 sub_task 已收完 | 狀態應為 `passed`；不是 → 修正狀態後進下一個 sub_task |

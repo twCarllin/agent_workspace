@@ -114,6 +114,67 @@ class BaselineScriptTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("test_command", result.stderr)
 
+    def init_git(self):
+        subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+             "commit", "--allow-empty", "-q", "-m", "x"],
+            cwd=self.dir, check=True,
+        )
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.dir,
+            capture_output=True, text=True,
+        ).stdout.strip()
+
+    def write_prev_baseline(self, head_sha, cmd):
+        (self.dir / "run").mkdir(exist_ok=True)
+        (self.dir / "run" / "prev.test_baseline.json").write_text(
+            json.dumps({
+                "run_id": "prev", "cmd": cmd, "head_sha": head_sha,
+                "stable_failures": ["tests/test_old.py::test_z"],
+                "flaky": [], "strikes": {"s9": 1},
+            }), encoding="utf-8",
+        )
+
+    # 沿用側效檔：baseline 若真的執行測試指令會留下 ran 檔
+    CMD_TOUCH = 'touch ran; exit 0'
+
+    def test_baseline_reuses_same_head_and_cmd(self):
+        head = self.init_git()
+        self.write_prev_baseline(head, self.CMD_TOUCH)
+        result = self.run_script("baseline", "--cmd", self.CMD_TOUCH)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("沿用 prev", result.stdout)
+        self.assertFalse((self.dir / "ran").exists())  # 沒有真的跑測試
+        data = self.read_baseline()
+        self.assertEqual(data["reused_from"], "prev")
+        self.assertEqual(data["stable_failures"], ["tests/test_old.py::test_z"])
+        self.assertEqual(data["strikes"], {})  # strikes 不沿用，歸零重計
+
+    def test_baseline_no_reuse_when_head_differs(self):
+        self.init_git()
+        self.write_prev_baseline("deadbeef", self.CMD_TOUCH)
+        result = self.run_script("baseline", "--cmd", self.CMD_TOUCH)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.dir / "ran").exists())  # 真的重跑了
+        self.assertNotIn("reused_from", self.read_baseline())
+
+    def test_baseline_no_reuse_when_cmd_differs(self):
+        head = self.init_git()
+        self.write_prev_baseline(head, "exit 0")
+        result = self.run_script("baseline", "--cmd", self.CMD_TOUCH)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.dir / "ran").exists())
+        self.assertNotIn("reused_from", self.read_baseline())
+
+    def test_fresh_flag_forces_rebuild(self):
+        head = self.init_git()
+        self.write_prev_baseline(head, self.CMD_TOUCH)
+        result = self.run_script("baseline", "--cmd", self.CMD_TOUCH, "--fresh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.dir / "ran").exists())
+        self.assertNotIn("reused_from", self.read_baseline())
+
     def test_related_maps_by_name_and_content(self):
         (self.dir / "src").mkdir()
         (self.dir / "tests").mkdir()

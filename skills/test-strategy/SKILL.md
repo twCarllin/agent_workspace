@@ -16,6 +16,7 @@ python3 .claude/hooks/test_baseline.py baseline
 
 - **全套測試指令從 manifest 的 `test_command` 讀**（single source of truth；`--cmd` 僅供覆寫）。manifest 尚無此欄時，先確認指令並寫入 manifest 再跑——不要每個 run 各猜一套，baseline 與 check 範圍不一致就會出現「無關的既有失敗」
 - 預設**跑兩次**：兩次都失敗 → `stable_failures`（既有壞測試）；只失敗一次 → `flaky`。兩者之後都不擋 gate——用兩次交集換 baseline 不被 flaky 汙染
+- **自動沿用**：既有 baseline 檔中存在「`head_sha` == 目前 HEAD 且 cmd 相同」者 → script 直接沿用其名單（baseline 記的是**進場 HEAD 的既有失敗快照**，同進場 HEAD 即可沿用、免重跑兩次全套；本 run 工作樹的新變更由 check 把關）；測試環境變了但 HEAD 沒變時用 `--fresh` 強制重建
 - 寫入 `run/<run_id>.test_baseline.json`（`run_id` 自動讀 `eval_state.json`）。此檔隨 commit 進 git，`stable_failures` 就是本 run 進場時的**既有欠帳快照**
 - **既有壞測試 = 記錄級欠帳，不是攔截級**：與 hotfix `debt` 不同——不擋新 run、本 run 不修（修它是 scope 偏移），但 retro 時彙報數量與清單，讓債看得見
 - 無任何測試框架的專案不建 baseline，改走「零測試專案」節

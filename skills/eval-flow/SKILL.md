@@ -56,13 +56,14 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 1. 呼叫 `code-writer` subagent 產出程式碼
    - **retro 前置（硬性步驟）**：呼叫前，主 flow 從 `retro/RETRO.md` 挑出與本 item 相關的條目（同模組／同類操作／同類風險面），**原文貼進 writer prompt 的硬性約束區**——不是叫 writer「自己去讀 retro」。實測：writer 讀了 retro、檔頭還引用教訓，仍寫出一模一樣的問題模式；教訓只有以明文約束前置進 prompt 才有效。無相關條目時在 prompt 註明「retro 無相關條目」（留痕，防跳步）
 2. 將變更檔案 `git add` 進 staging area（確保 code-reviewer / eval-scorer 可透過 `git diff --cached` 讀取）
-3. 呼叫 `code-reviewer` subagent 審查，解析 🔴 重大問題
+3. **同一訊息並發呼叫** `code-reviewer` 與 `task-verifier`（兩者皆唯讀、讀同一份 staged diff、互不依賴輸出——序列跑是純浪費）。`step` 欄位於並行階段記 `reviewing`（`verifying` 保留供舊 run resume 相容，新路徑不再單獨使用）
    - **審查報告 write-ahead（硬性步驟）**：**每一輪** code-reviewer 交付後，主 flow 立即把審查報告全文落檔 `run/<run_id>.review-st<id>-r<N>.md`（st＝sub_task id、r＝該 sub_task 的審查輪次，逐輪遞增），再進入解析／修正——比照 `step` 欄位的 write-ahead 原則（中斷在 fixing 時整輪 reviewer 只活在對話裡會作廢，落檔後接手者讀報告續修，不重跑 reviewer）。`set-review <id> <🔴數>` 僅於**首輪**落檔後執行（記修正前原始數，與操作規則條呼應）。落檔是熱 scratchpad（只為中斷恢復服務），step 7 收尾時隨 `eval_state.json` 一併清除、不進 git
    - **🔴 重裁條款**：主 flow 對每條 🔴 先做事實核對——至少讀 producer 端證據（上游 schema、函式定義、實際輸出），有反證 → 送獨立重裁（重呼叫 reviewer 附上反證，或取第二意見），**不可未經查證直接派 writer 照修**（reviewer 可能只讀消費面就下錯誤斷言，照修會把正確的 code 改壞）
-   - 如果有 🔴：根據建議修正（或呼叫 `code-writer`），重新 `git add` 後再次呼叫 `code-reviewer` 驗證
-4. 🔴 清零後，呼叫 `task-verifier` subagent 確認功能完整
-   - 比對 task.md vs 實際 diff（子任務完成、DoD 達成、無 scope 偏移）
-   - 如有遺漏，修正後回步驟 3
+   - 取捨：reviewer 有 🔴 時 verifier 白跑一次；🔴 率低時期望值為正
+4. 兩者結果的匯合點：
+   - **reviewer 零 🔴 且 verifier 通過** → 進 step 5
+   - **reviewer 有 🔴**（無論 verifier 結果）→ 該輪 verifier 結果作廢，走既有 fixing 迴圈（審查報告落檔、重裁條款、set-review 均不變）；修正後**兩者一併重跑**（回步驟 3）
+   - **verifier 不通過（reviewer 零 🔴）** → 修正後回步驟 3 重跑兩者
 5. **本地測試驗證（硬性 gate，對應 CLAUDE.md「部署規則」）**：依 **test-strategy** skill 執行。gate 條件＝**無新增穩定失敗**（以 `.claude/hooks/test_baseline.py check` 的判定為準；baseline 於第一次 step 5 前建立，flaky 由 script 自動過濾）
    - **Tier 2：新行為必須有自動化測試**（單元測試隨各實作 item 的 DoD、整合測試 item 由前置 3 分拆時建立，見 task-decomposition skill）；**Tier 1**：自動化測試或實際運行功能驗證皆可
    - 通過 → `local_test_passed: true`、`local_test_evidence` 填 script 輸出摘要（hook 於 commit 時檢查兩欄皆已填）
@@ -202,9 +203,9 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 - **前置 0（初始化）**：建立 manifest `run/<run_id>.json`（填 `run_id`、`created_at`、`spec_path`，其餘 `null`，`status: "in_progress"`）與 `eval_state.json`（填 `run_id`、`threshold`、空 `sub_tasks`）。manifest 的 `spec_path` 未填不可往下
 - **使用情境分析完成後 / 分拆 task 完成後**：`usage_report_path` 與 `task_file` 分別由 `usage-analyzer`、`task-decomposer` 於各自步驟回寫（時機與條件見 agent 定義）。前者為 `null` 時不可進入分拆 task
 - **風險分析完成後**：將 6 大面向結果填入對應 sub_task 的 `risk_analysis`，若有 🔴 設 `blocking: true`，必須修正 Spec 後重新分析
-- **循環進度記錄（write-ahead，中斷恢復的關鍵）**：每個循環步驟**開始前**先把該 sub_task 的 `step` 寫入 `eval_state.json`（`writing`→`reviewing`→`fixing`（有 🔴 時）→`verifying`→`testing`→`scoring`→`done`），步驟完成後再更新為下一步。code-writer 交付後立刻把本 sub_task 涉及的檔案清單寫入 `files`（修正時同步增補）——staged 變更與 sub_task 的對應關係只准活在這裡，不准只活在對話裡
+- **循環進度記錄（write-ahead，中斷恢復的關鍵）**：每個循環步驟**開始前**先把該 sub_task 的 `step` 寫入 `eval_state.json`（`writing`→`reviewing`（並發 review＋verify 階段）→`fixing`（有 🔴 時）→`testing`→`scoring`→`done`；`verifying` 為舊版序列 run 的相容值，新路徑不寫入），步驟完成後再更新為下一步。code-writer 交付後立刻把本 sub_task 涉及的檔案清單寫入 `files`（修正時同步增補）——staged 變更與 sub_task 的對應關係只准活在這裡，不准只活在對話裡
 - **首輪 code-reviewer 審查結果出來後（step 3）**：執行 `python3 .claude/hooks/eval_state.py set-review <id> <🔴數>`，記首輪 code-reviewer 的 🔴 原始數（修正前的數，有無🔴皆須執行）——commit gate 必填，缺一擋歸檔
-- **task-verifier 通過後（step 4）**：執行 `python3 .claude/hooks/eval_state.py set-verify <id>`，將 `verify_passed` 設為 `true`——commit gate 必填，缺一擋歸檔
+- **task-verifier 通過且該輪 reviewer 亦零 🔴（step 4 匯合點放行、真正進 step 5 的輪次）**：執行 `python3 .claude/hooks/eval_state.py set-verify <id>`，將 `verify_passed` 設為 `true`——commit gate 必填，缺一擋歸檔。reviewer 有 🔴 使 verifier 作廢的輪次**不得** set-verify（作廢輪寫入會讓 gate 放行對應舊 diff 的驗證）；與 `set-review` 記首輪原始數不同，`set-verify` 記的是**最終通過輪**
 - **本地測試通過後（step 5）**：將該 sub_task 的 `local_test_passed` 設為 `true`、`local_test_evidence` 填入驗證證據（指令＋結果摘要；Tier 2 若更新過既有測試，一併註明 Spec／task 依據）。預設 `false`／`null`；hook 於 commit 時檢查歸檔檔中所有 sub_task 兩欄皆已填
 - **每輪評分後**：將 `eval-scorer` 的結果 append 到對應 sub_task 的 `rounds` 陣列，並在該 round 記 `review_reds`（該輪 code-reviewer 的 🔴 數，修正前的原始數）——這是 `stats.py` 審計「eval-scorer 有沒有獨立貢獻」（reviewer 零 🔴 但 score 低於門檻）的資料來源，缺了審計就是 n/a
 - **quality_score < 10（即使通過 threshold）**：必須在該 round 的 `deduction_reasons` 陣列逐條列出扣分原因
@@ -249,7 +250,8 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
    - **intent gate（不可鬆）**：`spec_path` 與 `spec_inline` 至少一個非空，皆空不可往下
 2. **直接建 task 檔**：免呼叫 `task-decomposer` subagent，但上限不變——**1 個 task、≤5 items（硬）、各 item 目標 ≤300 行（軟）**。item 數超 5、或出現遠超 300 行且拆不進 5 item 內的工作 → 觸發升級逃生門（回 Tier 2）
 3. **輕量 HITL**：寫 code 前，把「1 task／N items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。確認後將 manifest 的 `phase` 設為 `"decomposed"`（hook 憑此放行 code-writer）、`hitl_confirmed_at` 記「時間＋確認範圍一句話」，才進循環
-4. **共用循環**：進入上方循環的步驟 1–8（code-writer → review → verify → 本地測試 → score → commit）。收尾比照 step 7：先歸檔並清除 `eval_state.json`、manifest 標 `completed`，再一併 `git add` manifest／task 檔並 commit（message 附 `Run-Id: <run_id>` trailer）
+4. **主 flow 直寫捷徑（可選）**：Tier 1 且單 item 預估 ≤100 行 → 主 flow 可直接寫 code、不 spawn `code-writer`（省一次全新 agent 重建 context 的稅）。守則：「寫的人 ≠ 審的人」防線不變（`code-reviewer` 照常獨立審 staged diff）；retro 前置改由主 flow 自查相關條目並在回報留痕；超過 ≤100 行或跨多檔複雜 item 仍派 `code-writer`；hook 對 code-writer 的 phase gate 不受影響（直寫路徑不經該 gate，phase 仍須 decomposed 才動工——由輕量 HITL 保證）
+5. **共用循環**：進入上方循環的步驟 1–8（code-writer → review → verify → 本地測試 → score → commit）。收尾比照 step 7：先歸檔並清除 `eval_state.json`、manifest 標 `completed`，再一併 `git add` manifest／task 檔並 commit（message 附 `Run-Id: <run_id>` trailer）
    - sub_task 的 `risk_analysis` 可簡記為 `"router 已篩（Tier 1）"`，不需逐面向填
    - step 5 可用實際運行功能驗證取代自動化測試（不強制建測試），但 `local_test_evidence` 照填——證據要求不分 tier
 
