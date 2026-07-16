@@ -18,6 +18,8 @@ def make_sub_task(**overrides):
         "status": "passed",
         "local_test_passed": True,
         "local_test_evidence": "pytest -q -> 12 passed",
+        "review_reds": 2,
+        "verify_passed": True,
         "rounds": [
             {
                 "round": 1,
@@ -26,6 +28,13 @@ def make_sub_task(**overrides):
                     {"points_lost": 1, "dimension": "Completeness", "reason": "r", "evidence": "a.py:1"},
                     {"points_lost": 1, "dimension": "Clarity", "reason": "r", "evidence": "a.py:2"},
                 ],
+                "dimensions": {
+                    "Correctness": 2,
+                    "Completeness": 1,
+                    "Clarity": 1,
+                    "Test_Quality": 2,
+                    "Maintainability": 2,
+                },
             }
         ],
     }
@@ -38,19 +47,51 @@ class RoundsInvariantTest(unittest.TestCase):
         eval_gates.check_rounds_invariant(make_sub_task(), "test")
 
     def test_perfect_score_with_empty_deductions_passes(self):  # testlint: allow — 斷言的是「不拋例外」
-        st = make_sub_task(rounds=[{"round": 1, "quality_score": 10, "deduction_reasons": []}])
+        st = make_sub_task(rounds=[{"round": 1, "quality_score": 10, "deduction_reasons": [], "dimensions": {"A": 4, "B": 3, "C": 3}}])
         eval_gates.check_rounds_invariant(st, "test")
 
     def test_deduction_sum_mismatch_blocks(self):
-        st = make_sub_task(rounds=[{"round": 1, "quality_score": 8, "deduction_reasons": []}])
+        st = make_sub_task(rounds=[{"round": 1, "quality_score": 8, "deduction_reasons": [], "dimensions": {"A": 8}}])
         with self.assertRaises(SystemExit) as ctx:
             eval_gates.check_rounds_invariant(st, "test")
         self.assertEqual(ctx.exception.code, 2)
 
     def test_missing_quality_score_blocks(self):
-        st = make_sub_task(rounds=[{"round": 1, "deduction_reasons": []}])
+        st = make_sub_task(rounds=[{"round": 1, "deduction_reasons": [], "dimensions": {"A": 10}}])
         with self.assertRaises(SystemExit):
             eval_gates.check_rounds_invariant(st, "test")
+
+    def test_missing_dimensions_blocks(self):
+        st = make_sub_task(rounds=[{"round": 1, "quality_score": 8, "deduction_reasons": [
+            {"points_lost": 2, "dimension": "A", "reason": "r", "evidence": "e"},
+        ]}])
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_rounds_invariant(st, "test")
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_empty_dimensions_blocks(self):
+        st = make_sub_task(rounds=[{"round": 1, "quality_score": 0, "deduction_reasons": [
+            {"points_lost": 10, "dimension": "A", "reason": "r", "evidence": "e"},
+        ], "dimensions": {}}])
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_rounds_invariant(st, "test")
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_non_numeric_dimension_value_blocks(self):
+        st = make_sub_task(rounds=[{"round": 1, "quality_score": 8, "deduction_reasons": [
+            {"points_lost": 2, "dimension": "A", "reason": "r", "evidence": "e"},
+        ], "dimensions": {"A": 6, "B": None, "C": 2}}])
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_rounds_invariant(st, "test")
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_dimensions_sum_mismatch_blocks(self):
+        st = make_sub_task(rounds=[{"round": 1, "quality_score": 8, "deduction_reasons": [
+            {"points_lost": 2, "dimension": "A", "reason": "r", "evidence": "e"},
+        ], "dimensions": {"A": 5, "B": 2}}])
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_rounds_invariant(st, "test")
+        self.assertEqual(ctx.exception.code, 2)
 
 
 class ValidateStateTest(unittest.TestCase):
@@ -80,6 +121,69 @@ class ValidateStateTest(unittest.TestCase):
 
     def test_require_passed_false_skips_status_checks(self):  # testlint: allow — 斷言的是「不拋例外」
         eval_gates.validate_state(self.state(status="in_progress", local_test_passed=False), "test")
+
+    # review_reds 相關
+    def test_missing_review_reds_blocks(self):
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.validate_state(self.state(review_reds=None), "test", require_passed=True)
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_bool_review_reds_blocks(self):
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.validate_state(self.state(review_reds=True), "test", require_passed=True)
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_negative_review_reds_blocks(self):
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.validate_state(self.state(review_reds=-1), "test", require_passed=True)
+        self.assertEqual(ctx.exception.code, 2)
+
+    # verify_passed 相關
+    def test_verify_passed_false_blocks(self):
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.validate_state(self.state(verify_passed=False), "test", require_passed=True)
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_verify_passed_missing_blocks(self):
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.validate_state(self.state(verify_passed=None), "test", require_passed=True)
+        self.assertEqual(ctx.exception.code, 2)
+
+    # rounds ↔ review_reds 一致性
+    def test_empty_rounds_nonzero_reds_blocks(self):
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.validate_state(self.state(rounds=[], review_reds=1), "test", require_passed=True)
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_nonempty_rounds_zero_reds_blocks(self):
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.validate_state(self.state(review_reds=0), "test", require_passed=True)
+        self.assertEqual(ctx.exception.code, 2)
+
+    # Floor 規則
+    def test_final_round_zero_dimension_blocks(self):
+        rounds_with_zero = [
+            {
+                "round": 1,
+                "quality_score": 8,
+                "deduction_reasons": [
+                    {"points_lost": 1, "dimension": "A", "reason": "r", "evidence": "e"},
+                    {"points_lost": 1, "dimension": "B", "reason": "r", "evidence": "e"},
+                ],
+                "dimensions": {"Correctness": 0, "Completeness": 3, "Clarity": 2, "Test_Quality": 2, "Maintainability": 1},
+            }
+        ]
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.validate_state(self.state(rounds=rounds_with_zero, review_reds=2), "test", require_passed=True)
+        self.assertEqual(ctx.exception.code, 2)
+
+    # 合法跳過路徑（rounds 空＋review_reds=0＋verify_passed=true）
+    def test_legal_skip_path_passes(self):  # testlint: allow — 斷言的是「不拋例外」
+        eval_gates.validate_state(
+            self.state(rounds=[], review_reds=0, verify_passed=True),
+            "test",
+            require_passed=True,
+        )
 
 
 class ManifestPhaseTest(unittest.TestCase):
@@ -184,6 +288,71 @@ class GitCommitRegexTest(unittest.TestCase):
     def test_ignores_other_git_commands(self):
         self.assertFalse(eval_gates.GIT_COMMIT_RE.search("git log --grep 'Run-Id: x'"))
         self.assertFalse(eval_gates.GIT_COMMIT_RE.search("git diff --cached"))
+
+
+class EvalScorerGateTest(unittest.TestCase):
+    """測試 check_task_gate() 對 eval-scorer 的 review_reds 前置檢查。"""
+
+    def setUp(self):
+        import os
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+
+    def tearDown(self):
+        import os
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    def _write_state_and_manifest(self, review_reds):
+        import json
+        import os
+        os.makedirs("run")
+        manifest = {
+            "run_id": "test-run",
+            "spec_inline": "test spec",
+            "status": "in_progress",
+            "phase": "decomposed",
+            "task_file": "task/2026-01-01.md",
+        }
+        with open("run/test-run.json", "w", encoding="utf-8") as f:
+            json.dump(manifest, f)
+        state = {
+            "run_id": "test-run",
+            "sub_tasks": [
+                {
+                    "id": 1,
+                    "name": "demo",
+                    "status": "in_progress",
+                    "local_test_passed": True,
+                    "local_test_evidence": "pytest ok",
+                    "review_reds": review_reds,
+                    "verify_passed": False,
+                    "rounds": [],
+                }
+            ],
+        }
+        with open("eval_state.json", "w", encoding="utf-8") as f:
+            json.dump(state, f)
+
+    def test_review_reds_none_blocks(self):
+        self._write_state_and_manifest(None)
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "eval-scorer"})
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_review_reds_zero_blocks(self):
+        self._write_state_and_manifest(0)
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "eval-scorer"})
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_review_reds_one_passes(self):  # testlint: allow — 斷言的是「不拋例外（exit 0）」
+        self._write_state_and_manifest(1)
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "eval-scorer"})
+        self.assertEqual(ctx.exception.code, 0)
 
 
 if __name__ == "__main__":

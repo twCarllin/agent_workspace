@@ -8,6 +8,8 @@
   python3 .claude/hooks/eval_state.py set-files <id> <file...>
   python3 .claude/hooks/eval_state.py set-test <id> (--passed --evidence "指令＋結果摘要" | --failed)
   python3 .claude/hooks/eval_state.py set-status <id> <passed|failed|in_progress> [--warning]
+  python3 .claude/hooks/eval_state.py set-review <id> <reds>   # step 3 首輪 code-reviewer 🔴 數（修正前原始數）
+  python3 .claude/hooks/eval_state.py set-verify <id>          # step 4 task-verifier 通過時呼叫
   python3 .claude/hooks/eval_state.py append-round <id> --json '<round JSON>'   # '-' 讀 stdin
   python3 .claude/hooks/eval_state.py list-files      # 所有 sub_task files 聯集（餵 related --files）
   python3 .claude/hooks/eval_state.py archive         # 驗證後歸檔 run/<run_id>.eval.json 並刪除 eval_state.json
@@ -73,6 +75,7 @@ def cmd_add_subtask(args):
         "id": args.id, "name": args.name, "status": "in_progress", "step": None,
         "files": [], "warning": False,
         "local_test_passed": False, "local_test_evidence": None,
+        "review_reds": None, "verify_passed": False,
         "risk_analysis": None, "rounds": [],
     })
     save(state)
@@ -117,6 +120,22 @@ def cmd_set_status(args):
         st["warning"] = True
     save(state)
     print(f"[eval-state] sub_task {args.id} status -> {args.status}")
+
+
+def cmd_set_review(args):
+    if args.reds < 0:
+        fail(f"reds 必須為非負整數（收到 {args.reds}）")
+    state = load()
+    find_subtask(state, args.id)["review_reds"] = args.reds
+    save(state)
+    print(f"[eval-state] sub_task {args.id} review_reds -> {args.reds}")
+
+
+def cmd_set_verify(args):
+    state = load()
+    find_subtask(state, args.id)["verify_passed"] = True
+    save(state)
+    print(f"[eval-state] sub_task {args.id} verify_passed -> True")
 
 
 def cmd_append_round(args):
@@ -195,6 +214,15 @@ def main():
     p.add_argument("status", choices=STATUSES)
     p.add_argument("--warning", action="store_true")
     p.set_defaults(func=cmd_set_status)
+
+    p = sub.add_parser("set-review")
+    p.add_argument("id", type=int)
+    p.add_argument("reds", type=int)
+    p.set_defaults(func=cmd_set_review)
+
+    p = sub.add_parser("set-verify")
+    p.add_argument("id", type=int)
+    p.set_defaults(func=cmd_set_verify)
 
     p = sub.add_parser("append-round")
     p.add_argument("id", type=int)

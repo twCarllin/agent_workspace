@@ -83,6 +83,23 @@ def check_rounds_invariant(sub_task, source):
                 f"{source} sub_task「{name}」round {rnd.get('round')} 不變量違反："
                 f"扣分總和 {lost} != 10 - quality_score({score})"
             )
+        dims = rnd.get("dimensions")
+        if not isinstance(dims, dict) or not dims:
+            block(
+                f"{source} sub_task「{name}」round {rnd.get('round')} 缺 dimensions、非 dict 或為空"
+            )
+        for dim_name, dim_val in dims.items():
+            if not isinstance(dim_val, (int, float)) or isinstance(dim_val, bool):
+                block(
+                    f"{source} sub_task「{name}」round {rnd.get('round')} "
+                    f"dimension {dim_name} 非數值（{dim_val!r}）"
+                )
+        dim_total = sum(dims.values())
+        if dim_total != score:
+            block(
+                f"{source} sub_task「{name}」round {rnd.get('round')} 不變量違反："
+                f"dimensions 加總 {dim_total} != quality_score({score})"
+            )
 
 
 def validate_state(state, source, require_passed=False):
@@ -102,6 +119,36 @@ def validate_state(state, source, require_passed=False):
                     f"{source} sub_task「{name}」local_test_evidence 為空："
                     f"step 5 須記錄驗證證據（跑了什麼指令、看到什麼結果）"
                 )
+            reds = st.get("review_reds")
+            if not (isinstance(reds, int) and not isinstance(reds, bool)) or reds < 0:
+                block(
+                    f"{source} sub_task「{name}」review_reds 未留痕或非合法非負整數："
+                    f"step 3 code-reviewer 結束後須執行 set-review <id> <🔴數>"
+                )
+            if st.get("verify_passed") is not True:
+                block(
+                    f"{source} sub_task「{name}」verify_passed 非 true："
+                    f"step 4 task-verifier 尚未通過，須執行 set-verify <id>"
+                )
+            rounds = st.get("rounds", [])
+            if not rounds and reds != 0:
+                block(
+                    f"{source} sub_task「{name}」一致性違反："
+                    f"rounds 為空但 review_reds={reds}（曾有 🔴 必須有評分 round）"
+                )
+            if rounds and reds == 0:
+                block(
+                    f"{source} sub_task「{name}」一致性違反："
+                    f"rounds 非空但 review_reds=0（首輪零 🔴 應走跳過評分路徑，不該有 round）"
+                )
+            if rounds:
+                last_dims = rounds[-1]["dimensions"]  # 型別已由 check_rounds_invariant 驗過
+                for dim_name, dim_val in last_dims.items():
+                    if dim_val == 0:
+                        block(
+                            f"{source} sub_task「{name}」Floor 觸發：{dim_name} 為 0 分——"
+                            f"0 分缺失不得被總分補償，須修正後重新評分"
+                        )
 
 
 def check_manifest(manifest_path, staged):
@@ -253,6 +300,18 @@ def check_task_gate(tool_input):
             if st.get("local_test_passed") is not True:
                 name = st.get("name") or st.get("id")
                 block(f"eval-scorer 被擋：sub_task「{name}」local_test_passed 非 true（step 5 本地測試 gate 未通過）")
+            reds = st.get("review_reds")
+            name = st.get("name") or st.get("id")
+            if reds is None:
+                block(
+                    f"eval-scorer 被擋：sub_task「{name}」review_reds 為 null——"
+                    f"reviewer 尚未執行（或尚未 set-review），不可呼叫 eval-scorer"
+                )
+            if not (isinstance(reds, int) and not isinstance(reds, bool)) or reds < 1:
+                block(
+                    f"eval-scorer 被擋：sub_task「{name}」review_reds={reds}——"
+                    f"零 🔴 應走跳過評分路徑（不呼叫 scorer），須有至少 1 個 🔴 才可評分"
+                )
 
     sys.exit(0)
 

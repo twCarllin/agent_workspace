@@ -77,6 +77,7 @@ class EvalStateHelperTest(unittest.TestCase):
             "deduction_reasons": [
                 {"points_lost": 1, "dimension": "Clarity", "reason": "r", "evidence": "a:1"}
             ],
+            "dimensions": {"Correctness": 2, "Clarity": 2, "Safety": 2, "Test": 2, "Style": 1},
         })
         run_cli("append-round", "1", "--json", good)
         self.assertEqual(len(self.read_state()["sub_tasks"][0]["rounds"]), 1)
@@ -102,7 +103,12 @@ class EvalStateHelperTest(unittest.TestCase):
         self.bootstrap()
         run_cli("set-files", "1", "src/a.py")
         run_cli("set-test", "1", "--passed", "--evidence", "pytest -q -> 3 passed")
-        good = json.dumps({"round": 1, "quality_score": 10, "deduction_reasons": []})
+        run_cli("set-review", "1", "1")
+        run_cli("set-verify", "1")
+        good = json.dumps({
+            "round": 1, "quality_score": 10, "deduction_reasons": [],
+            "dimensions": {"Correctness": 2, "Clarity": 2, "Safety": 2, "Test": 2, "Style": 2},
+        })
         run_cli("append-round", "1", "--json", good)
         run_cli("set-status", "1", "passed")
         run_cli("archive")
@@ -110,6 +116,38 @@ class EvalStateHelperTest(unittest.TestCase):
         with open("run/2026-07-15-demo.eval.json", encoding="utf-8") as f:
             archived = json.load(f)
         self.assertNotIn("status", archived)
+
+    def test_add_subtask_default_review_verify_fields(self):
+        self.bootstrap()
+        st = self.read_state()["sub_tasks"][0]
+        self.assertIsNone(st["review_reds"])
+        self.assertFalse(st["verify_passed"])
+
+    def test_set_review_writes_reds(self):
+        self.bootstrap()
+        run_cli("set-review", "1", "3")
+        self.assertEqual(self.read_state()["sub_tasks"][0]["review_reds"], 3)
+
+    def test_set_review_negative_exits(self):
+        self.bootstrap()
+        with self.assertRaises(SystemExit):
+            run_cli("set-review", "1", "-1")
+
+    def test_set_verify_sets_true(self):
+        self.bootstrap()
+        run_cli("set-verify", "1")
+        self.assertTrue(self.read_state()["sub_tasks"][0]["verify_passed"])
+
+    def test_archive_blocks_missing_review_verify(self):
+        # sub_task passed but review_reds/verify_passed not set → archive should exit 2
+        self.bootstrap()
+        run_cli("set-files", "1", "src/a.py")
+        run_cli("set-test", "1", "--passed", "--evidence", "pytest -q -> 3 passed")
+        run_cli("set-status", "1", "passed")
+        with self.assertRaises(SystemExit) as ctx:
+            run_cli("archive")
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertTrue(os.path.exists("eval_state.json"))
 
     def test_unknown_subtask_id_fails(self):
         self.bootstrap()

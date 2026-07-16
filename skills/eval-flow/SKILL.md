@@ -73,6 +73,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 7. 判斷分數：
    - **step 6 跳過評分者** → sub_task 已設 `passed`，比照下方 score >= threshold 進收尾順序
    - **score >= threshold** → 收尾順序（**hook 強制**，見「Gate 的硬性執行」）：⓪先跑**全套測試檢查**（`test_baseline.py check --cmd "<全套指令>" --strike-key full_suite`，見 test-strategy skill）——出現新失敗代表相關測試沒抓到的跨 sub_task 破壞，依 skill 的「重開路徑」把肇事 sub_task 改回 in_progress 從步驟 3 重走，**不可收尾** ①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留各輪分數與扣分原因的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json`** ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔一併 `git add` ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
+   - **Floor 規則（優先於總分判斷）**：任一維度 0 分 → 不論總分，視同 score < threshold（0 分缺失不得被其他維度補償，定義見 eval-scorer）
    - **score < threshold 且 rounds < 2** → 根據評分報告生成改進 brief，回步驟 1
    - **score < threshold 且 rounds == 2** → 讀取 `eval_state.json` 生成完整報告，回報使用者
 8. **有條件** 呼叫 `retro` subagent：
@@ -138,6 +139,8 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 
 熱評分 scratchpad。靠 `run_id` 關聯 manifest；commit 後歸檔為 `run/<run_id>.eval.json` 再清除。
 
+> 下方範例是**欄位形狀骨架**，數值為佔位符、非通過所有不變量的自洽樣本（例如 `review_reds: null` 配非空 `rounds`、全 0 的 `dimensions` 在真實歸檔檔中都會被 hook 擋）；合法組合見「操作規則」與「Gate 的硬性執行」。
+
 ```json
 {
   "run_id": "2026-07-06-partial-settlement",
@@ -152,6 +155,8 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
       "warning": false,
       "local_test_passed": false,
       "local_test_evidence": null,
+      "review_reds": null,
+      "verify_passed": false,
       "risk_analysis": {
         "technical": "🟢 無風險 | 🟡 ... | 🔴 ...",
         "security": "...",
@@ -191,11 +196,13 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 
 ## eval_state.json 操作規則
 
-- **一律用 helper script 更新，不手動 Edit**：`python3 .claude/hooks/eval_state.py`（`init`／`add-subtask`／`set-step`／`set-files`／`set-test`／`set-status`／`append-round`／`list-files`／`archive`）。實測單一 run 手動 Edit 30+ 次是高錯誤面；helper 在寫入前驗證不變量（append-round 驗扣分總和、archive 驗全數 passed），錯誤在落盤前就擋下
+- **一律用 helper script 更新，不手動 Edit**：`python3 .claude/hooks/eval_state.py`（`init`／`add-subtask`／`set-step`／`set-files`／`set-test`／`set-status`／`set-review`／`set-verify`／`append-round`／`list-files`／`archive`）。實測單一 run 手動 Edit 30+ 次是高錯誤面；helper 在寫入前驗證不變量（append-round 驗扣分總和、archive 驗全數 passed），錯誤在落盤前就擋下
 - **前置 0（初始化）**：建立 manifest `run/<run_id>.json`（填 `run_id`、`created_at`、`spec_path`，其餘 `null`，`status: "in_progress"`）與 `eval_state.json`（填 `run_id`、`threshold`、空 `sub_tasks`）。manifest 的 `spec_path` 未填不可往下
 - **使用情境分析完成後 / 分拆 task 完成後**：`usage_report_path` 與 `task_file` 分別由 `usage-analyzer`、`task-decomposer` 於各自步驟回寫（時機與條件見 agent 定義）。前者為 `null` 時不可進入分拆 task
 - **風險分析完成後**：將 6 大面向結果填入對應 sub_task 的 `risk_analysis`，若有 🔴 設 `blocking: true`，必須修正 Spec 後重新分析
 - **循環進度記錄（write-ahead，中斷恢復的關鍵）**：每個循環步驟**開始前**先把該 sub_task 的 `step` 寫入 `eval_state.json`（`writing`→`reviewing`→`fixing`（有 🔴 時）→`verifying`→`testing`→`scoring`→`done`），步驟完成後再更新為下一步。code-writer 交付後立刻把本 sub_task 涉及的檔案清單寫入 `files`（修正時同步增補）——staged 變更與 sub_task 的對應關係只准活在這裡，不准只活在對話裡
+- **首輪 code-reviewer 審查結果出來後（step 3）**：執行 `python3 .claude/hooks/eval_state.py set-review <id> <🔴數>`，記首輪 code-reviewer 的 🔴 原始數（修正前的數，有無🔴皆須執行）——commit gate 必填，缺一擋歸檔
+- **task-verifier 通過後（step 4）**：執行 `python3 .claude/hooks/eval_state.py set-verify <id>`，將 `verify_passed` 設為 `true`——commit gate 必填，缺一擋歸檔
 - **本地測試通過後（step 5）**：將該 sub_task 的 `local_test_passed` 設為 `true`、`local_test_evidence` 填入驗證證據（指令＋結果摘要；Tier 2 若更新過既有測試，一併註明 Spec／task 依據）。預設 `false`／`null`；hook 於 commit 時檢查歸檔檔中所有 sub_task 兩欄皆已填
 - **每輪評分後**：將 `eval-scorer` 的結果 append 到對應 sub_task 的 `rounds` 陣列，並在該 round 記 `review_reds`（該輪 code-reviewer 的 🔴 數，修正前的原始數）——這是 `stats.py` 審計「eval-scorer 有沒有獨立貢獻」（reviewer 零 🔴 但 score 低於門檻）的資料來源，缺了審計就是 n/a
 - **quality_score < 10（即使通過 threshold）**：必須在該 round 的 `deduction_reasons` 陣列逐條列出扣分原因
@@ -204,7 +211,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
   - score = 10 時 `deduction_reasons` 為空陣列 `[]`
 - **score < threshold**：在該 round 的 `brief_sent_to_writer` 填入改進摘要
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`
-- **評分跳過路徑（code-reviewer 零 🔴）**：不呼叫 `eval-scorer`、不 append round，`rounds` 留空即設 `status: "passed"`（測試欄位仍須填）。`stats.py` 對空 `rounds` 的 sub_task 視同「reviewer 一次過、無評分」，非資料缺漏——這是刻意省掉的零信號打分，不是漏記
+- **評分跳過路徑（code-reviewer 零 🔴）**：不呼叫 `eval-scorer`、不 append round，`rounds` 留空即設 `status: "passed"`（測試欄位仍須填）。`review_reds` 記 0 是跳過評分的合法性依據；hook 憑「`rounds` 空 ↔ `review_reds == 0`」雙向一致性稽核，事後可區分「reviewer 一次過」與「未跑 reviewer」。`stats.py` 對空 `rounds` 的 sub_task 視同「reviewer 一次過、無評分」，非資料缺漏——這是刻意省掉的零信號打分，不是漏記
 - **sub_task 2 輪未過**：`status` 設為 `"failed"`，`warning` 設為 `true`
 - **全部完成且通過**：**先歸檔為 `run/<run_id>.eval.json`**（保留評分歷史與扣分原因）、清除 `eval_state.json`、manifest `status` 設為 `"completed"`，**再** commit（歸檔檔與 manifest 同批進 git；順序由 hook 強制——`eval_state.json` 尚存在時 commit 會被擋）
 - **有任一 failed**：manifest 的 `status` 設為 `"failed"`，並在 manifest 的 `failed_reason` 寫一句話死因（哪個 sub_task、卡在哪步、為什麼），回報使用者
@@ -216,14 +223,14 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 
 1. **歸檔 gate**：`eval_state.json` 尚存在 → 擋 commit（防跳過歸檔；失敗收尾時也會擋，屬預期）
 2. **intent gate**：staged 的 `run/<run_id>.json` 中 `spec_path` 與 `spec_inline` 皆空、或 `status` 非 `"completed"` → 擋
-3. **測試 gate**：staged manifest 對應的 `run/<run_id>.eval.json` 未同批 staged、或其中任一 sub_task 非 `passed`／`local_test_passed` 非 `true` → 擋
+3. **測試 gate**：staged manifest 對應的 `run/<run_id>.eval.json` 未同批 staged、或其中任一 sub_task 非 `passed`／`local_test_passed` 非 `true`、或 `review_reds` 未留痕（非 int 或負數）／`verify_passed` 非 `true` → 擋
 4. **假測試 lint gate**：staged 有 manifest（flow 收尾 commit）時，staged 的 Python 測試檔跑 `test_lint.py`，檢出 if-guard 藏斷言／無斷言／恆真斷言 → 擋（誤報以行尾 `# testlint: allow` 豁免並留痕，見 test-strategy skill）
-5. **不變量驗證**：每輪 `deduction_reasons` 的 `points_lost` 加總 ≠ `10 - quality_score`、或歸檔檔 `run_id` 與 manifest 不一致 → 擋
+5. **不變量驗證**：每輪 `deduction_reasons` 的 `points_lost` 加總 ≠ `10 - quality_score`、或歸檔檔 `run_id` 與 manifest 不一致 → 擋；round 的 `dimensions` 缺失、為空 dict、值非數值、或加總 ≠ `quality_score` → 擋；最終 round 任一維度為 0 分（Floor）→ 擋
 6. **phase 狀態機（subagent 呼叫攔截）**：依 `eval_state.json.run_id` 定位 manifest，檢查 `phase` 是否達到該 agent 的最低要求，未達 → 擋呼叫：
    - `usage-analyzer` 需 `phase >= risk_done`（前置 1 未完不可跑前置 2）
    - `task-decomposer` 需 `phase >= usage_confirmed` 且 `usage_report_path` 非空；為 `"skipped"`（Tier 1）也擋
    - `code-writer` 需 `phase >= decomposed` 且 `task_file` 非空；任一 sub_task `risk_analysis.blocking: true` 也擋
-   - `eval-scorer` 需 `phase >= decomposed`，且 in_progress 的 sub_task `local_test_passed` 為 `true`（step 5 未過不可評分）
+   - `eval-scorer` 需 `phase >= decomposed`，且 in_progress 的 sub_task `local_test_passed` 為 `true`（step 5 未過不可評分）；`review_reds` 須為 int 且 >= 1（`null` 代表 reviewer 未跑不可評分；`0` 代表零 🔴 應走跳過評分路徑，不該呼叫 scorer）
    - 共通前提：`eval_state.json` 與 manifest 存在、intent gate 通過；缺任一 → 擋（前置 0 未完成）
 
 被擋時 hook 會以 stderr 回報原因，依訊息補齊狀態後重試。流程中亦可隨時自檢：`python3 .claude/hooks/eval_gates.py --validate eval_state.json`。hook 只攔 Claude 的 Bash 工具，不影響使用者自己終端的 git 操作。本 skill 對應條文為流程說明，實際防線以 hook 為準。

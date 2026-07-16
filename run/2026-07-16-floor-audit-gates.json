@@ -1,0 +1,17 @@
+{
+  "run_id": "2026-07-16-floor-audit-gates",
+  "created_at": "2026-07-16 15:37",
+  "framework_version": "2026.07.15",
+  "tier": 1,
+  "tier_rationale": "hook 不變量補強＋審計欄位：DoD 明確（Floor／dimensions 加總入 hook、review/verify 留痕欄位入 helper 與 commit gate、tests 全綠、文件同步）、單一路徑、不觸及 auth／金流／DB schema／部署設定；預估 3 items 各 ≤300 行 → Tier 1",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "把只存在於 prose 的品質規則落成 hook 防線：(1) eval_gates.py 的 check_rounds_invariant 加「五維度加總 == quality_score」不變量；validate_state(require_passed) 加 Floor 規則（passed sub_task 的最終 round 任一維度 0 分 → 擋）與 review/verify 留痕檢查（review_reds 非負整數、verify_passed 為 true、rounds 空 ↔ review_reds==0 一致性）；gate 6 的 eval-scorer 呼叫需 in_progress sub_task 的 review_reds >= 1（零 🔴 走跳過評分路徑，不該呼叫 scorer）。(2) eval_state.py：add-subtask 預設 review_reds: null／verify_passed: false，新增 set-review、set-verify 子指令。(3) tests/ 補對應案例、skills/eval-flow/SKILL.md 同步（格式範例、操作規則、gate 清單）；既有未 commit 的 Floor prose（eval-scorer.md＋SKILL.md）併入本 run。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-16 15:40 — 使用者確認 1 task／3 items 計畫（hook 不變量＋helper 欄位＋文件同步；既有 Floor prose diff 併入本 run）",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "task_file": "task/2026-07-16.md",
+  "status": "completed",
+  "failed_reason": null
+}

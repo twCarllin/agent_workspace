@@ -1,0 +1,57 @@
+{
+  "run_id": "2026-07-16-floor-audit-gates",
+  "threshold": 6,
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "eval_gates.py 不變量與 gate 補強＋測試",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/hooks/eval_gates.py",
+        "tests/test_eval_gates.py"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_lint.py tests/test_eval_gates.py: PASS 無假測試模式；test_baseline.py check --cmd 'python3 -m unittest tests.test_eval_gates' --strike-key sub_task_1: PASS 無新增穩定失敗（44 tests OK）。註：baseline 的 stable failure（test_eval_state 2 ERROR）非既有欠帳，係本 item 的 dimensions 不變量所致，item 2 遷移 fixture 修復",
+      "risk_analysis": null,
+      "rounds": [],
+      "review_reds": 0,
+      "verify_passed": true
+    },
+    {
+      "id": 2,
+      "name": "eval_state.py helper 欄位與子指令＋測試",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/hooks/eval_state.py",
+        "tests/test_eval_state.py"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_lint.py tests/test_eval_state.py: PASS；test_baseline.py check --cmd 'unittest tests.test_docs_consistency tests.test_eval_gates tests.test_eval_state tests.test_test_baseline'（related 全聯集）--strike-key sub_task_2: PASS 無新增穩定失敗。item 1 遺留的 test_eval_state 2 ERROR 已由本 item fixture 遷移修復",
+      "risk_analysis": null,
+      "rounds": [],
+      "review_reds": 0,
+      "verify_passed": true
+    },
+    {
+      "id": 3,
+      "name": "SKILL.md 文件同步",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/eval-flow/SKILL.md",
+        ".claude/agents/eval-scorer.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "文件 item：test_baseline.py check --cmd 'unittest tests.test_docs_consistency' --strike-key sub_task_3: PASS 無新增穩定失敗（5 tests OK，引用一致性含新增欄位）；無新增測試檔，test_lint 不適用",
+      "risk_analysis": null,
+      "rounds": [],
+      "review_reds": 0,
+      "verify_passed": true
+    }
+  ]
+}

@@ -48,6 +48,7 @@ model: claude-sonnet-4-6
 - 每個未滿 2 分的維度，扣掉的分數必須在 `deduction_reasons` 逐條交代：每條含 `points_lost`、`dimension`、`reason`（具體缺什麼）、`evidence`（檔案:行號）
 - **所有 `points_lost` 加總必須等於 `10 - quality_score`**；score = 10 時 `deduction_reasons` 為空陣列 `[]`
 - 同一維度扣 2 分：兩個獨立缺失 → 兩條各 1 分；單一嚴重缺失 → 一條 2 分
+- **Floor 規則**：**任一維度 0 分 → 不論總分，視同未達 threshold**（0 分的定義每一條都是「不該進 main」的缺失，不得被其他維度補償）。人讀摘要中須明確標示「floor 觸發：<維度>」；主 flow 依此走 score < threshold 的路徑
 
 ### 自我校驗（輸出前必答，任一為否 → 回頭修正評分）
 
