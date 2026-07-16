@@ -1,0 +1,17 @@
+{
+  "run_id": "2026-07-16-prune-redundant-layers",
+  "created_at": "2026-07-16 10:56",
+  "framework_version": "2026.07.15",
+  "tier": 1,
+  "tier_rationale": "架構修剪：多檔流程文件與 hook helper 變更，超出 Tier 0 上限；DoD 明確（刪指定層、引用一致、全套測試綠）、單一路徑、不觸及 auth／金流／DB schema／部署設定 → Tier 1",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "架構修剪三項：(1) 移除 task-reviewer agent 層，其審查職責併入 task-decomposer 交付前自檢（sonnet 審 opus 產出方向錯誤，硬上限已由 skill＋hook 把關）；(2) 內聯單一消費者 skill（review-checklist→code-reviewer、task-verify-checklist→task-verifier、root-cause-table→retro、eval-scoring→eval-scorer），刪除 skill 目錄與 task-checklist（隨 task-reviewer 消失）；(3) 移除 eval_state.json 頂層 status 欄位，manifest.status 為唯一權威。全部引用面同步更新，tests/ 全套通過。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-16 10:56 — 使用者確認執行修剪 #2/#3（「可以直接先改了」）並追加 #4 status 欄位（「status 欄位一起改」）；#1 eval-scorer 依原建議留待 5-run 審計。確認 1 task／3 items 計畫",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "task_file": "task/2026-07-16.md",
+  "status": "completed",
+  "failed_reason": null
+}

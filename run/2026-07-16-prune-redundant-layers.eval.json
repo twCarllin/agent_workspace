@@ -1,0 +1,68 @@
+{
+  "run_id": "2026-07-16-prune-redundant-layers",
+  "threshold": 6,
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "移除 task-reviewer 層（併入 task-decomposer 自檢）",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/agents/task-reviewer.md",
+        ".claude/agents/task-decomposer.md",
+        "skills/task-checklist/SKILL.md",
+        "skills/eval-flow/SKILL.md",
+        "skills/eval-flow-resume/SKILL.md",
+        "skills/task-decomposition/SKILL.md",
+        "skills/report-format/SKILL.md",
+        "skills/eval-scoring/SKILL.md",
+        "CLAUDE.md",
+        "README.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_baseline.py check --strike-key sub_task_1 → PASS 無新增穩定失敗（全套 python3 -m unittest discover -s tests，baseline stable/flaky 皆 0）",
+      "risk_analysis": null,
+      "rounds": []
+    },
+    {
+      "id": 2,
+      "name": "內聯四個單一消費者 skill 進 agent 定義",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/agents/code-reviewer.md",
+        ".claude/agents/task-verifier.md",
+        ".claude/agents/retro.md",
+        ".claude/agents/eval-scorer.md",
+        "skills/test-strategy/SKILL.md",
+        "skills/review-checklist/SKILL.md",
+        "skills/task-verify-checklist/SKILL.md",
+        "skills/root-cause-table/SKILL.md",
+        "skills/eval-scoring/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_baseline.py check --strike-key sub_task_2 → PASS 無新增穩定失敗（全套 python3 -m unittest discover -s tests）",
+      "risk_analysis": null,
+      "rounds": []
+    },
+    {
+      "id": 3,
+      "name": "移除 eval_state 頂層 status 欄位",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/hooks/eval_state.py",
+        "tests/test_eval_state.py",
+        "skills/eval-flow/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_baseline.py check --strike-key sub_task_3 → PASS 無新增穩定失敗（全套 python3 -m unittest discover -s tests，72 tests OK；另實跑 eval_state.py init/archive 驗證產出無頂層 status 鍵）",
+      "risk_analysis": null,
+      "rounds": []
+    }
+  ],
+  "status": "in_progress"
+}

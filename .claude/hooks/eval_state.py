@@ -61,7 +61,7 @@ def cmd_init(args):
     if os.path.exists(STATE_PATH):
         fail(f"{STATE_PATH} 已存在：一個 worktree 同時只跑一個 run，先收尾或歸檔既有 run")
     save({"run_id": args.run_id, "threshold": args.threshold,
-          "sub_tasks": [], "status": "in_progress"})
+          "sub_tasks": []})
     print(f"[eval-state] init: run_id={args.run_id} threshold={args.threshold}")
 
 
@@ -150,7 +150,6 @@ def cmd_archive(args):
         fail("缺 run_id，無法歸檔", code=2)
     if not state.get("sub_tasks"):
         fail("sub_tasks 為空，無可歸檔內容", code=2)
-    state["status"] = "completed"
     eval_gates.validate_state(state, STATE_PATH, require_passed=True)  # 不過 → exit 2
     archive_path = f"run/{run_id}.eval.json"
     os.makedirs("run", exist_ok=True)

@@ -24,7 +24,7 @@ description: 依「使用情境報告」與 Spec，把工作拆成可執行、�
 
 上限是為了讓每個 item 的 `git diff --cached` 小到 code-reviewer / eval-scorer 能一次讀完並打準分。**300 行是「新增 + 修改」的總和，不含自動生成的 lockfile / migration 樣板。**
 
-**測試要求（Tier 2 硬性）**：每個引入新行為的**實作 item**，DoD 必須綁定該 item 的單元測試——測試與實作同 item、同 writer、同 diff（介面知識最熱的時候寫測試，行為驗證的程式碼直接落成測試，不寫 throwaway harness）。每個 task 尾端保留一個**整合測試 item**，只做跨 item 的整合層驗證＋ mutation self-check（見 test-strategy skill），不塞單元測試。DoD 沒綁測試的新行為 item、或整合測試 item 膨脹成單元測試大雜燴，task-reviewer 打回。這讓循環 step 5 的本地測試 gate 有測試可跑，且測試品質風險分散在各 item，不集中在最後一個 writer 身上（Tier 1 不經本 skill，維持可用實際運行驗證）。
+**測試要求（Tier 2 硬性）**：每個引入新行為的**實作 item**，DoD 必須綁定該 item 的單元測試——測試與實作同 item、同 writer、同 diff（介面知識最熱的時候寫測試，行為驗證的程式碼直接落成測試，不寫 throwaway harness）。每個 task 尾端保留一個**整合測試 item**，只做跨 item 的整合層驗證＋ mutation self-check（見 test-strategy skill），不塞單元測試。DoD 沒綁測試的新行為 item、或整合測試 item 膨脹成單元測試大雜燴，交付前自檢不通過即重拆。這讓循環 step 5 的本地測試 gate 有測試可跑，且測試品質風險分散在各 item，不集中在最後一個 writer 身上（Tier 1 不經本 skill，維持可用實際運行驗證）。
 
 ---
 
@@ -104,7 +104,7 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 ```
 
 - item 完成後標 `[x]`
-- 每個 item 必含四要素：**估計行數、影響檔案、DoD、對映情境**。缺任一 → task-reviewer 打回
+- 每個 item 必含四要素：**估計行數、影響檔案、DoD、對映情境**。缺任一 → 交付前自檢不通過即重拆
 
 ---
 

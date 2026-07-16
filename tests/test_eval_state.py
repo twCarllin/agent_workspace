@@ -109,7 +109,7 @@ class EvalStateHelperTest(unittest.TestCase):
         self.assertFalse(os.path.exists("eval_state.json"))
         with open("run/2026-07-15-demo.eval.json", encoding="utf-8") as f:
             archived = json.load(f)
-        self.assertEqual(archived["status"], "completed")
+        self.assertNotIn("status", archived)
 
     def test_unknown_subtask_id_fails(self):
         self.bootstrap()

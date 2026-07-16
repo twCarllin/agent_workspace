@@ -1,6 +1,6 @@
 ---
 name: test-strategy
-description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無新增穩定失敗」機制（script 判定）、flaky 過濾、失敗四分類決策樹、兩次舉手上限、相關測試選擇（累積聯集）、假測試 lint、mutation self-check、commit 前全套檢查與重開 passed sub_task 的路徑、零測試專案處置、全 tier 驗證豁免窗口。觸發語：Eval Flow 循環進入 step 5 時、「測試失敗怎麼辦」、「建測試 baseline」。不適用於：測試框架選型（Tier B bootstrap 的 HITL 決定）、eval 評分（走 eval-scoring）。
+description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無新增穩定失敗」機制（script 判定）、flaky 過濾、失敗四分類決策樹、兩次舉手上限、相關測試選擇（累積聯集）、假測試 lint、mutation self-check、commit 前全套檢查與重開 passed sub_task 的路徑、零測試專案處置、全 tier 驗證豁免窗口。觸發語：Eval Flow 循環進入 step 5 時、「測試失敗怎麼辦」、「建測試 baseline」。不適用於：測試框架選型（Tier B bootstrap 的 HITL 決定）、eval 評分（住在 eval-scorer agent 定義）。
 ---
 
 # Test Strategy（本地測試 gate 執行細節）
@@ -117,4 +117,4 @@ python3 .claude/hooks/test_baseline.py check --strike-key full_suite
 
 用於 Eval Flow 循環 step 5、step 7 收尾前的全套檢查、以及任何「測試失敗怎麼處置」的判斷。不適用：
 - 測試框架**選型**——Tier B bootstrap 的 HITL 由使用者決定
-- 評分——`quality_score` 的 Testability 維度住在 `eval-scoring` skill（本 skill 管「過不過」，那邊管「好不好」）
+- 評分——`quality_score` 的 Testability 維度住在 eval-scorer agent 定義（本 skill 管「過不過」，那邊管「好不好」）

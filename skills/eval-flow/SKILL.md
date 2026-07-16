@@ -45,9 +45,9 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 
 ### 前置 3：分拆 task（必須在第一次呼叫 code-writer 之前完成）
 
-- 呼叫 **`task-decomposer` subagent**。它讀 usage 報告與 Spec、拆成 task 與 item、寫入 `task/YYYY-MM-DD.md`、回寫 `manifest.task_file`、並接 `task-reviewer` 審查。拆分粒度、上限、五要素等規則住在它的定義與 `task-decomposition` skill。
+- 呼叫 **`task-decomposer` subagent**。它讀 usage 報告與 Spec、拆成 task 與 item、寫入 `task/YYYY-MM-DD.md`、回寫 `manifest.task_file`、並執行交付前自檢。拆分粒度、上限、五要素等規則住在它的定義與 `task-decomposition` skill。
 - **flow 層級 gate**：`manifest.usage_report_path` 為 `null` 不可進入本步（task-decomposer 會自我中止）。
-- task-decomposer 交付（含 task-reviewer 審查通過）後，將每個 task 展開為 `eval_state.json` 的 `sub_tasks`，並將 manifest 的 `phase` 更新為 `"decomposed"`（hook 憑此放行 code-writer / eval-scorer），才進入下方循環。
+- task-decomposer 交付前自檢通過後，將每個 task 展開為 `eval_state.json` 的 `sub_tasks`，並將 manifest 的 `phase` 更新為 `"decomposed"`（hook 憑此放行 code-writer / eval-scorer），才進入下方循環。
 
 ## 循環（每輪結果寫入 `eval_state.json`）
 
@@ -92,10 +92,10 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 - **auto-mode 定義**：指使用者在本次 session 中**明確表示**開啟（例如「開 auto-mode」「全自動跑」）。未明示一律視為關閉，不可自行推斷。
 - **auto-mode 開啟時**：這 3 個 agent 可以放背景執行（`run_in_background: true`），Bash 會自動批准。
 - **非 auto-mode 時**：這 3 個 agent 必須用前景執行，讓使用者能批准 Bash 權限。不可放背景執行（背景 agent 無法彈出權限確認，會導致 Bash 被拒絕）。
-- **retro / task-reviewer** 等不需要 Bash 的 agent：可隨時放背景執行。
+- **retro** 等不需要 Bash 的 agent：可隨時放背景執行。
 - **usage-analyzer / task-decomposer**（規劃型 agent，不需 Bash）：可背景產出。但兩者產出後都有把關、不可背景直接續跑：
   - `usage-analyzer` 後接**使用者確認 gate**（前置 2，逐條裁示開放問題）才回寫 `usage_report_path`
-  - `task-decomposer` 後接 **`task-reviewer` 審查**才進循環（審查基準住在其定義／skill）；Tier 1 另由主 flow 做輕量計畫確認
+  - `task-decomposer` 交付前自檢通過後才進循環（自檢基準住在其定義）；Tier 1 另由主 flow 做輕量計畫確認
 
 ## Run Manifest 格式（`run/<run_id>.json`）
 
@@ -185,8 +185,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
         }
       ]
     }
-  ],
-  "status": "in_progress | completed | failed"
+  ]
 }
 ```
 
@@ -207,8 +206,8 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`
 - **評分跳過路徑（code-reviewer 零 🔴）**：不呼叫 `eval-scorer`、不 append round，`rounds` 留空即設 `status: "passed"`（測試欄位仍須填）。`stats.py` 對空 `rounds` 的 sub_task 視同「reviewer 一次過、無評分」，非資料缺漏——這是刻意省掉的零信號打分，不是漏記
 - **sub_task 2 輪未過**：`status` 設為 `"failed"`，`warning` 設為 `true`
-- **全部完成且通過**：`eval_state.json` 頂層 `status` 設為 `"completed"` 並**先歸檔為 `run/<run_id>.eval.json`**（保留評分歷史與扣分原因）、清除 `eval_state.json`、manifest `status` 設為 `"completed"`，**再** commit（歸檔檔與 manifest 同批進 git；順序由 hook 強制——`eval_state.json` 尚存在時 commit 會被擋）
-- **有任一 failed**：manifest 與 `eval_state.json` 的 `status` 皆設為 `"failed"`，並在 manifest 的 `failed_reason` 寫一句話死因（哪個 sub_task、卡在哪步、為什麼），回報使用者
+- **全部完成且通過**：**先歸檔為 `run/<run_id>.eval.json`**（保留評分歷史與扣分原因）、清除 `eval_state.json`、manifest `status` 設為 `"completed"`，**再** commit（歸檔檔與 manifest 同批進 git；順序由 hook 強制——`eval_state.json` 尚存在時 commit 會被擋）
+- **有任一 failed**：manifest 的 `status` 設為 `"failed"`，並在 manifest 的 `failed_reason` 寫一句話死因（哪個 sub_task、卡在哪步、為什麼），回報使用者
   - **失敗收尾**：staging area 保持原狀（已通過 sub_task 的變更留在 staged），**不自行 unstage、不部分 commit、不清除 `eval_state.json`**，由使用者裁決後續（續跑、部分 commit 或放棄）。此時 hook 會擋下 Claude 端的任何 `git commit`（`eval_state.json` 尚存在），屬預期行為；使用者要部分 commit 可在自己的終端執行（hook 只攔 Claude 的 Bash 工具）
 
 ## Gate 的硬性執行（hook）

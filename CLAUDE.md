@@ -60,7 +60,7 @@
 - 標記任務創建時間
 - 可以平行化的任務，標註為可以 [P] 代表可以平行化執行
 - task 完成後，標記為 [x] 代表任務完成
-- **task 檔案有新增任務後，必須呼叫 `task-reviewer` subagent 審查**，確認描述清楚、拆分合理、技術限制已標註，才可以開始執行任務
+- **拆分品質由 `task-decomposer` 交付前自檢（Tier 2）／主 flow 輕量 HITL（Tier 1）把關**，確認描述清楚、拆分合理、技術限制已標註，才可以開始執行任務
   - 拆分合理性依 **task-decomposition** skill 的上限審查（≤5 item 硬、≤300 行/item 軟等，細節見 skill），不在此重述
 - **task 所有子任務完成後，必須呼叫 `task-verifier` subagent 驗證**，確認實作與描述一致，才可以 commit
 
