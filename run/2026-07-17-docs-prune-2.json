@@ -1,0 +1,17 @@
+{
+  "run_id": "2026-07-17-docs-prune-2",
+  "created_at": "2026-07-17 09:16",
+  "framework_version": "2026.07.15",
+  "tier": 1,
+  "tier_rationale": "第二輪文件修剪：7 個 skill 檔＋4 個 agent 定義＋CLAUDE.md 的純刪減／搬移，超出 Tier 0 檔數上限；DoD 明確（重複刪除、引用一致、全套測試綠）、單一路徑、不觸及 auth／金流／DB schema／部署設定 → Tier 1",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "精簡檢視四組全選執行：(A) 刪五個 skill（eval-flow、eval-flow-resume、test-strategy、task-decomposition、usage-scenario-analysis）的「適用範圍」尾節——與 frontmatter description 的「不適用於」重複，frontmatter 為 single source。(B) report-format 拆解——四模板各只有一個消費者（A→code-reviewer、B→code-writer、C→retro、D→task-verifier），各自內聯進 agent 定義、刪 skills/report-format/ 目錄；C 模板消費說明與 eval-flow step 1 重複的部分不搬（消費側已住 eval-flow）。(C) CLAUDE.md 修剪——刪死條文（task.md）、刪 task-verifier 三重重述（hook 已強制）、刪拆分品質／建立時間／[P]／[x] 重述（task-decomposition 已規範）、Subagent Principle 併入 Task Principle 並修過時措辭（eval-score → sub_task 收尾）、部署準備併入部署規則。(D+E) eval-flow 操作規則扣分細則改一句指向 eval-scorer 定義；task-risk-analysis 輸出原則刪與 eval-flow 前置 1 重複的流程後果。保留：兩份接合範例、實測 rationale。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-17 09:16 — 使用者複選確認四組全做（A 尾節／B report-format 拆解／C CLAUDE.md／D+E 去重，題目明示選定即走 Tier 1），1 task／2 items",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "task_file": "task/2026-07-17.md",
+  "status": "completed",
+  "failed_reason": null
+}

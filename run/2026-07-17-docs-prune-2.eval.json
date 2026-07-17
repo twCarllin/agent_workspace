@@ -1,0 +1,49 @@
+{
+  "run_id": "2026-07-17-docs-prune-2",
+  "threshold": 6,
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "A+C+D+E：尾節／CLAUDE.md／規則去重（純刪減）",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/eval-flow/SKILL.md",
+        "skills/eval-flow-resume/SKILL.md",
+        "skills/test-strategy/SKILL.md",
+        "skills/task-decomposition/SKILL.md",
+        "skills/usage-scenario-analysis/SKILL.md",
+        "skills/task-risk-analysis/SKILL.md",
+        "CLAUDE.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "純刪減 prose：baseline（HEAD bb7fc79 全套 97 tests 無 stable failure；本 run 首建）；check --cmd 'unittest tests.test_docs_consistency' --strike-key sub_task_1: PASS；grep '## 適用範圍' 零殘留；無測試檔變更 test_lint 不適用",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "rounds": []
+    },
+    {
+      "id": 2,
+      "name": "B：report-format 四模板內聯拆解",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/agents/code-reviewer.md",
+        ".claude/agents/code-writer.md",
+        ".claude/agents/retro.md",
+        ".claude/agents/task-verifier.md",
+        "skills/report-format/SKILL.md",
+        ".claude/hooks/doctor.py"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "check --cmd 'unittest tests.test_docs_consistency tests.test_stats'（doctor/stats 輻射面）--strike-key sub_task_2: PASS；全套 97 tests OK（writer 與 verifier 各自跑過）；無測試檔變更 test_lint 不適用",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "rounds": []
+    }
+  ]
+}

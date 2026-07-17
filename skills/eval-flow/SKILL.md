@@ -208,10 +208,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 - **task-verifier 通過且該輪 reviewer 亦零 🔴（step 4 匯合點放行、真正進 step 5 的輪次）**：執行 `python3 .claude/hooks/eval_state.py set-verify <id>`，將 `verify_passed` 設為 `true`——commit gate 必填，缺一擋歸檔。reviewer 有 🔴 使 verifier 作廢的輪次**不得** set-verify（作廢輪寫入會讓 gate 放行對應舊 diff 的驗證）；與 `set-review` 記首輪原始數不同，`set-verify` 記的是**最終通過輪**
 - **本地測試通過後（step 5）**：將該 sub_task 的 `local_test_passed` 設為 `true`、`local_test_evidence` 填入驗證證據（指令＋結果摘要；Tier 2 若更新過既有測試，一併註明 Spec／task 依據）。預設 `false`／`null`；hook 於 commit 時檢查歸檔檔中所有 sub_task 兩欄皆已填
 - **每輪評分後**：將 `eval-scorer` 的結果 append 到對應 sub_task 的 `rounds` 陣列，並在該 round 記 `review_reds`（該輪 code-reviewer 的 🔴 數，修正前的原始數）——這是 `stats.py` 審計「eval-scorer 有沒有獨立貢獻」（reviewer 零 🔴 但 score 低於門檻）的資料來源，缺了審計就是 n/a
-- **quality_score < 10（即使通過 threshold）**：必須在該 round 的 `deduction_reasons` 陣列逐條列出扣分原因
-  - 每筆需含 `points_lost`（扣分）、`dimension`（哪個維度扣的）、`reason`（具體理由）、`evidence`（檔案行號或證據）
-  - 所有 `points_lost` 加總必須等於 `10 - quality_score`（例：8 分 → 扣分總和 = 2）
-  - score = 10 時 `deduction_reasons` 為空陣列 `[]`
+- **扣分細則**：每輪 round 的 `deduction_reasons` 規則（每筆四欄位、`points_lost` 加總 == `10 − quality_score`、滿分空陣列）定義住 eval-scorer agent，寫入時由 helper／hook 驗證不變量，不在此重述
 - **score < threshold**：在該 round 的 `brief_sent_to_writer` 填入改進摘要
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`
 - **評分跳過路徑（code-reviewer 零 🔴）**：不呼叫 `eval-scorer`、不 append round，`rounds` 留空即設 `status: "passed"`（測試欄位仍須填）。`review_reds` 記 0 是跳過評分的合法性依據；hook 憑「`rounds` 空 ↔ `review_reds == 0`」雙向一致性稽核，事後可區分「reviewer 一次過」與「未跑 reviewer」。`stats.py` 對空 `rounds` 的 sub_task 視同「reviewer 一次過、無評分」，非資料缺漏——這是刻意省掉的零信號打分，不是漏記
@@ -286,9 +283,3 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 - **插單（run 跑到一半來了急件）**：原 run 的 worktree **原地凍結**（狀態已全在 manifest／`eval_state.json`／staging area 裡，不需要任何「暫停」操作），急件在新 worktree 處理，完成後回原 worktree 依 `eval-flow-resume` skill 接續
 - hook 強制：呼叫流程管制的 subagent 時，若本工作區存在**其他** in_progress 的 manifest（run_id 與 `eval_state.json` 不一致）→ 擋，並提示「先收尾／封存既有 run，或開 worktree 並行」
 - **單一 run 內 [P] 平行寫作的測試 barrier**：若同一 run 內多個 `[P]` item 由併發 code-writer 寫作，各 item 的 step 5 相關測試可各自先跑，但**全套 baseline/check（step 7 ⓪ full_suite）是 join barrier**——必須等**所有**平行 writer 都交付、各自 🔴 清零並過 task-verifier 後，才跑一次；不可在部分 writer 交付時就跑（會測到不完整／交錯的樹，gate 判定失真）。此條僅限「單一 run 內」平行；跨 run 平行走 `parallel-run` skill，各自 worktree 各跑各的 step 5，不受此條約束
-
-## 適用範圍
-
-用於「Router 已判定 Tier 1 或 Tier 2 的需求，要照流程實作」的場景。不適用：
-- **Tier 0 微調**——直接改，不建任何檔（分級表見 CLAUDE.md）
-- 純問答、分析、不落 code 的討論

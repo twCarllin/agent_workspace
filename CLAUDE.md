@@ -5,6 +5,7 @@
 - **禁止** 未經本地測試就直接部署到遠端
 - 任何程式碼變更，必須先在本地端驗證功能正常後，才能 commit 和部署
 - **驗證豁免窗口（全 tier）**：跳過本地驗證僅限**使用者明示豁免**；agent 不可自行認定、不可主動建議豁免。豁免單次有效並留痕（Tier 1／2 記 manifest `test_policy`，Tier 0 記在變更回報中；細節見 `test-strategy` skill）
+- 部署前檢查潛在風險並告知，確認後才可以部署；DB 相關操作的可能影響一併檢查確認
 
 
 ## 難易度分級（Router，每個需求進來的第一步）
@@ -55,20 +56,6 @@
 - run manifest 放在 `run/` 資料夾：`run/<run_id>.json`（冷溯源，隨 commit 進 git）
 - **產出物自足性（換手的前提）**：Spec、usage 報告、task 檔、風險報告必須**不依賴對話上下文**即可讀懂——不得出現「如上所述」「依先前討論」等指涉對話的內容；task item 必須寫明確檔案路徑與 DoD。標準是：任何未參與對話的 AI／工程師讀檔即可接手
 - 每次新增或讀取任務時，使用**當天日期**的檔案（例如 `task/2026-04-18.md`）
-- 舊的 `task.md` 僅作為歷史紀錄保留，不再新增任務到該檔案
 - 呼叫 subagent 完成任務（例外：Tier 1 小 item 的主 flow 直寫捷徑，見 eval-flow skill）
-- 標記任務創建時間
-- 可以平行化的任務，標註為可以 [P] 代表可以平行化執行
-- task 完成後，標記為 [x] 代表任務完成
-- **拆分品質由 `task-decomposer` 交付前自檢（Tier 2）／主 flow 輕量 HITL（Tier 1）把關**，確認描述清楚、拆分合理、技術限制已標註，才可以開始執行任務
-  - 拆分合理性依 **task-decomposition** skill 的上限審查（≤5 item 硬、≤300 行/item 軟等，細節見 skill），不在此重述
-- **task 所有子任務完成後，必須呼叫 `task-verifier` subagent 驗證**，確認實作與描述一致，才可以 commit
-
-## Subagent Principle
-
-- 工作完成後，如果是從 task 檔案獲取任務，在 eval-score 完成後，要到對應的 task 檔案將任務標記為完成
-
-## 部署準備
-
-- 部署前檢查潛在風險並告知，確認後才可以部署
-- 部署前檢查 DB 相關操作可能影響，確認後才可以部署
+- sub_task 收尾後，若任務來自 task 檔，須將對應 item 標記完成（`[x]`）
+- 拆分粒度、[P] 平行標註、item 四要素等規則住 **task-decomposition** skill；審查／驗證順序與 gate 住 **eval-flow** skill 與 hook，不在此重述

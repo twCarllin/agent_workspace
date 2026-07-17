@@ -114,9 +114,3 @@ python3 .claude/hooks/test_baseline.py check --strike-key full_suite
 
 - **script 判定可稽核**：baseline 檔、strike 計數、check 結果都落在 `run/<run_id>.test_baseline.json`，事後可驗
 - **hook 不重跑測試**：`eval_gates.py` 於 commit 時強制的是 `local_test_passed`／`local_test_evidence` 欄位與歸檔順序，無法驗證「失敗清單是真的」。「跑了 check 且如實記錄」這一段靠 agent 誠實＋baseline 檔留痕的事後稽核——這是已知且接受的邊界，不假裝它是硬 gate
-
-## 適用範圍
-
-用於 Eval Flow 循環 step 5、step 7 收尾前的全套檢查、以及任何「測試失敗怎麼處置」的判斷。不適用：
-- 測試框架**選型**——Tier B bootstrap 的 HITL 由使用者決定
-- 評分——`quality_score` 的 Testability 維度住在 eval-scorer agent 定義（本 skill 管「過不過」，那邊管「好不好」）

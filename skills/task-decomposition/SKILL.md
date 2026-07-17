@@ -148,12 +148,3 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 ```
 
 兩個 task、共 5 個 item，皆 ≤300 行（估算含測試、已 ×2 校準）；單元測試隨各實作 item，整合測試收尾；情境 B 的基礎抽成 Task 1 供 Task 2 依賴。
-
----
-
-## 適用範圍
-
-用於「已有使用者確認的使用情境報告 + Spec，要拆成可執行 sub_tasks」的場景。不適用：
-- **尚未產出使用情境報告** — manifest 的 `usage_report_path` 為 `null` 時中止，先跑 `usage-scenario-analysis`，這個 skill 吃它的輸出
-- **Tier 0（≤10 行微調）或 Tier 1（明確小功能）** — 不呼叫本 skill。Tier 0 直接改；Tier 1 直接建 task 檔（仍守 ≤5 items／各 ≤300 行的同一組上限，只是免正式分拆流程）
-- 純除錯 / 單點修復（已知單一檔案單一函式）— 直接開一個 item 即可，不需整套分拆

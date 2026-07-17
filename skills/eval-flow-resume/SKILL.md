@@ -54,9 +54,3 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 - **寧可重跑一步，不可跳過一步**：`step` 只保證「走到了這一步」，不保證這一步完成；有疑義就從該步重做
 - 恢復後的第一件事：把你從檔案讀出的「run 現況摘要」（run_id、phase、各 sub_task 狀態、接下來要做什麼）回報使用者，再開始動作
 - `status: "failed"` 的 run 不自動恢復——那是等使用者裁決的封存現場；使用者明示續跑才依上表接手
-
-## 適用範圍
-
-用於「先前的 Eval Flow（Tier 1／2）run 被中斷，要接續未完成的工作」。不適用：
-- 沒有任何 `status: "in_progress"` 的 manifest（無事可恢復）
-- 全新需求（走 Router 難易度分級，從前置 0 開始）
