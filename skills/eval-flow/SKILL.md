@@ -77,6 +77,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
    - **reviewer 零 🔴 且 verifier 通過** → 進 step 5
    - **reviewer 有 🔴**（無論 verifier 結果）→ 該輪 verifier 結果作廢，走既有 fixing 迴圈（審查報告落檔、重裁條款、set-review 均不變）；修正後**兩者一併重跑**（回步驟 3）
    - **verifier 不通過（reviewer 零 🔴）** → 修正後回步驟 3 重跑兩者
+   - **🟡-only 快速路徑（省一輪審查稅）**：reviewer 零 🔴、僅 🟡，且 🟡 全屬主 flow 可直接套用的**措辭級**修正（修錯字、對齊術語、補澄清性說明——不改邏輯、不改介面、不動 code 行為；**判斷有疑義時一律歸邏輯級**，省稅是優化、正確性是底線）→ 主 flow 套用修正後**不重跑兩者**，該輪即為通過輪（verifier 同輪通過者照常 set-verify）。任一 🟡 涉及邏輯／行為／介面改動 → 不適用，照常回步驟 3。套用了哪些 🟡 記入審查落檔的「主 flow 處置」行（留痕供稽核）。此路徑的 set-verify 記的雖是套用 🟡 前的 diff，但措辭級不動 code 行為、驗證結論對套用後 diff 仍成立，不違反「set-verify 記最終通過輪」的意圖（與 🔴 作廢輪的差異：🔴 的修正可能改 code 行為故禁止沿用，措辭級不改故放行）
    - **修正迭代上限**：同一 sub_task 修正 2 輪後 reviewer 仍有 🔴 → 將該 sub_task 的 `status` 設為 `"failed"`、`warning: true`，回報使用者（不自行繼續修）
 5. **本地測試驗證（硬性 gate，對應 CLAUDE.md「部署規則」）**：依 **test-strategy** skill 執行。gate 條件＝**無新增穩定失敗**（以 `.claude/hooks/test_baseline.py check` 的判定為準；baseline 於第一次 step 5 前建立，flaky 由 script 自動過濾）
    - **Tier 2：新行為必須有自動化測試**（單元測試隨各實作 item 的 DoD、整合測試 item 由前置 3 分拆時建立，見 task-decomposition skill）；**Tier 1**：自動化測試或實際運行功能驗證皆可
@@ -226,6 +227,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 1. **精簡初始化**：建 manifest `run/<run_id>.json`，填 `tier: 1`、`tier_rationale`、**`spec_inline`**（需求原文一句話，取代 `spec_path`）、`risk_report_path: "skipped"`、`usage_report_path: "skipped"`、`impact_report_path: "skipped"`（前置 2.5 固定跳過）、`phase: "init"`；建 `eval_state.json`（`run_id` ＋ 空 `sub_tasks`）
    - **intent gate（不可鬆）**：`spec_path` 與 `spec_inline` 至少一個非空，皆空不可往下
 2. **直接建 task 檔**：免呼叫 `task-decomposer` subagent，但上限不變——**1 個 task、≤5 items（硬）、各 item 目標 ≤300 行（軟）**。item 數超 5、或出現遠超 300 行且拆不進 5 item 內的工作 → 觸發升級逃生門（回 Tier 2）
+   - **小 prose item 合併（省審查稅）**：純 prose（文件／agent 定義／skill，無 code）、單檔 ≤30 行、語義同源（同一個設計決策的多處投放）的 items，**合併為一個 sub_task 一輪審**——review ∥ verify 稅從 N 輪降 1 輪。約束：合併後單輪 diff 仍須 reviewer 一次讀完可審（總量失控就拆回）；含 code 的 item 不併入 prose 合併
 3. **輕量 HITL**：寫 code 前，把「1 task／N items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。確認後將 manifest 的 `phase` 設為 `"decomposed"`（hook 憑此放行 code-writer）、`hitl_confirmed_at` 記「時間＋確認範圍一句話」，才進循環
 4. **主 flow 直寫捷徑（可選）**：Tier 1 且單 item 預估 ≤100 行 → 主 flow 可直接寫 code、不 spawn `code-writer`（省一次全新 agent 重建 context 的稅）。守則：「寫的人 ≠ 審的人」防線不變（`code-reviewer` 照常獨立審 staged diff）；知識前置（三源，見循環 step 1）改由主 flow 自查並在回報留痕；超過 ≤100 行或跨多檔複雜 item 仍派 `code-writer`；hook 對 code-writer 的 phase gate 不受影響（直寫路徑不經該 gate，phase 仍須 decomposed 才動工——由輕量 HITL 保證）
 5. **共用循環**：進入上方循環的步驟 1–7（code-writer → review ∥ verify → 本地測試 → commit）。收尾比照 step 6：先歸檔並清除 `eval_state.json`、manifest 標 `completed`，再一併 `git add` manifest／task 檔並 commit（message 附 `Run-Id: <run_id>` trailer）
