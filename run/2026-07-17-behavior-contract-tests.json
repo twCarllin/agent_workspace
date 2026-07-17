@@ -1,0 +1,18 @@
+{
+  "run_id": "2026-07-17-behavior-contract-tests",
+  "created_at": "2026-07-17 19:10",
+  "framework_version": "2026.07.17.2",
+  "tier": 1,
+  "tier_rationale": "測試哲學收斂為行為契約測試：三份 prose 檔各加一節規則，DoD 明確、單一路徑、無 code、不觸及 auth／金流／DB schema／部署設定 → Tier 1",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "把測試政策收斂為「只寫黑箱行為契約測試」，三條規則落三處：(1) DoD 即契約——task-decomposition skill（與 task-decomposer agent 定義）要求拆 item 時 DoD 附「輸入→預期可觀察效果」對照表（含 1–2 個邊界輸入），此表是 writer 寫測試的唯一依據；(2) writer 只准寫黑箱測試——code-writer.md 測試管轄規則補：測試走公開介面、驗可觀察效果（回傳值＋副作用：DB 寫入／檔案／對外呼叫），mock 只准用在系統邊界（外部 API、時鐘），不准 mock 自己專案的內部函式、不准斷言內部呼叫次數或私有狀態；(3) reviewer 把實作耦合測試列為明確扣分項——review-checklist skill 測試覆蓋範疇加：斷言內部實作細節（mock 內部函式、驗呼叫次數、驗私有狀態）→ 🟡，理由是重構稅；邊界輸入缺席（只測 happy path）→ 依風險標 🟡。設計原意：測試數量可以更少，但每條都是可仲裁的行為契約（對照 DoD 表判對錯），消滅 weak model 因無仲裁依據而生的自我懷疑迴圈。改完 skills 部署同步 ~/.claude/skills/。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-17 19:12 — 使用者以「好」確認三條規則落三處的 1 task／3 items 計畫（DoD 契約表／writer 黑箱規則／reviewer 扣分項，提案原文即計畫）",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-07-17.md",
+  "status": "completed",
+  "failed_reason": null
+}

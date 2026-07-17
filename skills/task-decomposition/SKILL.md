@@ -26,6 +26,8 @@ description: 依「使用情境報告」與 Spec，把工作拆成可執行、�
 
 **測試要求（Tier 2 硬性）**：每個引入新行為的**實作 item**，DoD 必須綁定該 item 的單元測試——測試與實作同 item、同 writer、同 diff（介面知識最熱的時候寫測試，行為驗證的程式碼直接落成測試，不寫 throwaway harness）。每個 task 尾端保留一個**整合測試 item**，只做跨 item 的整合層驗證＋ mutation self-check（見 test-strategy skill），不塞單元測試。DoD 沒綁測試的新行為 item、或整合測試 item 膨脹成單元測試大雜燴，交付前自檢不通過即重拆。這讓循環 step 5 的本地測試 gate 有測試可跑，且測試品質風險分散在各 item，不集中在最後一個 writer 身上（Tier 1 不經本 skill，維持可用實際運行驗證）。測試類 item（含各實作 item 的單元測試與整合測試 item）的 DoD 另附兩條硬要求：**fixture 逐區塊附 producer 行號依據**（fixture 的每個資料區塊須以註解標明「依據 &lt;producer 檔:行&gt;」，證明與 producer 實際輸出對齊，防漂移後消費路徑零覆蓋且全綠）；**fixture 為測試實際載入的 single source**（不得另存一份測試不讀的副本）。交付前自檢不符即重拆。
 
+**行為契約表（DoD 的測試依據，Tier 2 硬性）**：每個引入新行為的實作 item，DoD 須附「輸入 → 預期可觀察效果」對照表——2~4 條核心行為＋**至少 1 條邊界輸入**。**邊界的機械判準：與核心行為走不同回傳／副作用分支的輸入**（不同 error code、提前 return、不同 side effect；典型如空值、特殊字元、越界值——實測：mine 子命令的 3 條 🔴 全藏在怪檔名輸入裡）。「可觀察效果」＝回傳值＋副作用（DB 寫入、檔案、對外呼叫），**不含內部實作細節**。此表是 writer 寫測試的唯一依據，也是測試失敗時的仲裁基準（判「code 錯還是測試錯」**以 DoD 中的行為契約表為準**，與 code-writer 測試管轄規則的 DoD 仲裁同義）。表未涵蓋但應測的邊界 → 回頭補進表再測（表可增補，single source 不變）；本規則禁止的是繞過表、對實作細節或未定義行為做臆測性斷言。契約表由拆分者（另一顆腦）從情境報告推導，不是 writer 對需求的自我詮釋——這是「自產自證」變「他證」的關鍵。
+
 ---
 
 ## Step 1：以使用情境為切割主軸
@@ -93,7 +95,8 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 ## Task 1: <對映的使用情境名稱>
 - 依賴: 無
 - [ ] 1.1 <item 描述＋單元測試>  ~<估計行數（含測試、已 ×2 校準）>行  files: <實作路徑>, tests/...
-      DoD: <可驗收條件；測試涵蓋哪些 case>  情境: <usage 報告中的情境 id>
+      DoD: <可驗收條件>  情境: <usage 報告中的情境 id>
+      契約: <輸入> → <可觀察效果>；<輸入> → <效果>；[邊界] <怪輸入> → <效果>
 - [ ] 1.2 [P] <item 描述＋單元測試>  ~<行數>行  files: <路徑>, tests/...
       DoD: ...  情境: ...
 - [ ] 1.3 整合測試（跨 item）＋ mutation self-check  ~<行數>行  files: tests/...
@@ -112,6 +115,7 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 
 - item 沒有估計行數，或估計明顯灌水以躲過 300 行上限（含未套 ×2 校準的系統性低估）
 - 引入新行為的實作 item，DoD 沒綁該 item 的單元測試（測試被推遲到整合階段，新行為裸奔）
+- 引入新行為的實作 item 無行為契約表，或契約表全是 happy path（無邊界輸入）、或寫的是實作細節而非可觀察效果
 - 整合測試 item 塞滿單元測試——單一 writer 一次寫 60+ 個測試，假測試與覆蓋缺口的風險全集中在這裡（單元測試住在各實作 item，整合 item 只做跨 item 驗證＋ mutation self-check）
 - 一個 item 觸及 >3 個檔案還宣稱 <300 行
 - task 塞滿 5 個 item 只為了不開新 task（湊數，不是內聚）
@@ -142,7 +146,8 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 - [ ] 2.1 POST /settlements endpoint + 驗證＋單元測試  ~280行  files: routes/settlement.py, tests/test_settlement_api.py
       DoD: 成功登記回 201、寫入 settlement 表；測試涵蓋成功與欄位驗證失敗  情境: A
 - [ ] 2.2 超額沖銷防呆（金額 > 未結餘額 → 422）＋單元測試  ~140行  files: routes/settlement.py, tests/test_settlement_api.py
-      DoD: 超額回 422 + 錯誤訊息；測試涵蓋剛好等額 / 超額兩種邊界  情境: C
+      DoD: 超額回 422 + 錯誤訊息  情境: C
+      契約: 金額=餘額 → 201、餘額歸零；金額>餘額 → 422、settlement 表無寫入；[邊界] 金額=0 → 422（不產生空沖銷）
 - [ ] 2.3 整合測試（登記 → 餘額更新 → 超額被擋全流程）＋ mutation self-check  ~150行  files: tests/test_settlement_integration.py
       DoD: 情境 A→B→C 全流程串通過；sabotage 餘額計算與防呆條件各一處，對應測試須 FAIL  情境: A, B, C
 ```
