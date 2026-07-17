@@ -13,6 +13,10 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "test_baseline.py"
 
+# 匯入受測模組的純函式以便直接單元測
+sys.path.insert(0, str(SCRIPT.parent))
+from test_baseline import build_mine_argv, is_test_file  # noqa: E402
+
 # test_a 永遠失敗（既有壞測試）；test_b 每隔一次失敗（flaky，靠計數檔 n）
 CMD_STABLE_PLUS_FLAKY = (
     'n=$(cat n 2>/dev/null || echo 0); n=$((n+1)); echo $n > n; '
@@ -187,6 +191,265 @@ class BaselineScriptTest(unittest.TestCase):
         self.assertIn("tests/test_foo.py", paths)
         self.assertIn("tests/test_service.py", paths)
         self.assertNotIn("tests/test_unrelated.py", paths)
+
+
+class BuildMineCmdTest(unittest.TestCase):
+    """build_mine_argv 純函式的單元測試（無 subprocess）。"""
+
+    def test_pytest_appends_file_paths(self):
+        argv = build_mine_argv("pytest -q", ["tests/test_foo.py", "tests/test_bar.py"])
+        self.assertEqual(argv, ["pytest", "-q", "tests/test_foo.py", "tests/test_bar.py"])
+
+    def test_unittest_discover_converts_to_modules(self):
+        argv = build_mine_argv(
+            "python3 -m unittest discover -s tests",
+            ["tests/test_foo.py"],
+        )
+        self.assertEqual(argv, ["python3", "-m", "unittest", "tests.test_foo"])
+
+    def test_unittest_plain_also_converts_to_modules(self):
+        # "python3 -m unittest" 不含 discover 也要走 module 路徑
+        argv = build_mine_argv(
+            "python3 -m unittest",
+            ["tests/test_foo.py", "tests/test_bar.py"],
+        )
+        self.assertEqual(argv, ["python3", "-m", "unittest", "tests.test_foo", "tests.test_bar"])
+
+    def test_is_test_file_detects_test_prefix(self):
+        self.assertTrue(is_test_file("tests/test_foo.py"))
+        self.assertTrue(is_test_file("test_bar.py"))
+        self.assertFalse(is_test_file("src/foo.py"))
+
+    def test_is_test_file_skips_skip_dirs(self):
+        self.assertFalse(is_test_file(".venv/tests/test_foo.py"))
+
+
+class MineSubcommandTest(unittest.TestCase):
+    """mine 子命令的 subprocess 整合測試（需 git repo）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        (self.dir / "eval_state.json").write_text('{"run_id": "t"}', encoding="utf-8")
+        # 建立 git repo
+        subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+             "commit", "--allow-empty", "-q", "-m", "init"],
+            cwd=self.dir, check=True,
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_script(self, *args):
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), *args],
+            cwd=self.dir, capture_output=True, text=True,
+        )
+
+    def write_baseline(self, strikes=None):
+        (self.dir / "run").mkdir(exist_ok=True)
+        data = {
+            "run_id": "t", "cmd": "exit 0", "head_sha": "abc",
+            "stable_failures": [], "flaky": [],
+            "strikes": strikes or {},
+        }
+        (self.dir / "run" / "t.test_baseline.json").write_text(
+            json.dumps(data), encoding="utf-8"
+        )
+
+    def test_mine_with_test_file_runs_only_that_file(self):
+        """untracked 測試檔存在時，mine 只跑該測試檔（runner 收到的路徑正確）。"""
+        (self.dir / "tests").mkdir()
+        (self.dir / "tests" / "test_foo.py").write_text("", encoding="utf-8")
+        (self.dir / "src").mkdir()
+        (self.dir / "src" / "main.py").write_text("", encoding="utf-8")
+        sentinel = self.dir / "ran.txt"
+        # 寫一個 shell script 接收參數並記錄到檔案
+        runner = self.dir / "fake_runner.sh"
+        runner.write_text(f'#!/bin/sh\necho "$@" > {sentinel}\n', encoding="utf-8")
+        runner.chmod(0o755)
+        result = self.run_script("mine", "--cmd", str(runner))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(sentinel.exists(), "假 runner 應有執行")
+        got = sentinel.read_text(encoding="utf-8").strip()
+        self.assertIn("tests/test_foo.py", got)
+
+    def test_mine_no_test_files_exits_0_with_message(self):
+        """變更中無測試檔 → exit 0、stdout 含「無測試檔」。"""
+        (self.dir / "src").mkdir()
+        (self.dir / "src" / "foo.py").write_text("", encoding="utf-8")
+        result = self.run_script("mine", "--cmd", "exit 0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("無測試檔", result.stdout)
+
+    def test_mine_test_failure_exits_2(self):
+        """mine 範圍內的測試失敗 → exit 2。"""
+        (self.dir / "tests").mkdir()
+        (self.dir / "tests" / "test_foo.py").write_text(
+            "import unittest\nclass T(unittest.TestCase):\n    def test_fail(self): self.fail()\n",
+            encoding="utf-8",
+        )
+        result = self.run_script("mine", "--cmd", "python3 -m unittest discover -s tests")
+        self.assertEqual(result.returncode, 2, result.stdout)
+
+    def test_mine_two_failures_with_strike_key_prints_limit_message(self):
+        """連續兩次失敗且有 --strike-key ＋既有 baseline 檔 → 印「2 次上限」。"""
+        (self.dir / "tests").mkdir()
+        (self.dir / "tests" / "test_foo.py").write_text(
+            "import unittest\nclass T(unittest.TestCase):\n    def test_fail(self): self.fail()\n",
+            encoding="utf-8",
+        )
+        self.write_baseline(strikes={"mine:sk1": 1})
+        result = self.run_script(
+            "mine", "--cmd", "python3 -m unittest discover -s tests", "--strike-key", "sk1"
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("2 次上限", result.stderr)
+
+    def test_mine_no_baseline_does_not_create_baseline(self):
+        """baseline 不存在時，mine 不建立 baseline 檔。"""
+        (self.dir / "tests").mkdir()
+        (self.dir / "tests" / "test_foo.py").write_text(
+            "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self): pass\n",
+            encoding="utf-8",
+        )
+        self.run_script("mine", "--cmd", "python3 -m unittest discover -s tests", "--strike-key", "sk1")
+        self.assertFalse((self.dir / "run" / "t.test_baseline.json").exists())
+
+    def test_mine_discover_cmd_does_not_pass_discover_flag(self):
+        """unittest discover 型 cmd → mine 實際執行的 argv 不含 discover。
+        用 python3 -m unittest 直接跑 sentinel 測試檔確認真正執行、且沒有 discover。"""
+        (self.dir / "tests").mkdir()
+        # 寫一個真實可執行的 unittest 測試，通過即可
+        (self.dir / "tests" / "test_sentinel.py").write_text(
+            "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self): pass\n",
+            encoding="utf-8",
+        )
+        result = self.run_script(
+            "mine", "--cmd", "python3 -m unittest discover -s tests",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # 確認沒有 discover 相關警告或錯誤（discover 若被傳入 unittest module 模式會出現 error）
+        self.assertNotIn("discover", result.stderr)
+
+
+class GitChangedFilesTest(unittest.TestCase):
+    """git_changed_files 的整合測試（需真實 git repo）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+             "commit", "--allow-empty", "-q", "-m", "init"],
+            cwd=self.dir, check=True,
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def git_changed(self):
+        """在 self.dir 內呼叫 git_changed_files（透過子程序以免 cwd 干擾）。"""
+        hooks_dir = str(SCRIPT.parent)
+        code = (
+            f"import sys; sys.path.insert(0, {hooks_dir!r}); "
+            "from test_baseline import git_changed_files; "
+            "print('\\n'.join(git_changed_files()))"
+        )
+        p = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=self.dir, capture_output=True, text=True,
+        )
+        lines = [l for l in p.stdout.splitlines() if l]
+        return lines
+
+    def git(self, *args):
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
+            cwd=self.dir, check=True,
+        )
+
+    def test_rename_takes_new_path(self):
+        """git mv 重命名：只取 new 路徑，不含 old。"""
+        (self.dir / "old.py").write_text("x", encoding="utf-8")
+        self.git("add", "old.py")
+        self.git("commit", "-q", "-m", "add")
+        self.git("mv", "old.py", "new.py")
+        files = self.git_changed()
+        self.assertIn("new.py", files)
+        self.assertNotIn("old.py", files)
+
+    def test_deleted_file_excluded(self):
+        """deleted 檔不出現在結果中。"""
+        (self.dir / "del.py").write_text("x", encoding="utf-8")
+        self.git("add", "del.py")
+        self.git("commit", "-q", "-m", "add")
+        self.git("rm", "-q", "del.py")
+        files = self.git_changed()
+        self.assertNotIn("del.py", files)
+
+    def test_filename_with_space(self):
+        """含空白的未追蹤檔名正確解析（不帶引號）。"""
+        (self.dir / "test_a b.py").write_text("", encoding="utf-8")
+        files = self.git_changed()
+        self.assertIn("test_a b.py", files)
+
+    def test_filename_with_dollar_sign(self):
+        """含 $ 的未追蹤檔名正確解析（不被 shell 展開）。"""
+        (self.dir / "test_$x.py").write_text("", encoding="utf-8")
+        files = self.git_changed()
+        self.assertIn("test_$x.py", files)
+
+    def test_untracked_directory_expands(self):
+        """未追蹤目錄展開為子檔案。"""
+        subdir = self.dir / "newpkg"
+        subdir.mkdir()
+        (subdir / "test_one.py").write_text("", encoding="utf-8")
+        (subdir / "test_two.py").write_text("", encoding="utf-8")
+        files = self.git_changed()
+        self.assertIn("newpkg/test_one.py", files)
+        self.assertIn("newpkg/test_two.py", files)
+
+
+class MineWithSpaceFilenameTest(unittest.TestCase):
+    """含空白檔名的測試檔能被 mine 正確執行（端到端）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        (self.dir / "eval_state.json").write_text('{"run_id": "t"}', encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+             "commit", "--allow-empty", "-q", "-m", "init"],
+            cwd=self.dir, check=True,
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_script(self, *args):
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), *args],
+            cwd=self.dir, capture_output=True, text=True,
+        )
+
+    def test_mine_space_in_filename(self):
+        """含空白的測試檔名不造成 shell 注入，mine 正確執行並通過。"""
+        (self.dir / "tests").mkdir()
+        # 含空白的測試檔：真實 unittest
+        (self.dir / "tests" / "test_a b.py").write_text(
+            "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self): pass\n",
+            encoding="utf-8",
+        )
+        result = self.run_script(
+            "mine", "--cmd", "python3 -m unittest discover -s tests",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PASS", result.stdout)
 
 
 if __name__ == "__main__":

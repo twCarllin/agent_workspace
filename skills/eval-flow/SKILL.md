@@ -67,6 +67,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
      - **impact report 慣例段**：前置 2.5 有跑時，摘錄該模組的「各模組既有慣例」與「可重用既有元件」節（節名見 impact-analyzer 定義）
      - grep 篩選的對象是**模組名片段**（取自 files 路徑的目錄／檔名，如 `eval_gates`、`hooks`），不是整段路徑——retro 標籤慣用全形 `／`，整段半形路徑會靜默零命中
      - 三源皆無相關內容時在 prompt 註明「知識前置：三源均無相關內容」（留痕，防跳步）
+   - **測試管轄註記**：派工 prompt 附一句「測試自驗只准跑 `python3 .claude/hooks/test_baseline.py mine --strike-key sub_task_<id>`，依你定義中的測試管轄規則」（writer 層 mine 模式細節住 test-strategy skill，不重述；`[P]` 平行 item 不適用 mine，改在 prompt 指定測試檔清單，或各開 worktree）
 2. 將變更檔案 `git add` 進 staging area（確保 code-reviewer / task-verifier 可透過 `git diff --cached` 讀取）
 3. **同一訊息並發呼叫** `code-reviewer` 與 `task-verifier`（兩者皆唯讀、讀同一份 staged diff、互不依賴輸出——序列跑是純浪費）。`step` 欄位於並行階段記 `reviewing`（`verifying` 保留供舊 run resume 相容，新路徑不再單獨使用）
    - **審查報告 write-ahead（硬性步驟）**：**每一輪** code-reviewer 交付後，主 flow 立即把審查報告全文落檔 `run/<run_id>.review-st<id>-r<N>.md`（st＝sub_task id、r＝該 sub_task 的審查輪次，逐輪遞增），再進入解析／修正——比照 `step` 欄位的 write-ahead 原則（中斷在 fixing 時整輪 reviewer 只活在對話裡會作廢，落檔後接手者讀報告續修，不重跑 reviewer）。`set-review <id> <🔴數>` 僅於**首輪**落檔後執行（記修正前原始數，與操作規則條呼應）。落檔是熱 scratchpad（只為中斷恢復服務），step 6 收尾時隨 `eval_state.json` 一併清除、不進 git
@@ -261,4 +262,4 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 - **要並行 → 開 `git worktree`**：每個 run 在自己的 worktree／branch 裡跑，單例假設在 worktree 內自然成立，收尾各自 commit 後合回主線。**≥2 個互不相依的 Tier 1 需求同時進來時，依 `parallel-run` skill 執行**（批次 HITL、背景 agent、merge 收尾的細節住在該 skill）
 - **插單（run 跑到一半來了急件）**：原 run 的 worktree **原地凍結**（狀態已全在 manifest／`eval_state.json`／staging area 裡，不需要任何「暫停」操作），急件在新 worktree 處理，完成後回原 worktree 依 `eval-flow-resume` skill 接續
 - hook 強制：呼叫流程管制的 subagent 時，若本工作區存在**其他** in_progress 的 manifest（run_id 與 `eval_state.json` 不一致）→ 擋，並提示「先收尾／封存既有 run，或開 worktree 並行」
-- **單一 run 內 [P] 平行寫作的測試 barrier**：若同一 run 內多個 `[P]` item 由併發 code-writer 寫作，各 item 的 step 5 相關測試可各自先跑，但**全套 baseline/check（step 6 ⓪ full_suite）是 join barrier**——必須等**所有**平行 writer 都交付、各自 🔴 清零並過 task-verifier 後，才跑一次；不可在部分 writer 交付時就跑（會測到不完整／交錯的樹，gate 判定失真）。此條僅限「單一 run 內」平行；跨 run 平行走 `parallel-run` skill，各自 worktree 各跑各的 step 5，不受此條約束
+- **單一 run 內 [P] 平行寫作的測試 barrier**：若同一 run 內多個 `[P]` item 由併發 code-writer 寫作，各 item 的 step 5 相關測試可各自先跑，但**全套 baseline/check（step 6 ⓪ full_suite）是 join barrier**——必須等**所有**平行 writer 都交付、各自 🔴 清零並過 task-verifier 後，才跑一次；不可在部分 writer 交付時就跑（會測到不完整／交錯的樹，gate 判定失真）。此條僅限「單一 run 內」平行；跨 run 平行走 `parallel-run` skill，各自 worktree 各跑各的 step 5，不受此條約束。**mine 模式在 `[P]` 平行下不適用**：共用同一棵樹時未提交變更混雜多個 writer，範圍推導失效——派工 prompt 改指定測試檔清單，或各開 worktree（見 test-strategy skill 的 writer 層 mine 模式節）

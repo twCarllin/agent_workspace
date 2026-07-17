@@ -1,0 +1,18 @@
+{
+  "run_id": "2026-07-17-writer-scoped-tests",
+  "created_at": "2026-07-17 18:20",
+  "framework_version": "2026.07.17.2",
+  "tier": 1,
+  "tier_rationale": "code-writer 測試管轄範圍收斂：test_baseline.py 加 mine 子命令（含測試）＋ code-writer.md／skill prose 管轄規則。多檔含 code 超出 Tier 0，DoD 明確、單一路徑、不觸及 auth／金流／DB schema／部署設定 → Tier 1",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "解決 code-writer（弱 model）寫程式時陷入測試自我懷疑迴圈、以及被別的 sub_task 造成的既有測試失敗拖住的問題。責任切分：writer 只准跑自己 diff 範圍內的測試，失敗歸因全部上移給 script 與主 flow。實作四件事：(1) test_baseline.py 加 mine 子命令——從 git 未提交變更（staged＋unstaged＋untracked）過濾出測試檔，只跑那些；無測試檔則明確回報；失敗列清單 exit 2，並沿用 strikes 機制記 --strike-key 連續失敗次數（達 2 次提示停止自行修復、帶失敗交付）。前提不變量：writer 開工時樹乾淨（每 sub_task 結尾 commit 保證），故當下 git diff 全屬該 writer；單 run 內 [P] 平行共用同一棵樹時此推導失效，mine 模式不適用（須由主 flow 派工時指定檔案清單或各開 worktree）。(2) tests/test_test_baseline.py 補 mine 模式案例。(3) .claude/agents/code-writer.md 加「測試管轄規則」：先實作到 DoD 再一次寫測試（禁交錯）；測試只准經 test_baseline.py mine 跑、禁止自行跑全套或擴大範圍；範圍外失敗原樣抄進工作報告、一字不修；同一失敗測試最多修 2 次，超過帶失敗照常交付（寫進未完成項目），由主 flow step 5 決策樹處置；失敗時以 DoD 為仲裁判斷改 code 還是改測試，禁止無依據同時改兩邊。(4) skills/test-strategy/SKILL.md 加 mine 模式一節（用途、範圍推導、[P] 平行限制）、skills/eval-flow/SKILL.md 循環 step 1 派工 prompt 註明 writer 測試管轄約束；改完同步部署到 ~/.claude/skills/。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-17 18:25 — 使用者確認 1 task／3 items 計畫（mine 子命令＋writer 管轄規則＋skill prose 同步）",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-07-17.md",
+  "status": "completed",
+  "failed_reason": null
+}

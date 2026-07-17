@@ -5,6 +5,7 @@
   python3 .claude/hooks/test_baseline.py baseline [--cmd "pytest -q"] [--runs 2] [--run-id ID] [--fresh]
   python3 .claude/hooks/test_baseline.py check    [--cmd "pytest -q"] [--strike-key sub_task_1] [--run-id ID]
   python3 .claude/hooks/test_baseline.py related  --files src/a.py src/b.py
+  python3 .claude/hooks/test_baseline.py mine     [--cmd "pytest -q"] [--strike-key sub_task_1] [--run-id ID]  # 只跑本次未提交變更範圍內的測試檔
 
 --cmd 省略時讀 run/<run_id>.json（manifest）的 test_command 欄位——全套指令的
 single source of truth，保證 baseline 與 check 的範圍一致。
@@ -28,6 +29,7 @@ import glob
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 
@@ -52,15 +54,26 @@ def fail(msg, code=1):
     sys.exit(code)
 
 
-def run_tests(cmd):
-    p = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    out = (p.stdout or "") + "\n" + (p.stderr or "")
+def _parse_fails(out, returncode):
     fails = set()
     for pat in FAIL_PATTERNS:
         fails.update(m.strip() for m in pat.findall(out))
-    if p.returncode != 0 and not fails:
+    if returncode != 0 and not fails:
         fails.add("__suite__")
-    return fails, p.returncode
+    return fails
+
+
+def run_tests(cmd):
+    p = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    out = (p.stdout or "") + "\n" + (p.stderr or "")
+    return _parse_fails(out, p.returncode), p.returncode
+
+
+def run_tests_argv(argv):
+    """list argv 版本的 run_tests，不經 shell，用於 mine 子命令。"""
+    p = subprocess.run(argv, capture_output=True, text=True)
+    out = (p.stdout or "") + "\n" + (p.stderr or "")
+    return _parse_fails(out, p.returncode), p.returncode
 
 
 def resolve_run_id(args):
@@ -231,6 +244,122 @@ def _save(path, data):
         f.write("\n")
 
 
+def git_changed_files():
+    """以 git status --porcelain -z 取得所有未提交變更檔（staged＋unstaged＋untracked）。
+    deleted 檔排除；rename 行（-z 下格式 XY new\\0old\\0）取 new；
+    untracked 目錄（以 / 結尾）遞歸展開為子檔案。"""
+    try:
+        p = subprocess.run(
+            ["git", "status", "--porcelain", "-z"],
+            capture_output=True, text=True, check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    # -z 用 NUL 分隔記錄；split("\0") 最後一個元素為空字串，filter 掉
+    records = p.stdout.split("\0")
+    files = []
+    i = 0
+    while i < len(records):
+        rec = records[i]
+        if len(rec) < 3:
+            i += 1
+            continue
+        xy = rec[:2]
+        path = rec[3:]
+        # deleted（D 在 index 或 worktree）：排除
+        if "D" in xy:
+            # rename/copy 的 old path 跟在下一個 NUL 段，跳過
+            if xy[0] in ("R", "C"):
+                i += 2
+            else:
+                i += 1
+            continue
+        # rename / copy：new path 已在本 rec（path），old path 在下一個 NUL 段，跳過
+        if xy[0] in ("R", "C"):
+            files.append(path)
+            i += 2
+            continue
+        # untracked 目錄（?? dir/ 形式）：遞歸展開為子檔案
+        if path.endswith("/") and os.path.isdir(path):
+            for dirpath, dirnames, filenames in os.walk(path):
+                dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+                for fname in filenames:
+                    files.append(os.path.join(dirpath, fname).replace("\\", "/"))
+        else:
+            files.append(path)
+        i += 1
+    return files
+
+
+def is_test_file(path):
+    """判定是否為測試檔（與 cmd_related 邏輯一致）。"""
+    parts = path.replace("\\", "/").split("/")
+    name = parts[-1]
+    if any(p in SKIP_DIRS for p in parts):
+        return False
+    in_test_dir = any(p in TEST_DIR_NAMES for p in parts[:-1])
+    return bool(TEST_FILE_RE.match(name)) or in_test_dir
+
+
+def build_mine_argv(cmd, files):
+    """組合 mine 執行 argv list：unittest discover 型轉 module 路徑，其他直接附路徑。
+    回傳 list，供 run_tests_argv 使用（不經 shell，避免檔名注入）。"""
+    if cmd.startswith("python3 -m unittest"):
+        # 丟棄 discover 及其後參數，改為直接指定 module
+        modules = [f.replace("/", ".").removesuffix(".py") for f in files]
+        return ["python3", "-m", "unittest", *modules]
+    return [*shlex.split(cmd), *files]
+
+
+def cmd_mine(args):
+    run_id = resolve_run_id(args)
+    changed = git_changed_files()
+    test_files = [f for f in changed if is_test_file(f)]
+
+    if not test_files:
+        print("[test-gate] 本次變更無測試檔（測試建立與否由 DoD 決定）")
+        return
+
+    cmd = resolve_cmd(args, run_id)
+    mine_argv = build_mine_argv(cmd, test_files)
+
+    fails, rc = run_tests_argv(mine_argv)
+
+    # 讀 baseline 處理 strikes（baseline 不存在則跳過持久化）
+    path = baseline_path(run_id)
+    base = None
+    if args.strike_key and os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            base = json.load(f)
+
+    if rc == 0 and not fails:
+        if base is not None:
+            key = f"mine:{args.strike_key}"
+            base.setdefault("strikes", {})[key] = 0
+            _save(path, base)
+        print(f"[test-gate] mine PASS: {len(test_files)} 個測試檔全部通過")
+        return
+
+    # 有失敗
+    if base is not None:
+        key = f"mine:{args.strike_key}"
+        strikes = base.setdefault("strikes", {})
+        strikes[key] = strikes.get(key, 0) + 1
+        _save(path, base)
+        print(f"[test-gate] {key} 連續失敗第 {strikes[key]} 次", file=sys.stderr)
+        if strikes[key] >= 2:
+            print(
+                "[test-gate] 已達 2 次上限：停止自行修復，"
+                "把失敗原文寫進工作報告的未完成項目、照常交付",
+                file=sys.stderr,
+            )
+
+    print(f"[test-gate] mine BLOCK: {len(fails)} 個失敗：", file=sys.stderr)
+    for t in sorted(fails):
+        print(f"  - {t}", file=sys.stderr)
+    sys.exit(2)
+
+
 def cmd_related(args):
     stems = set()
     for f in args.files:
@@ -285,6 +414,12 @@ def main():
     p_rel = sub.add_parser("related")
     p_rel.add_argument("--files", nargs="+", required=True)
     p_rel.set_defaults(func=cmd_related)
+
+    p_mine = sub.add_parser("mine")
+    p_mine.add_argument("--cmd")
+    p_mine.add_argument("--strike-key")
+    p_mine.add_argument("--run-id")
+    p_mine.set_defaults(func=cmd_mine)
 
     args = parser.parse_args()
     args.func(args)

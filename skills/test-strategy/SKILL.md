@@ -21,6 +21,18 @@ python3 .claude/hooks/test_baseline.py baseline
 - **既有壞測試 = 記錄級欠帳，不是攔截級**：與 hotfix `debt` 不同——不擋新 run、本 run 不修（修它是 scope 偏移），但 retro 時彙報數量與清單，讓債看得見
 - 無任何測試框架的專案不建 baseline，改走「零測試專案」節
 
+## Writer 層 mine 模式（code-writer 內迴圈的測試範圍）
+
+```
+python3 .claude/hooks/test_baseline.py mine --strike-key <sub_task 標識>
+```
+
+- **用途與分工**：code-writer 自驗**只准**用 mine——只跑自己未提交變更範圍內的測試檔；step 5 的 `check`（累積聯集＋baseline 扣除）是主 flow 的事。失敗歸因不留給弱 model：mine 範圍內的失敗全屬呼叫者（不做 baseline 扣除），範圍外的歸因由 script 與主 flow 仲裁
+- **範圍推導原理**：每 sub_task 結尾 commit ⇒ writer 開工時樹乾淨 ⇒ 當下 git 未提交變更（staged＋unstaged＋untracked）全屬該 writer，其中的測試檔即其管轄範圍——機械推導，零判斷
+- **抓不到的破壞是 by design**：writer 改 source 弄壞既有測試但沒碰測試檔時 mine 不會抓到——這類失敗由 step 5 的 check 現形（baseline 在其開工前是乾淨的，歸因必然準確），主 flow 拿具體失敗清單回派修正
+- **`[P]` 平行不適用**：同一 run 內多個 writer 共用同一棵樹時，未提交變更混雜、範圍推導失效——主 flow 派工時改為明確指定測試檔清單，或各開 worktree
+- writer 端的行為約束（先實作後測試、範圍外失敗照抄不修、2 次上限帶失敗交付）住在 `.claude/agents/code-writer.md` 的「測試管轄規則」節，不在此重述
+
 ## 前端／UI 實機驗證的定位（best-effort，非阻塞）
 
 > 阻塞 gate 是**功能正確性的自動化測試**（下方 step 5 的 baseline check），**不是**前端 UI 的瀏覽器實機驗證。
