@@ -73,6 +73,8 @@ model: claude-sonnet-4-6
 
 ```markdown
 - YYYY-MM-DD［標籤：模組或問題類別／來源 run_id］背景一句（發生了什麼、根因是什麼）。**約束：下次寫 X 時必須／不可 Y（具體到可執行、可檢驗）。**
+
+標籤規範：**第一段固定為模組路徑或域名**（如 `hooks／eval_gates`、`流程設計`、`api／settlement`），供主 flow 以 item 觸及的模組路徑機械 grep 篩選（eval-flow step 1 知識前置）；後續段落才是問題類別與 run_id。既有條目格式已符合者不回改。
 ```
 
 寫作檢驗：把「約束：」之後的句子單獨貼給一個沒讀過本檔的 writer，它能照做 → 合格；需要上下文才懂 → 重寫。

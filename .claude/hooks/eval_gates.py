@@ -30,6 +30,7 @@ TEST_DIR_NAMES = {"test", "tests", "__tests__", "spec"}
 PHASES = ["init", "risk_done", "usage_confirmed", "decomposed", "completed"]
 AGENT_MIN_PHASE = {
     "usage-analyzer": "risk_done",      # 前置 1（風險分析）完成才可跑前置 2
+    "impact-analyzer": "usage_confirmed",  # 前置 2 使用者確認後才可跑前置 2.5
     "task-decomposer": "usage_confirmed",  # 前置 2 使用者確認後才可分拆
     "code-writer": "decomposed",        # 前置 3 完成才可進循環
     "eval-scorer": "decomposed",

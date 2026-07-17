@@ -19,9 +19,9 @@ skills: task-decomposition
 ## 輸入
 
 1. 讀 `eval_state.json` 取得 `run_id`
-2. 讀 manifest `run/<run_id>.json`，取 `usage_report_path` 與 `spec_path`
+2. 讀 manifest `run/<run_id>.json`，取 `usage_report_path`、`spec_path` 與 `impact_report_path`
 3. `usage_report_path` 為 `null` → 中止，回報「前置 2 未確認」（不可在 usage 未確認時拆）
-4. 讀使用情境報告與 Spec；估行數／盤影響檔案時用 Grep／Glob
+4. 讀使用情境報告與 Spec；`impact_report_path` 非空且非 `"skipped: ..."` → 讀 impact 報告，依其模組邊界與呼叫端清單對映各 item 的 files 與 DoD；估行數／盤影響檔案時用 Grep／Glob
 
 ## 拆分上限
 

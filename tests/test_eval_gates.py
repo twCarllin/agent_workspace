@@ -290,6 +290,50 @@ class GitCommitRegexTest(unittest.TestCase):
         self.assertFalse(eval_gates.GIT_COMMIT_RE.search("git diff --cached"))
 
 
+
+class ImpactAnalyzerGateTest(unittest.TestCase):
+    """測試 check_task_gate() 對 impact-analyzer 的 phase 前置檢查。"""
+
+    def setUp(self):
+        import os
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+
+    def tearDown(self):
+        import os
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    def _write_state_and_manifest(self, phase):
+        import json
+        import os
+        os.makedirs("run")
+        manifest = {
+            "run_id": "test-run",
+            "spec_inline": "test spec",
+            "status": "in_progress",
+            "phase": phase,
+        }
+        with open("run/test-run.json", "w", encoding="utf-8") as f:
+            json.dump(manifest, f)
+        with open("eval_state.json", "w", encoding="utf-8") as f:
+            json.dump({"run_id": "test-run", "sub_tasks": []}, f)
+
+    def test_phase_below_usage_confirmed_blocks(self):
+        self._write_state_and_manifest("risk_done")
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "impact-analyzer"})
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_phase_usage_confirmed_passes(self):
+        self._write_state_and_manifest("usage_confirmed")
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "impact-analyzer"})
+        self.assertEqual(ctx.exception.code, 0)
+
+
 class EvalScorerGateTest(unittest.TestCase):
     """測試 check_task_gate() 對 eval-scorer 的 review_reds 前置檢查。"""
 

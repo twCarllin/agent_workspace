@@ -1,0 +1,17 @@
+{
+  "run_id": "2026-07-17-impact-knowledge-layering",
+  "created_at": "2026-07-17 11:19",
+  "framework_version": "2026.07.17",
+  "tier": 1,
+  "tier_rationale": "大專案適應第一批：新 agent 定義＋eval-flow 前置 2.5＋hook 一行＋知識分層 prose（含測試），DoD 明確、單一路徑、不觸及 auth／金流／DB schema／部署設定 → Tier 1",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "大專案平衡建議 1＋5 落地。(1) 影響面盤點＝Tier 2 前置 2.5（usage_confirmed 後、分拆前）：新唯讀 subagent impact-analyzer（指令內聯於 agent 定義，無獨立 skill——沿用單一消費者判準），讀 Spec＋usage 報告＋既有程式碼，產出 impact/<run_id>.md（觸及模組清單、各模組既有慣例、可重用元件、被改介面的呼叫端清單、跨模組風險點），回寫 manifest.impact_report_path；全新模組／無既有呼叫端可 skip（manifest 記 skipped＋理由）；不新增 phase 值（住 usage_confirmed 與 decomposed 之間），task-decomposer 呼叫時 prompt 須含 impact report；hook AGENT_MIN_PHASE 加 impact-analyzer: usage_confirmed＋測試。(5) 知識分層：eval-flow step 1 的 retro 前置擴為「知識前置」——retro 相關條目＋該 item 觸及模組的 conventions（子目錄 CLAUDE.md 或 impact report 的慣例段）一併貼進 writer prompt 硬性約束區；retro agent 的標籤規範化（標籤第一段＝模組路徑或域名，供機械 grep 篩選）。CLAUDE.md 補 impact/ 資料夾慣例一行。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-17 11:22 — 使用者確認 1 task／3 items 計畫（impact-analyzer＋前置 2.5、hook gate、知識前置＋retro 標籤）",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "task_file": "task/2026-07-17.md",
+  "status": "completed",
+  "failed_reason": null
+}

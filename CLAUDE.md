@@ -53,6 +53,7 @@
 - 任務檔案放在 `task/` 資料夾，以日期命名：`task/YYYY-MM-DD.md`
 - 使用情境報告放在 `usage/` 資料夾，以 run_id 命名：`usage/<run_id>.md`（比照 task 的專屬資料夾慣例）
 - 風險分析報告放在 `risk/` 資料夾：`risk/<run_id>.md`（前置 1 產出即存檔）
+- 影響面報告放在 `impact/` 資料夾：`impact/<run_id>.md`（前置 2.5 產出即存檔）
 - run manifest 放在 `run/` 資料夾：`run/<run_id>.json`（冷溯源，隨 commit 進 git）
 - **產出物自足性（換手的前提）**：Spec、usage 報告、task 檔、風險報告必須**不依賴對話上下文**即可讀懂——不得出現「如上所述」「依先前討論」等指涉對話的內容；task item 必須寫明確檔案路徑與 DoD。標準是：任何未參與對話的 AI／工程師讀檔即可接手
 - 每次新增或讀取任務時，使用**當天日期**的檔案（例如 `task/2026-04-18.md`）
