@@ -1,6 +1,6 @@
 ---
 name: test-strategy
-description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無新增穩定失敗」機制（script 判定）、flaky 過濾、失敗四分類決策樹、兩次舉手上限、相關測試選擇（累積聯集）、假測試 lint、mutation self-check、commit 前全套檢查與重開 passed sub_task 的路徑、零測試專案處置、全 tier 驗證豁免窗口。觸發語：Eval Flow 循環進入 step 5 時、「測試失敗怎麼辦」、「建測試 baseline」。不適用於：測試框架選型（Tier B bootstrap 的 HITL 決定）、eval 評分（住在 eval-scorer agent 定義）。
+description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無新增穩定失敗」機制（script 判定）、flaky 過濾、失敗四分類決策樹、兩次舉手上限、相關測試選擇（累積聯集）、假測試 lint、mutation self-check、commit 前全套檢查與重開 passed sub_task 的路徑、零測試專案處置、全 tier 驗證豁免窗口。觸發語：Eval Flow 循環進入 step 5 時、「測試失敗怎麼辦」、「建測試 baseline」。不適用於：測試框架選型（Tier B bootstrap 的 HITL 決定）。
 ---
 
 # Test Strategy（本地測試 gate 執行細節）
@@ -77,7 +77,7 @@ python3 .claude/hooks/test_baseline.py baseline
 
 ## Commit 前全套檢查與重開路徑（跨 sub_task 破壞的最後防線）
 
-step 7 收尾**之前**（歸檔 eval_state 前）跑一次全套：
+step 6 收尾**之前**（歸檔 eval_state 前）跑一次全套：
 
 ```
 python3 .claude/hooks/test_baseline.py check --strike-key full_suite
@@ -89,7 +89,7 @@ python3 .claude/hooks/test_baseline.py check --strike-key full_suite
 - exit 2 → 相關測試沒抓到的跨 sub_task 破壞。處置：
   1. 用 `git diff --cached -- <各 sub_task 的 files>` 定位是哪個 sub_task 的變更弄壞的
   2. **重開該 sub_task**（即使已 `passed`）：`status` 改回 `"in_progress"`、`local_test_passed` 改回 `false`、`step` 設 `"fixing"`
-  3. 修正後從循環**步驟 3** 重走（review → verify → test → score 照常，不可只補測試就標回 passed）
+  3. 修正後從循環**步驟 3** 重走（review → verify → test 照常，不可只補測試就標回 passed）
   4. hook 的歸檔 gate 自然擋住未重過的 commit（任一 sub_task 非 passed 即擋），順序不可能被跳過
 
 ## 零測試專案

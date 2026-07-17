@@ -2,20 +2,20 @@
 """eval_state.json 操作 helper：eval-flow 循環的欄位更新一律走這裡，不手動 Edit。
 
 用法：
-  python3 .claude/hooks/eval_state.py init --run-id ID [--threshold 6]
+  python3 .claude/hooks/eval_state.py init --run-id ID
   python3 .claude/hooks/eval_state.py add-subtask --id N --name "名稱"
-  python3 .claude/hooks/eval_state.py set-step <id> <writing|reviewing|fixing|verifying|testing|scoring|done>
+  python3 .claude/hooks/eval_state.py set-step <id> <writing|reviewing|fixing|verifying|testing|done>
   python3 .claude/hooks/eval_state.py set-files <id> <file...>
   python3 .claude/hooks/eval_state.py set-test <id> (--passed --evidence "指令＋結果摘要" | --failed)
   python3 .claude/hooks/eval_state.py set-status <id> <passed|failed|in_progress> [--warning]
-  python3 .claude/hooks/eval_state.py set-review <id> <reds>   # step 3 首輪 code-reviewer 🔴 數（修正前原始數）
+  python3 .claude/hooks/eval_state.py set-review <id> <reds> [--dimensions '<json>']
+                                                   # step 3 首輪 code-reviewer 🔴 數（修正前原始數）
+                                                   # --dimensions: 維度→問題數，如 '{"Clarity":1,"Completeness":2}'
   python3 .claude/hooks/eval_state.py set-verify <id>          # step 4 task-verifier 通過時呼叫
-  python3 .claude/hooks/eval_state.py append-round <id> --json '<round JSON>'   # '-' 讀 stdin
   python3 .claude/hooks/eval_state.py list-files      # 所有 sub_task files 聯集（餵 related --files）
   python3 .claude/hooks/eval_state.py archive         # 驗證後歸檔 run/<run_id>.eval.json 並刪除 eval_state.json
 
-append-round 寫入前驗證扣分不變量（總和 = 10 − quality_score）；archive 前驗證
-全部 sub_task passed 且測試欄位齊備（同 eval_gates 的 commit gate 標準），
+archive 前驗證全部 sub_task passed 且測試欄位齊備（同 eval_gates 的 commit gate 標準），
 驗證不過即 exit 2 不落盤。exit 0 = 成功；exit 1 = 使用錯誤；exit 2 = 驗證不過。
 """
 import argparse
@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import eval_gates  # noqa: E402
 
 STATE_PATH = "eval_state.json"
-STEPS = ["writing", "reviewing", "fixing", "verifying", "testing", "scoring", "done"]
+STEPS = ["writing", "reviewing", "fixing", "verifying", "testing", "done"]
 STATUSES = ["passed", "failed", "in_progress"]
 
 
@@ -62,9 +62,8 @@ def find_subtask(state, sid):
 def cmd_init(args):
     if os.path.exists(STATE_PATH):
         fail(f"{STATE_PATH} 已存在：一個 worktree 同時只跑一個 run，先收尾或歸檔既有 run")
-    save({"run_id": args.run_id, "threshold": args.threshold,
-          "sub_tasks": []})
-    print(f"[eval-state] init: run_id={args.run_id} threshold={args.threshold}")
+    save({"run_id": args.run_id, "sub_tasks": []})
+    print(f"[eval-state] init: run_id={args.run_id}")
 
 
 def cmd_add_subtask(args):
@@ -76,7 +75,7 @@ def cmd_add_subtask(args):
         "files": [], "warning": False,
         "local_test_passed": False, "local_test_evidence": None,
         "review_reds": None, "verify_passed": False,
-        "risk_analysis": None, "rounds": [],
+        "risk_analysis": None, "review_dimensions": None,
     })
     save(state)
     print(f"[eval-state] add-subtask: {args.id}「{args.name}」")
@@ -122,13 +121,39 @@ def cmd_set_status(args):
     print(f"[eval-state] sub_task {args.id} status -> {args.status}")
 
 
+VALID_DIMENSIONS = {"Clarity", "Completeness", "Testability", "Non-functional", "Technical_constraints"}
+
+
 def cmd_set_review(args):
     if args.reds < 0:
         fail(f"reds 必須為非負整數（收到 {args.reds}）")
+    dims = None
+    if args.dimensions is not None:
+        try:
+            dims = json.loads(args.dimensions)
+        except json.JSONDecodeError as e:
+            fail(f"--dimensions 非合法 JSON（{e}）", code=2)
+        if not isinstance(dims, dict):
+            fail("--dimensions 必須為 JSON 物件（維度→問題數）", code=2)
+        for k, v in dims.items():
+            if k not in VALID_DIMENSIONS:
+                fail(
+                    f"--dimensions 含非法維度鍵「{k}」；"
+                    f"合法值：{', '.join(sorted(VALID_DIMENSIONS))}",
+                    code=2,
+                )
+            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+                fail(f"--dimensions 維度「{k}」的值必須為非負整數（收到 {v!r}）", code=2)
     state = load()
-    find_subtask(state, args.id)["review_reds"] = args.reds
+    st = find_subtask(state, args.id)
+    st["review_reds"] = args.reds
+    if dims is not None:
+        st["review_dimensions"] = dims
     save(state)
-    print(f"[eval-state] sub_task {args.id} review_reds -> {args.reds}")
+    msg = f"[eval-state] sub_task {args.id} review_reds -> {args.reds}"
+    if dims is not None:
+        msg += f"，review_dimensions -> {dims}"
+    print(msg)
 
 
 def cmd_set_verify(args):
@@ -136,20 +161,6 @@ def cmd_set_verify(args):
     find_subtask(state, args.id)["verify_passed"] = True
     save(state)
     print(f"[eval-state] sub_task {args.id} verify_passed -> True")
-
-
-def cmd_append_round(args):
-    raw = sys.stdin.read() if args.json == "-" else args.json
-    try:
-        rnd = json.loads(raw)
-    except json.JSONDecodeError as e:
-        fail(f"--json 非合法 JSON（{e}）")
-    state = load()
-    st = find_subtask(state, args.id)
-    st.setdefault("rounds", []).append(rnd)
-    eval_gates.check_rounds_invariant(st, STATE_PATH)  # 不變量不過 → exit 2，不落盤
-    save(state)
-    print(f"[eval-state] sub_task {args.id} append round {rnd.get('round')}（score {rnd.get('quality_score')}）")
 
 
 def cmd_list_files(args):
@@ -183,7 +194,6 @@ def main():
 
     p = sub.add_parser("init")
     p.add_argument("--run-id", required=True)
-    p.add_argument("--threshold", type=int, default=6)
     p.set_defaults(func=cmd_init)
 
     p = sub.add_parser("add-subtask")
@@ -218,16 +228,13 @@ def main():
     p = sub.add_parser("set-review")
     p.add_argument("id", type=int)
     p.add_argument("reds", type=int)
+    p.add_argument("--dimensions", default=None,
+                   help="維度→問題數 JSON，如 '{\"Clarity\":1}'")
     p.set_defaults(func=cmd_set_review)
 
     p = sub.add_parser("set-verify")
     p.add_argument("id", type=int)
     p.set_defaults(func=cmd_set_verify)
-
-    p = sub.add_parser("append-round")
-    p.add_argument("id", type=int)
-    p.add_argument("--json", required=True)
-    p.set_defaults(func=cmd_append_round)
 
     p = sub.add_parser("list-files")
     p.set_defaults(func=cmd_list_files)

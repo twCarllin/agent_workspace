@@ -32,13 +32,13 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
    - 載入 `eval-flow` skill，走 **Tier 1 精簡路徑**，但：
      - 精簡初始化照常（manifest 填 `tier: 1`、`spec_inline`、`risk_report_path: "skipped"`、`usage_report_path: "skipped"`）；因 HITL 已在主 session 完成，`phase` 直接設 `"decomposed"`，並在 manifest 附註「HITL 於主 session 批次完成（parallel-run）」。
      - **task 檔命名例外**：用 `task/YYYY-MM-DD-<slug>.md`（防兩個 run 同建當天檔造成 merge 衝突）。僅並行 run 適用此例外；單一 run 維持 `task/YYYY-MM-DD.md`。
-   - 跑循環 1–8，全部 gate 照常（hook 在各 worktree 內獨立生效）。
-   - **commit 限定在自己的 feat branch**（eval-flow step 7 的收尾 commit，附 `Run-Id` trailer）；**禁止 merge、禁止 push、禁止切 branch**。
+   - 跑循環 1–7，全部 gate 照常（hook 在各 worktree 內獨立生效）。
+   - **commit 限定在自己的 feat branch**（eval-flow step 6 的收尾 commit，附 `Run-Id` trailer）；**禁止 merge、禁止 push、禁止切 branch**。
    - 卡住（2 次真失敗、升級逃生門、任何需要使用者裁決的事）→ 停止並回報主 session，**不自行猜測往下**。
 
 ## 收尾（主 session）
 
-7. **彙整回報**：全部 agent 結束後，主 session 彙整各 run 的結果——狀態（completed／failed）、quality_score、diff 摘要（`git log --stat feat/<run_id>`）——一次回報使用者。
+7. **彙整回報**：全部 agent 結束後，主 session 彙整各 run 的結果——狀態（completed／failed）、review 輪數與首輪 🔴 數、diff 摘要（`git log --stat feat/<run_id>`）——一次回報使用者。
 8. **使用者確認後才 merge**：逐一 `git merge feat/<run_id>`（前置 2 已保證檔案不相交，理論上零衝突；真衝突 → 停下回報，不自行硬解），merge 完成後 `git worktree remove ../<repo>-<slug>` 並刪除 feat branch。**未經使用者確認不 merge、不清 worktree**。
 9. **任一 run failed**：該 worktree **原地凍結**（狀態全在 manifest／`eval_state.json`／staging area），回報死因；其餘成功的 run 照常走確認→merge。凍結的 run 之後依 `eval-flow-resume` skill 在原 worktree 續跑。
 

@@ -39,11 +39,11 @@ class EvalStateHelperTest(unittest.TestCase):
         run_cli("add-subtask", "--id", "1", "--name", "demo")
 
     def test_init_creates_state(self):
-        run_cli("init", "--run-id", "r1", "--threshold", "7")
+        run_cli("init", "--run-id", "r1")
         state = self.read_state()
         self.assertEqual(state["run_id"], "r1")
-        self.assertEqual(state["threshold"], 7)
         self.assertEqual(state["sub_tasks"], [])
+        self.assertNotIn("threshold", state)
 
     def test_init_refuses_overwrite(self):
         run_cli("init", "--run-id", "r1")
@@ -65,22 +65,6 @@ class EvalStateHelperTest(unittest.TestCase):
         run_cli("set-test", "1", "--passed", "--evidence", "pytest -q -> 3 passed")
         st = self.read_state()["sub_tasks"][0]
         self.assertTrue(st["local_test_passed"])
-
-    def test_append_round_validates_invariant(self):
-        self.bootstrap()
-        bad = json.dumps({"round": 1, "quality_score": 8, "deduction_reasons": []})
-        with self.assertRaises(SystemExit):
-            run_cli("append-round", "1", "--json", bad)
-        self.assertEqual(self.read_state()["sub_tasks"][0]["rounds"], [])  # 未落盤
-        good = json.dumps({
-            "round": 1, "quality_score": 9,
-            "deduction_reasons": [
-                {"points_lost": 1, "dimension": "Clarity", "reason": "r", "evidence": "a:1"}
-            ],
-            "dimensions": {"Correctness": 2, "Clarity": 2, "Safety": 2, "Test": 2, "Style": 1},
-        })
-        run_cli("append-round", "1", "--json", good)
-        self.assertEqual(len(self.read_state()["sub_tasks"][0]["rounds"]), 1)
 
     def test_list_files_unions_across_subtasks(self):
         self.bootstrap()
@@ -105,17 +89,12 @@ class EvalStateHelperTest(unittest.TestCase):
         run_cli("set-test", "1", "--passed", "--evidence", "pytest -q -> 3 passed")
         run_cli("set-review", "1", "1")
         run_cli("set-verify", "1")
-        good = json.dumps({
-            "round": 1, "quality_score": 10, "deduction_reasons": [],
-            "dimensions": {"Correctness": 2, "Clarity": 2, "Safety": 2, "Test": 2, "Style": 2},
-        })
-        run_cli("append-round", "1", "--json", good)
         run_cli("set-status", "1", "passed")
         run_cli("archive")
         self.assertFalse(os.path.exists("eval_state.json"))
         with open("run/2026-07-15-demo.eval.json", encoding="utf-8") as f:
             archived = json.load(f)
-        self.assertNotIn("status", archived)
+        self.assertEqual(archived["run_id"], "2026-07-15-demo")
 
     def test_add_subtask_default_review_verify_fields(self):
         self.bootstrap()
@@ -153,6 +132,38 @@ class EvalStateHelperTest(unittest.TestCase):
         self.bootstrap()
         with self.assertRaises(SystemExit):
             run_cli("set-step", "99", "writing")
+
+    # set-review --dimensions 案例
+    def test_set_review_with_valid_dimensions(self):
+        self.bootstrap()
+        run_cli("set-review", "1", "2", "--dimensions", '{"Clarity":1,"Completeness":1}')
+        st = self.read_state()["sub_tasks"][0]
+        self.assertEqual(st["review_reds"], 2)
+        self.assertEqual(st["review_dimensions"], {"Clarity": 1, "Completeness": 1})
+
+    def test_set_review_invalid_dimension_key_exits(self):
+        self.bootstrap()
+        with self.assertRaises(SystemExit) as ctx:
+            run_cli("set-review", "1", "1", "--dimensions", '{"InvalidKey":1}')
+        self.assertEqual(ctx.exception.code, 2)
+        # 不落盤
+        self.assertIsNone(self.read_state()["sub_tasks"][0]["review_dimensions"])
+
+    def test_set_review_negative_dimension_value_exits(self):
+        self.bootstrap()
+        with self.assertRaises(SystemExit) as ctx:
+            run_cli("set-review", "1", "1", "--dimensions", '{"Clarity":-1}')
+        self.assertEqual(ctx.exception.code, 2)
+        # 不落盤
+        self.assertIsNone(self.read_state()["sub_tasks"][0]["review_dimensions"])
+
+    def test_set_review_bad_json_dimensions_exits(self):
+        self.bootstrap()
+        with self.assertRaises(SystemExit) as ctx:
+            run_cli("set-review", "1", "1", "--dimensions", '{not valid json}')
+        self.assertEqual(ctx.exception.code, 2)
+        # 不落盤
+        self.assertIsNone(self.read_state()["sub_tasks"][0]["review_dimensions"])
 
 
 if __name__ == "__main__":

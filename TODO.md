@@ -112,7 +112,12 @@ RETRO.md 是 per-project，但實測的 🔴 全是通用類別（外部回應�
 - [x] 審計資料欄位：manifest `hitl_rejections`、round `review_reds`（scorer 獨立貢獻審計的資料來源）
 - [x] 去相關化驗證：code-reviewer 改 opus-4-8（與 writer 的 sonnet 異質；同顆腦互審抓不到共同盲點，亦符合「審查→強 model」原則）
 
-## 14. 治理規則（給維護者自己的，機制化防流程無限長大）
+## 14. 部署 2026.07.17.2（移除 eval-scorer）到外層專案前
+
+- [ ] 確認該專案無 in_progress 的 run（有則先收尾——舊 run 停在 scoring 依 eval-flow-resume 的相容列處置）
+- [ ] 手動刪外層 `.claude/agents/eval-scorer.md` 與 `~/.claude/skills/eval-scoring/`（init.sh 只覆蓋不刪除的孤兒）
+
+## 15. 治理規則（給維護者自己的，機制化防流程無限長大）
 
 - [ ] **規則凍結**：在累積下 5 個真實 run 的 stats 數據前，不新增流程規則（measurement 先於 rules；本節之後的投資應是「跑 run」不是「改 flow」）
 - [ ] **eval-scorer 存廢審計**：5 個 run 後看 stats 的「scorer 獨立貢獻」——趨近 0% 則砍掉 scorer 層（全系統最大單筆成本削減候選），reviewer 結論直接驅動重跑

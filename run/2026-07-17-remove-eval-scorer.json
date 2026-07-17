@@ -1,0 +1,18 @@
+{
+  "run_id": "2026-07-17-remove-eval-scorer",
+  "created_at": "2026-07-17 16:40",
+  "framework_version": "2026.07.17",
+  "tier": 1,
+  "tier_rationale": "架構修剪：移除 eval-scorer 獨立階段（前次修剪 2026-07-16-prune-redundant-layers 留待審計的 #1 項）。10-run 遙測審計結論：scorer 獨立貢獻 0%（0/7）、quality_score 平均 9.7 無鑑別力、threshold 47 次未 bind、scorer 被 gate 擋 4 次純摩擦。DoD 明確（刪獨立階段與 threshold 閘門、維度訊號降格為 reviewer 附掛遙測、引用一致、全套測試綠）、單一路徑、不觸及 auth／金流／DB schema／部署設定 → Tier 1",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "移除 eval-scorer 獨立階段與 threshold 閘門：循環改為 writer → (review ∥ verify) → 修至零🔴 → 本地測試 → 收尾；品質維度訊號降格為 code-reviewer 問題的維度標記（五維詞彙不變），記入 eval_state 供 stats.py 遙測；rework 訊號改以 review_reds ≥ 1 計；修正迭代上限 2 輪（仍有🔴則回報使用者）；eval-scorer agent 與相關 hook gate／不變量／helper 子命令同步移除，stats.py 對舊歸檔檔保持向後相容",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-17 16:52 — 確認 1 task／5 items 計畫（移除 eval-scorer 獨立階段；VERSION 定 2026.07.17.2；item 5 部署註記併入 item 4 執行）",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-07-17.md",
+  "status": "completed",
+  "failed_reason": null
+}

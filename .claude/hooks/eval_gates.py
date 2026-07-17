@@ -33,7 +33,6 @@ AGENT_MIN_PHASE = {
     "impact-analyzer": "usage_confirmed",  # 前置 2 使用者確認後才可跑前置 2.5
     "task-decomposer": "usage_confirmed",  # 前置 2 使用者確認後才可分拆
     "code-writer": "decomposed",        # 前置 3 完成才可進循環
-    "eval-scorer": "decomposed",
 }
 
 
@@ -72,42 +71,11 @@ def load_json(path):
         block(f"{path} 無法讀取或非合法 JSON（{e}）")
 
 
-def check_rounds_invariant(sub_task, source):
-    name = sub_task.get("name") or sub_task.get("id")
-    for rnd in sub_task.get("rounds", []):
-        score = rnd.get("quality_score")
-        if not isinstance(score, (int, float)):
-            block(f"{source} sub_task「{name}」round {rnd.get('round')} 缺 quality_score")
-        lost = sum(d.get("points_lost", 0) for d in rnd.get("deduction_reasons", []))
-        if lost != 10 - score:
-            block(
-                f"{source} sub_task「{name}」round {rnd.get('round')} 不變量違反："
-                f"扣分總和 {lost} != 10 - quality_score({score})"
-            )
-        dims = rnd.get("dimensions")
-        if not isinstance(dims, dict) or not dims:
-            block(
-                f"{source} sub_task「{name}」round {rnd.get('round')} 缺 dimensions、非 dict 或為空"
-            )
-        for dim_name, dim_val in dims.items():
-            if not isinstance(dim_val, (int, float)) or isinstance(dim_val, bool):
-                block(
-                    f"{source} sub_task「{name}」round {rnd.get('round')} "
-                    f"dimension {dim_name} 非數值（{dim_val!r}）"
-                )
-        dim_total = sum(dims.values())
-        if dim_total != score:
-            block(
-                f"{source} sub_task「{name}」round {rnd.get('round')} 不變量違反："
-                f"dimensions 加總 {dim_total} != quality_score({score})"
-            )
-
-
 def validate_state(state, source, require_passed=False):
+    # rounds 品質不變量已隨 eval-scorer 移除；舊格式歸檔（含 rounds）寬容放行
     if not state.get("run_id"):
         block(f"{source} 缺 run_id")
     for st in state.get("sub_tasks", []):
-        check_rounds_invariant(st, source)
         if require_passed:
             name = st.get("name") or st.get("id")
             if st.get("status") != "passed":
@@ -131,25 +99,6 @@ def validate_state(state, source, require_passed=False):
                     f"{source} sub_task「{name}」verify_passed 非 true："
                     f"step 4 task-verifier 尚未通過，須執行 set-verify <id>"
                 )
-            rounds = st.get("rounds", [])
-            if not rounds and reds != 0:
-                block(
-                    f"{source} sub_task「{name}」一致性違反："
-                    f"rounds 為空但 review_reds={reds}（曾有 🔴 必須有評分 round）"
-                )
-            if rounds and reds == 0:
-                block(
-                    f"{source} sub_task「{name}」一致性違反："
-                    f"rounds 非空但 review_reds=0（首輪零 🔴 應走跳過評分路徑，不該有 round）"
-                )
-            if rounds:
-                last_dims = rounds[-1]["dimensions"]  # 型別已由 check_rounds_invariant 驗過
-                for dim_name, dim_val in last_dims.items():
-                    if dim_val == 0:
-                        block(
-                            f"{source} sub_task「{name}」Floor 觸發：{dim_name} 為 0 分——"
-                            f"0 分缺失不得被總分補償，須修正後重新評分"
-                        )
 
 
 def check_manifest(manifest_path, staged):
@@ -292,27 +241,6 @@ def check_task_gate(tool_input):
             if (st.get("risk_analysis") or {}).get("blocking") is True:
                 name = st.get("name") or st.get("id")
                 block(f"sub_task「{name}」風險分析 blocking=true（🔴），須先修改 Spec 重新分析")
-
-    if agent == "eval-scorer":
-        in_progress = [st for st in state.get("sub_tasks", []) if st.get("status") == "in_progress"]
-        if not in_progress:
-            block("eval-scorer 被擋：eval_state.json 無 in_progress 的 sub_task 可評分")
-        for st in in_progress:
-            if st.get("local_test_passed") is not True:
-                name = st.get("name") or st.get("id")
-                block(f"eval-scorer 被擋：sub_task「{name}」local_test_passed 非 true（step 5 本地測試 gate 未通過）")
-            reds = st.get("review_reds")
-            name = st.get("name") or st.get("id")
-            if reds is None:
-                block(
-                    f"eval-scorer 被擋：sub_task「{name}」review_reds 為 null——"
-                    f"reviewer 尚未執行（或尚未 set-review），不可呼叫 eval-scorer"
-                )
-            if not (isinstance(reds, int) and not isinstance(reds, bool)) or reds < 1:
-                block(
-                    f"eval-scorer 被擋：sub_task「{name}」review_reds={reds}——"
-                    f"零 🔴 應走跳過評分路徑（不呼叫 scorer），須有至少 1 個 🔴 才可評分"
-                )
 
     sys.exit(0)
 

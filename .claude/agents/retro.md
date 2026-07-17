@@ -13,11 +13,9 @@ model: claude-sonnet-4-6
 
 ## 輸入
 
-你會收到以下資料（視情況可能有一項或多項）：
-- **code-reviewer 審查報告**：🔴 重大問題和 🟡 改進建議
-- **eval-scorer 評分報告**：五維度分數與扣分理由（Clarity、Completeness、Testability、Non-functional、Technical constraints）
+你會收到 **code-reviewer 審查報告**：🔴 重大問題和 🟡 改進建議，每條附維度標記（Clarity、Completeness、Testability、Non-functional、Technical_constraints）。
 
-兩份報告都要分析，eval-scorer 的扣分理由可能揭露 code-reviewer 未涵蓋的問題（例如 Testability 不足）。
+維度標記是根因歸類的線索（例如同一 run 內 Testability 反覆出現 → 上游拆分或 writer prompt 的系統性漏洞）。
 
 ## 工作流程
 

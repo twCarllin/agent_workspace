@@ -32,18 +32,19 @@ class StatsCollectTest(unittest.TestCase):
             "run_id": "r1", "tier": 2, "status": "completed",
             "hitl_confirmed_at": "2026-07-15 10:00 — usage v1", "hitl_rejections": 1,
         })
+        # 新格式：頂層 review_reds（sub_task 1 有 review_reds=1 → rework；sub_task 2 無 reds=0）
         write(os.path.join(self.run_dir, "r1.eval.json"), {
-            "run_id": "r1", "threshold": 6, "sub_tasks": [
-                {"id": 1, "rounds": [
-                    {"round": 1, "quality_score": 5, "review_reds": 0,
-                     "deduction_reasons": [{"points_lost": 5, "dimension": "Completeness"}]},
-                    {"round": 2, "quality_score": 8, "review_reds": 0,
-                     "deduction_reasons": [{"points_lost": 2, "dimension": "Clarity"}]},
-                ]},
-                {"id": 2, "rounds": [
-                    {"round": 1, "quality_score": 9, "review_reds": 2,
-                     "deduction_reasons": [{"points_lost": 1, "dimension": "Clarity"}]},
-                ]},
+            "run_id": "r1", "sub_tasks": [
+                {
+                    "id": 1,
+                    "review_reds": 1,
+                    "review_dimensions": {"Clarity": 2, "Completeness": 1},
+                },
+                {
+                    "id": 2,
+                    "review_reds": 0,
+                    "review_dimensions": {"Clarity": 1},
+                },
             ],
         })
         write(os.path.join(self.run_dir, "r1.test_baseline.json"), {
@@ -70,16 +71,10 @@ class StatsCollectTest(unittest.TestCase):
         self.assertEqual(data["hitl_confirmed"], 1)
         self.assertEqual(data["hitl_rejections"], 1)
         self.assertEqual(data["sub_tasks"], 2)
-        self.assertEqual(data["rework"], 1)          # sub_task 1 有 2 rounds
-        self.assertEqual(data["rounds_total"], 3)
-        self.assertEqual(data["deduction_dims"]["Clarity"], 3)  # 2 + 1
-
-    def test_scorer_unique_catch(self):
-        self.make_fixture()
-        data = stats.collect(self.run_dir)
-        self.assertEqual(data["scorer_rounds_with_review_data"], 3)
-        # 只有 round(score=5, review_reds=0) 是 scorer 獨立抓到的
-        self.assertEqual(data["scorer_unique_catch"], 1)
+        self.assertEqual(data["rework"], 1)          # sub_task 1 有 review_reds=1
+        # dim_counter（新欄位名稱）
+        self.assertEqual(data["dim_counter"]["Clarity"], 3)   # 2 + 1
+        self.assertEqual(data["dim_counter"]["Completeness"], 1)
 
     def test_gate_hits_grouped(self):
         self.make_fixture()
@@ -108,7 +103,74 @@ class StatsCollectTest(unittest.TestCase):
         self.make_fixture()
         text = stats.report(stats.collect(self.run_dir))
         self.assertIn("waive 率", text)
-        self.assertIn("scorer 獨立貢獻", text)
+        self.assertIn("rework 率", text)
+        self.assertNotIn("scorer 獨立貢獻", text)
+
+    # 新格式 rework：review_reds >= 1
+    def test_rework_new_format_review_reds_gte1(self):
+        write(os.path.join(self.run_dir, "rx.json"), {"run_id": "rx", "tier": 1, "status": "completed"})
+        write(os.path.join(self.run_dir, "rx.eval.json"), {
+            "run_id": "rx",
+            "sub_tasks": [
+                {"id": 1, "review_reds": 1},   # rework
+                {"id": 2, "review_reds": 0},   # 不算
+            ],
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["sub_tasks"], 2)
+        self.assertEqual(data["rework"], 1)
+
+    # legacy 格式 rework：rounds >= 2（無頂層 review_reds）
+    def test_rework_legacy_format_rounds_gte2(self):
+        write(os.path.join(self.run_dir, "ry.json"), {"run_id": "ry", "tier": 2, "status": "completed"})
+        write(os.path.join(self.run_dir, "ry.eval.json"), {
+            "run_id": "ry",
+            "sub_tasks": [
+                {"id": 1, "rounds": [{"round": 1}, {"round": 2}]},  # 2 rounds → rework
+                {"id": 2, "rounds": [{"round": 1}]},                 # 1 round → 不算
+            ],
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["sub_tasks"], 2)
+        self.assertEqual(data["rework"], 1)
+
+    # review_dimensions 統計
+    def test_review_dimensions_counted_in_dim_counter(self):
+        write(os.path.join(self.run_dir, "rz.json"), {"run_id": "rz", "tier": 1, "status": "completed"})
+        write(os.path.join(self.run_dir, "rz.eval.json"), {
+            "run_id": "rz",
+            "sub_tasks": [
+                {"id": 1, "review_dimensions": {"Clarity": 3, "Testability": 1}},
+                {"id": 2, "review_dimensions": {"Clarity": 2}},
+            ],
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["dim_counter"]["Clarity"], 5)
+        self.assertEqual(data["dim_counter"]["Testability"], 1)
+        self.assertFalse(data["has_legacy_dims"])
+
+    # 新舊混合：維度分佈含 legacy 標註
+    def test_mixed_new_and_legacy_dims(self):
+        write(os.path.join(self.run_dir, "rm.json"), {"run_id": "rm", "tier": 2, "status": "completed"})
+        write(os.path.join(self.run_dir, "rm.eval.json"), {
+            "run_id": "rm",
+            "sub_tasks": [
+                # 新格式
+                {"id": 1, "review_reds": 1, "review_dimensions": {"Clarity": 2}},
+                # legacy 格式（無 review_dimensions，用 rounds 的 deduction_reasons）
+                {"id": 2, "rounds": [
+                    {"round": 1, "deduction_reasons": [
+                        {"points_lost": 3, "dimension": "Completeness"},
+                    ]},
+                ]},
+            ],
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["dim_counter"]["Clarity"], 2)
+        self.assertEqual(data["dim_counter"]["Completeness"], 3)
+        self.assertTrue(data["has_legacy_dims"])
+        text = stats.report(data)
+        self.assertIn("含 legacy 扣分權重", text)
 
 
 if __name__ == "__main__":

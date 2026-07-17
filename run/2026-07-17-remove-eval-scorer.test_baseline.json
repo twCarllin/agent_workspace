@@ -1,0 +1,11 @@
+{
+  "run_id": "2026-07-17-remove-eval-scorer",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "d88d750016cbe6c678f398a5ee17029a6483e29a",
+  "stable_failures": [],
+  "flaky": [],
+  "strikes": {
+    "_default": 0,
+    "full_suite": 0
+  }
+}

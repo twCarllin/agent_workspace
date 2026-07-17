@@ -8,10 +8,11 @@
   tier 分佈        分級有沒有發揮省成本作用（Tier 1 幾乎為零 → 門檻太緊）
   waive 率         驗證豁免有沒有變質為常態後門
   HITL 打回率      人閘門是真防線還是蓋章（趨近 0% → 候選降級為通知）
-  rework 率        幾成 sub_task 需要第二輪（rounds ≥ 2）
-  scorer 獨立貢獻  reviewer 零 🔴 但 score < threshold 的比例——趨近零則
-                   eval-scorer 是砍掉的候選（需 rounds 記 review_reds 欄位）
-  扣分維度分佈     哪個品質維度最常失分（改進 writer prompt 的依據）
+  rework 率（首輪即有 🔴）  幾成 sub_task 首輪就有 review_reds >= 1（需要第二輪）；
+                            legacy 歸檔無頂層 review_reds 時 fallback len(rounds) >= 2
+  維度分佈         哪個品質維度問題最多（改進 writer prompt 的依據）；
+                   優先讀 review_dimensions（維度→問題數）；
+                   legacy 的 deduction_reasons（points_lost 加權）併入，標「含 legacy 扣分權重」
   baseline 欠帳    既有壞測試／flaky 的走勢
   gate 命中        每條 gate 的觸發次數——從不觸發的 gate 是修剪候選
 
@@ -41,9 +42,8 @@ def collect(run_dir="run"):
     data = {
         "runs": [], "tiers": Counter(), "statuses": Counter(),
         "waived": 0, "hitl_confirmed": 0, "hitl_rejections": 0,
-        "sub_tasks": 0, "rework": 0, "rounds_total": 0,
-        "scores": [], "deduction_dims": Counter(),
-        "scorer_rounds_with_review_data": 0, "scorer_unique_catch": 0,
+        "sub_tasks": 0, "rework": 0,
+        "scores": [], "dim_counter": Counter(), "has_legacy_dims": False,
         "baseline": [],  # (run_id, stable, flaky)
         "gate_hits": Counter(), "gate_hit_lines": [],
     }
@@ -68,21 +68,33 @@ def collect(run_dir="run"):
             for st in archive.get("sub_tasks", []):
                 rounds = st.get("rounds", [])
                 data["sub_tasks"] += 1
-                data["rounds_total"] += len(rounds)
-                if len(rounds) >= 2:
-                    data["rework"] += 1
-                threshold = archive.get("threshold")
+                # rework：優先讀頂層 review_reds；legacy 歸檔（無頂層 review_reds）fallback rounds 數
+                top_reds = st.get("review_reds")
+                if top_reds is not None:
+                    if isinstance(top_reds, int) and not isinstance(top_reds, bool) and top_reds >= 1:
+                        data["rework"] += 1
+                else:
+                    if len(rounds) >= 2:
+                        data["rework"] += 1
+                # legacy quality_score
                 for rnd in rounds:
                     score = rnd.get("quality_score")
                     if isinstance(score, (int, float)):
                         data["scores"].append(score)
-                    for d in rnd.get("deduction_reasons", []):
-                        data["deduction_dims"][d.get("dimension", "?")] += d.get("points_lost", 0)
-                    reds = rnd.get("review_reds")
-                    if reds is not None and isinstance(threshold, (int, float)):
-                        data["scorer_rounds_with_review_data"] += 1
-                        if reds == 0 and isinstance(score, (int, float)) and score < threshold:
-                            data["scorer_unique_catch"] += 1
+                # 維度分佈：優先讀 review_dimensions（維度→問題數）
+                review_dims = st.get("review_dimensions")
+                if isinstance(review_dims, dict):
+                    for dim, cnt in review_dims.items():
+                        if isinstance(cnt, (int, float)):
+                            data["dim_counter"][dim] += cnt
+                else:
+                    # legacy：從 rounds 的 deduction_reasons 累加 points_lost
+                    for rnd in rounds:
+                        for d in rnd.get("deduction_reasons", []):
+                            pts = d.get("points_lost", 0)
+                            if pts:
+                                data["dim_counter"][d.get("dimension", "?")] += pts
+                                data["has_legacy_dims"] = True
 
         base = load(os.path.join(run_dir, f"{m['run_id']}.test_baseline.json"))
         if isinstance(base, dict):
@@ -132,19 +144,12 @@ def report(data):
         f"HITL 打回率：{pct(data['hitl_rejections'], hitl_total)}"
         + ("　⚠ 趨近 0% 的人閘門是蓋章，候選降級" if hitl_total and not data["hitl_rejections"] else "")
     )
-    out.append(f"rework 率（rounds≥2）：{pct(data['rework'], data['sub_tasks'])}")
+    out.append(f"rework 率（首輪即有 🔴）：{pct(data['rework'], data['sub_tasks'])}")
     if data["scores"]:
-        out.append(f"quality_score：平均 {sum(data['scores']) / len(data['scores']):.1f}（{len(data['scores'])} rounds）")
-    if data["deduction_dims"]:
-        out.append(f"扣分維度分佈：{dict(data['deduction_dims'].most_common())}")
-    if data["scorer_rounds_with_review_data"]:
-        out.append(
-            f"scorer 獨立貢獻（reviewer 零🔴但低於門檻）："
-            f"{pct(data['scorer_unique_catch'], data['scorer_rounds_with_review_data'])}"
-            + ("　⚠ 趨近 0% → eval-scorer 是砍掉的候選" if not data["scorer_unique_catch"] else "")
-        )
-    else:
-        out.append("scorer 獨立貢獻：n/a（rounds 需記 review_reds 欄位——該輪 review 的 🔴 數）")
+        out.append(f"quality_score（legacy）：平均 {sum(data['scores']) / len(data['scores']):.1f}（{len(data['scores'])} rounds）")
+    if data["dim_counter"]:
+        suffix = "（含 legacy 扣分權重）" if data["has_legacy_dims"] else ""
+        out.append(f"維度分佈{suffix}：{dict(data['dim_counter'].most_common())}")
     if data["baseline"]:
         trend = "、".join(f"{r}: stable {s}／flaky {f}" for r, s, f in data["baseline"])
         out.append(f"baseline 欠帳走勢：{trend}")

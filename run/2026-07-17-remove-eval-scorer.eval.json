@@ -1,0 +1,98 @@
+{
+  "run_id": "2026-07-17-remove-eval-scorer",
+  "threshold": 6,
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "item1 流程文件面：eval-flow SKILL／CLAUDE.md／resume／test-strategy／task-decomposition 移除評分階段",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/eval-flow/SKILL.md",
+        "CLAUDE.md",
+        "skills/eval-flow-resume/SKILL.md",
+        "skills/test-strategy/SKILL.md",
+        "skills/task-decomposition/SKILL.md",
+        "skills/parallel-run/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_baseline.py check：全套 python3 -m unittest discover -s tests 通過、無新增穩定失敗（baseline stable 0／flaky 0）；tests.test_docs_consistency 單獨跑 5 tests OK",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "rounds": [],
+      "review_dimensions": {
+        "Clarity": 4
+      }
+    },
+    {
+      "id": 2,
+      "name": "item2 agent 定義面：刪 eval-scorer.md、code-reviewer 加維度標記、retro／code-writer 引用同步",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/agents/eval-scorer.md",
+        ".claude/agents/code-reviewer.md",
+        ".claude/agents/retro.md",
+        ".claude/agents/code-writer.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_baseline.py check：全套通過、無新增穩定失敗；agent 定義為 prose，另以 grep 驗證 eval-scorer 於 agents/skills/CLAUDE.md 零殘留",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "rounds": [],
+      "review_dimensions": {
+        "Completeness": 1,
+        "Clarity": 2
+      }
+    },
+    {
+      "id": 3,
+      "name": "item3 hooks：eval_gates 刪 scorer gate 與評分不變量、eval_state 刪 append-round 加 --dimensions、stats 指標改版",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/hooks/eval_gates.py",
+        ".claude/hooks/eval_state.py",
+        ".claude/hooks/stats.py"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "join barrier：item 4 tests 同步後全套綠——test_baseline.py check PASS（93+ tests、無新增穩定失敗）；stats.py 對新舊混合歸檔實跑正常；--validate eval_state.json 通過",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "rounds": [],
+      "review_dimensions": {
+        "Completeness": 1,
+        "Clarity": 1
+      }
+    },
+    {
+      "id": 4,
+      "name": "item4 tests 同步＋VERSION 2026.07.17.2＋TODO.md 部署註記",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "tests/test_eval_gates.py",
+        "tests/test_eval_state.py",
+        "tests/test_stats.py",
+        ".claude/hooks/VERSION",
+        "TODO.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_baseline.py check --strike-key full_suite PASS：全套 unittest 綠（95 tests 含 4 個 --dimensions 案例與 2 條補上的不落盤斷言）、testlint 無假測試模式",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "rounds": [],
+      "review_dimensions": {
+        "Testability": 1
+      }
+    }
+  ]
+}

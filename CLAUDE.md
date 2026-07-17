@@ -43,7 +43,7 @@
 
 ## Eval Flow 執行（Tier 1／2）
 
-- Router 判為 **Tier 1 或 Tier 2** 時，**必須先載入 `eval-flow` skill**，依其內容執行（前置 0–3、循環 1–8、Tier 1 精簡路徑、manifest／eval_state 格式與操作規則都住在該 skill，本文件不重述）
+- Router 判為 **Tier 1 或 Tier 2** 時，**必須先載入 `eval-flow` skill**，依其內容執行（前置 0–3、循環 1–7（code-writer → review ∥ verify → 本地測試 → commit）、Tier 1 精簡路徑、manifest／eval_state 格式與操作規則都住在該 skill，本文件不重述）
 - **skill 內容不在 context 就不可憑印象跑**：執行中若對流程細節不確定（例如 context 被 compact 後、或接手他人的 run）→ **重新載入 `eval-flow` skill**（檔案在 `skills/eval-flow/SKILL.md`），並以 manifest／`eval_state.json` 的檔案狀態為準，不靠記憶
 - 各 gate 由 PreToolUse hook（`.claude/hooks/gate-check.sh` → `eval_gates.py`）強制攔截：擋亂序的 subagent 呼叫與不合規的 `git commit`。被擋時依 stderr 訊息補齊狀態後重試；實際防線以 hook 為準
 - **中斷恢復**：先前的 run 被中斷要續跑時，依 `eval-flow-resume` skill 的確定性程序恢復，不靠記憶或猜測

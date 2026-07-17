@@ -22,7 +22,7 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 | `risk_done` | 前置 1（無 🔴） | 檢查 `usage/<run_id>.md` 是否已存在：存在但 `usage_report_path` 為 `null` → 報告已產出、卡在 HITL 確認，把報告摘要與開放問題重新呈給使用者裁示；不存在 → 呼叫 usage-analyzer 跑前置 2 |
 | `usage_confirmed` | 前置 2（使用者已確認） | 先檢查 `impact_report_path`：為 `null` → 先呼叫 `impact-analyzer` 跑前置 2.5，產出後再繼續（Tier 1 不會停在此 phase，且其值固定 `"skipped"` 非 `null`）；非 `null` → 檢查 `task_file`：為 `null` → 呼叫 task-decomposer 跑前置 3；非空但 `phase` 未達 `decomposed` → task 檔已產出但 phase 未設，主 flow 核對 task-decomposer 自檢結論後設 phase |
 | `decomposed` | 前置 3（可進循環） | 進 Step 3（循環內恢復） |
-| `completed` | 全部完成 | 無事可做；若 `eval_state.json` 竟仍存在 → 收尾被中斷，補歸檔流程（step 7 收尾順序） |
+| `completed` | 全部完成 | 無事可做；若 `eval_state.json` 竟仍存在 → 收尾被中斷，補歸檔流程（step 6 收尾順序） |
 
 - 舊 manifest 無 `phase` 欄 → 依 `task_file`／`usage_report_path` 是否非空推導（與 hook 的向後相容邏輯一致）
 - Tier 1 的 run（`tier: 1`）：`phase` 只會是 `init` 或 `decomposed`；`init` 代表卡在輕量 HITL 確認前，重新回報「1 task／N items」計畫請使用者確認
@@ -31,7 +31,7 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 
 1. 讀 `eval_state.json`，找 `status: "in_progress"` 的 sub_task（正常只有一個）
    - 一個都沒有且尚有未開始的 sub_task → 從下一個未開始的 sub_task 的步驟 1（code-writer）開跑
-   - 全部 `passed` → 收尾被中斷，執行 step 7 收尾順序（歸檔 → 清除 eval_state → git add → commit）
+   - 全部 `passed` → 收尾被中斷，執行 step 6 收尾順序（歸檔 → 清除 eval_state → git add → commit）
 2. 讀該 sub_task 的 `step` 與 `files`，用 `git diff --cached -- <files>` 還原工作現場（確認 staged 內容與 `step` 相符：例如 `step: "reviewing"` 但 staging 是空的 → 狀態不一致，回報使用者）
 3. 依 `step` 從對應步驟續跑：
 
@@ -42,10 +42,10 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 | `fixing` | review 有 🔴、修正中被斷 | 讀 `run/<run_id>.review-st<id>-r<N>.md` 的落檔審查報告續修（`<id>`＝該 in_progress sub_task 的 id，`<N>` 取現存檔名中最大者＝最新一輪；無落檔報告＝舊版 run 的現場，重跑步驟 3）；回步驟 3 時 verifier 隨 reviewer 一併重跑（該輪 verify 結果已作廢） → 回步驟 3 |
 | `verifying` | （舊版序列 run 的現場）task-verifier 執行中被斷 | 重跑循環步驟 4 |
 | `testing` | 本地測試中被斷 | 重跑循環步驟 5（`local_test_passed` 為 `false` 一律重測，不採信中斷前的口頭結果） |
-| `scoring` | eval-scorer 執行中被斷 | 檢查 `rounds`：本輪已有分數 → 從步驟 7 的分數判斷續跑；沒有 → 重跑步驟 6 |
+| `scoring` | （舊版 run 的相容值）評分階段已移除 | 視同 testing 完成，直接進 step 6 收尾順序（歸檔 → 清除 eval_state → git add → commit） |
 | `done` | 該 sub_task 已收完 | 狀態應為 `passed`；不是 → 修正狀態後進下一個 sub_task |
 
-4. `rounds` 已有紀錄時，續跑輪數從既有 `rounds` 長度接續計算（2 輪上限照算，不歸零）
+4. 續跑的修正輪數以審查落檔 `run/<run_id>.review-st<id>-r<N>.md` 的最大 `<N>` 接續計算（2 輪上限照算，不歸零）
 
 ## 恢復守則
 
