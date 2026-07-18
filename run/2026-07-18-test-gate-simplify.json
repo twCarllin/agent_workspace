@@ -1,0 +1,20 @@
+{
+  "run_id": "2026-07-18-test-gate-simplify",
+  "created_at": "2026-07-18 11:30",
+  "framework_version": "2026.07.17.2",
+  "tier": 1,
+  "tier_rationale": "移除 test gate 的 flaky 分類與 strike 額度,改真失敗立即 HITL。不沾 auth/金流/schema/部署(test_baseline.py 為品質 gate helper,非部署/環境設定);DoD 明確、單一路徑;測試同步摺進實作 item 後 4 items ≤5。安全 gate 語意敏感故不走直寫捷徑。",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "移除 test gate 的過度設計:①baseline 從跑兩次改單次(移 --runs 與 flaky 分類——scoped 架構下無存在前提;12 run 零命中);②check/mine 移除 strike 兩次額度,真實可重現新失敗改為立即回報使用者裁決(人是計數器,不留 agent 自修迴圈);③真失敗改記 failure_log 留痕供稽核。保留:baseline 沿用(head_sha)、check 新失敗重跑一次確認可重現、stable_failures 欄位名(不改名)、收尾全套、證據留痕+commit hook、writer rule 5 自身 2 次上限(內部迴圈=往上報,對齊新哲學)。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-18 11:30 — 確認 1 task／4 items 計畫(test gate 移 flaky/strike,測試同步摺進實作 item,不改欄位名,全程 code-writer+review∥verify)",
+  "hitl_rejections": 0,
+  "risk_report_path": "skipped",
+  "scout_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-07-18.md",
+  "status": "completed",
+  "failed_reason": null
+}

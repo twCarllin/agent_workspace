@@ -1,0 +1,74 @@
+{
+  "run_id": "2026-07-18-test-gate-simplify",
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "test_baseline.py 行為變更+測試同步",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/hooks/test_baseline.py",
+        "tests/test_test_baseline.py"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "全套 python3 -m unittest discover -s tests 109 tests OK;新單次 baseline 自舉 stable 0、check full_suite PASS",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    },
+    {
+      "id": 2,
+      "name": "stats.py 移除 flaky 顯示",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/hooks/stats.py",
+        "tests/test_stats.py"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "同 st1 全套綠;part of cohesive change",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Clarity": 1
+      }
+    },
+    {
+      "id": 3,
+      "name": "test-strategy skill 重寫",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/test-strategy/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "同 st1 全套綠;part of cohesive change",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    },
+    {
+      "id": 4,
+      "name": "周邊 prose 同步",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/eval-flow/SKILL.md",
+        ".claude/agents/code-writer.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "同 st1 全套綠;part of cohesive change",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    }
+  ]
+}

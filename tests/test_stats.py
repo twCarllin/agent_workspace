@@ -85,7 +85,8 @@ class StatsCollectTest(unittest.TestCase):
     def test_baseline_trend(self):
         self.make_fixture()
         data = stats.collect(self.run_dir)
-        self.assertEqual(data["baseline"], [("r1", 2, 1)])
+        # 舊 baseline 檔的 flaky 欄位被忽略，只計 stable（向後相容）
+        self.assertEqual(data["baseline"], [("r1", 2)])
 
     def test_report_renders_without_data(self):
         os.makedirs(self.run_dir, exist_ok=True)

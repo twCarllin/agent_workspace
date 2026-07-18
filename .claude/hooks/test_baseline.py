@@ -2,7 +2,7 @@
 """test-strategy skill 的執行端：測試 baseline 建立與「新增失敗」判定。
 
 用法：
-  python3 .claude/hooks/test_baseline.py baseline [--cmd "pytest -q"] [--runs 2] [--run-id ID] [--fresh]
+  python3 .claude/hooks/test_baseline.py baseline [--cmd "pytest -q"] [--run-id ID] [--fresh]
   python3 .claude/hooks/test_baseline.py check    [--cmd "pytest -q"] [--strike-key sub_task_1] [--run-id ID]
   python3 .claude/hooks/test_baseline.py related  --files src/a.py src/b.py
   python3 .claude/hooks/test_baseline.py mine     [--cmd "pytest -q"] [--strike-key sub_task_1] [--run-id ID]  # 只跑本次未提交變更範圍內的測試檔
@@ -10,15 +10,14 @@
 --cmd 省略時讀 run/<run_id>.json（manifest）的 test_command 欄位——全套指令的
 single source of truth，保證 baseline 與 check 的範圍一致。
 
-baseline：跑 --runs 次（預設 2），每次都失敗的測試記為 stable（既有壞測試，
-          之後不擋），只失敗部分次數的記為 flaky。寫入 run/<run_id>.test_baseline.json。
+baseline：跑一次，所有失敗記為 stable（既有壞測試，之後不擋）。
+          寫入 run/<run_id>.test_baseline.json。
           既有 baseline 檔中存在「head_sha == 目前 HEAD 且 cmd 相同」者 → 直接沿用
-          其 stable/flaky 名單（baseline 記的是進場 HEAD 的既有失敗快照，同進場 HEAD
+          其 stable_failures 名單（baseline 記的是進場 HEAD 的既有失敗快照，同進場 HEAD
           即可沿用，免重跑全套；本 run 工作樹的新變更由 check 把關），--fresh 強制重建。
-check：   跑一次，扣掉 baseline 的 stable / flaky 後若有新失敗，重跑一次過濾 flaky：
-          重跑仍失敗 → 真的新增失敗，exit 2；重跑通過 → 併入 flaky 名單，放行。
-          --strike-key 提供時累計該 key 的連續真失敗次數（通過即歸零），
-          達 2 次時提示停止自行修復、回報使用者。
+check：   跑一次，扣掉 baseline 的 stable_failures 後若有新失敗，重跑一次確認可重現：
+          可重現 → 真的新增失敗，exit 2；不可重現 → 印警示「非確定性失敗，未阻擋」但不擋。
+          真實新失敗會 append 一筆 failure_log 供稽核後存檔，exit 2。
 related： 由變更檔案清單找出相關測試檔（測試檔命名慣例 + grep 引用），輸出路徑清單。
 
 run_id 未指定時讀 eval_state.json 的 run_id。
@@ -153,36 +152,27 @@ def cmd_baseline(args):
                 "head_sha": head,
                 "reused_from": prev.get("run_id"),
                 "stable_failures": prev.get("stable_failures", []),
-                "flaky": prev.get("flaky", []),
-                "strikes": {},
             })
             print(
                 f"[test-gate] 沿用 {prev.get('run_id')} 的 baseline"
                 f"（HEAD 未變、cmd 相同），免重跑全套建基準；要強制重建用 --fresh"
             )
             return
-    results = []
-    for i in range(args.runs):
-        fails, _ = run_tests(cmd)
-        results.append(fails)
-        print(f"[test-gate] baseline 第 {i + 1}/{args.runs} 次：{len(fails)} 個失敗")
-    stable = set.intersection(*results) if results else set()
-    flaky = set.union(*results) - stable if results else set()
+    fails, _ = run_tests(cmd)
+    stable = fails
     os.makedirs("run", exist_ok=True)
     data = {
         "run_id": run_id,
         "cmd": cmd,
         "head_sha": head,
         "stable_failures": sorted(stable),
-        "flaky": sorted(flaky),
-        "strikes": {},
     }
     with open(baseline_path(run_id), "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
         f.write("\n")
     print(
         f"[test-gate] baseline 已寫入 {baseline_path(run_id)}："
-        f"stable(既有壞測試，不擋) {len(stable)} 個、flaky {len(flaky)} 個"
+        f"stable(既有壞測試，不擋) {len(stable)} 個"
     )
     if stable:
         print("[test-gate] 既有壞測試（欠帳，僅記錄）：" + ", ".join(sorted(stable)))
@@ -195,42 +185,32 @@ def cmd_check(args):
         fail(f"{path} 不存在：先跑 baseline 子命令建立基準，再跑 check")
     with open(path, encoding="utf-8") as f:
         base = json.load(f)
-    known = set(base.get("stable_failures", [])) | set(base.get("flaky", []))
+    known = set(base.get("stable_failures", []))
     cmd = resolve_cmd(args, run_id)
+    key = args.strike_key or "_default"
 
     fails, _ = run_tests(cmd)
     new = fails - known
-    strikes = base.setdefault("strikes", {})
-    key = args.strike_key or "_default"
 
     if new:
-        print(f"[test-gate] 出現 {len(new)} 個非 baseline 的失敗，重跑一次過濾 flaky…")
+        print(f"[test-gate] 出現 {len(new)} 個非 baseline 的失敗，重跑一次確認可重現…")
         fails2, _ = run_tests(cmd)
         real = sorted(new & fails2)
-        newly_flaky = sorted(new - fails2)
-        if newly_flaky:
-            base["flaky"] = sorted(set(base.get("flaky", [])) | set(newly_flaky))
-            print(f"[test-gate] 重跑通過、判定為 flaky（記錄不擋）：{', '.join(newly_flaky)}")
+        non_reproducible = sorted(new - fails2)
+        if non_reproducible:
+            print(f"[test-gate] 非確定性失敗，未阻擋：{', '.join(non_reproducible)}")
     else:
         real = []
 
     if real:
-        strikes[key] = strikes.get(key, 0) + 1
+        failure_log = base.setdefault("failure_log", [])
+        failure_log.append({"key": key, "tests": real})
         _save(path, base)
-        print(f"[test-gate] BLOCK: 新增穩定失敗 {len(real)} 個：", file=sys.stderr)
+        print(f"[test-gate] BLOCK: 真實新失敗 {len(real)} 個，停止自修，回報使用者裁決", file=sys.stderr)
         for t in real:
             print(f"  - {t}", file=sys.stderr)
-        print(f"[test-gate] {key} 連續失敗第 {strikes[key]} 次", file=sys.stderr)
-        if strikes[key] >= 2:
-            print(
-                "[test-gate] 已達 2 次上限：停止自行修復，"
-                "把卡住的測試與已嘗試的修法回報使用者裁決",
-                file=sys.stderr,
-            )
         sys.exit(2)
 
-    strikes[key] = 0
-    _save(path, base)
     ignored = fails & known
     print(
         f"[test-gate] PASS: 無新增穩定失敗"
@@ -325,34 +305,9 @@ def cmd_mine(args):
 
     fails, rc = run_tests_argv(mine_argv)
 
-    # 讀 baseline 處理 strikes（baseline 不存在則跳過持久化）
-    path = baseline_path(run_id)
-    base = None
-    if args.strike_key and os.path.exists(path):
-        with open(path, encoding="utf-8") as f:
-            base = json.load(f)
-
     if rc == 0 and not fails:
-        if base is not None:
-            key = f"mine:{args.strike_key}"
-            base.setdefault("strikes", {})[key] = 0
-            _save(path, base)
         print(f"[test-gate] mine PASS: {len(test_files)} 個測試檔全部通過")
         return
-
-    # 有失敗
-    if base is not None:
-        key = f"mine:{args.strike_key}"
-        strikes = base.setdefault("strikes", {})
-        strikes[key] = strikes.get(key, 0) + 1
-        _save(path, base)
-        print(f"[test-gate] {key} 連續失敗第 {strikes[key]} 次", file=sys.stderr)
-        if strikes[key] >= 2:
-            print(
-                "[test-gate] 已達 2 次上限：停止自行修復，"
-                "把失敗原文寫進工作報告的未完成項目、照常交付",
-                file=sys.stderr,
-            )
 
     print(f"[test-gate] mine BLOCK: {len(fails)} 個失敗：", file=sys.stderr)
     for t in sorted(fails):
@@ -400,7 +355,6 @@ def main():
 
     p_base = sub.add_parser("baseline")
     p_base.add_argument("--cmd")
-    p_base.add_argument("--runs", type=int, default=2)
     p_base.add_argument("--run-id")
     p_base.add_argument("--fresh", action="store_true")
     p_base.set_defaults(func=cmd_baseline)

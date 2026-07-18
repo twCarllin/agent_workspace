@@ -13,7 +13,7 @@
   維度分佈         哪個品質維度問題最多（改進 writer prompt 的依據）；
                    優先讀 review_dimensions（維度→問題數）；
                    legacy 的 deduction_reasons（points_lost 加權）併入，標「含 legacy 扣分權重」
-  baseline 欠帳    既有壞測試／flaky 的走勢
+  baseline 欠帳    既有壞測試（stable_failures）的走勢
   gate 命中        每條 gate 的觸發次數——從不觸發的 gate 是修剪候選
 
 資料來源：run/*.json（manifest）、run/*.eval.json、run/*.test_baseline.json、
@@ -44,7 +44,7 @@ def collect(run_dir="run"):
         "waived": 0, "hitl_confirmed": 0, "hitl_rejections": 0,
         "sub_tasks": 0, "rework": 0,
         "scores": [], "dim_counter": Counter(), "has_legacy_dims": False,
-        "baseline": [],  # (run_id, stable, flaky)
+        "baseline": [],  # (run_id, stable)
         "gate_hits": Counter(), "gate_hit_lines": [],
     }
     for path in sorted(glob.glob(os.path.join(run_dir, "*.json"))):
@@ -99,7 +99,7 @@ def collect(run_dir="run"):
         base = load(os.path.join(run_dir, f"{m['run_id']}.test_baseline.json"))
         if isinstance(base, dict):
             data["baseline"].append(
-                (m["run_id"], len(base.get("stable_failures", [])), len(base.get("flaky", [])))
+                (m["run_id"], len(base.get("stable_failures", [])))
             )
 
     log_path = os.path.join(run_dir, "gate_hits.log")
@@ -151,7 +151,7 @@ def report(data):
         suffix = "（含 legacy 扣分權重）" if data["has_legacy_dims"] else ""
         out.append(f"維度分佈{suffix}：{dict(data['dim_counter'].most_common())}")
     if data["baseline"]:
-        trend = "、".join(f"{r}: stable {s}／flaky {f}" for r, s, f in data["baseline"])
+        trend = "、".join(f"{r}: stable {s}" for r, s in data["baseline"])
         out.append(f"baseline 欠帳走勢：{trend}")
     append_gate_hits(out, data)
     return "\n".join(out)

@@ -1,5 +1,5 @@
 """test_baseline.py 的端到端測試：在暫存目錄以假測試指令驗證
-baseline 建立、flaky 過濾、新失敗攔截、strike 計數、manifest test_command 回退、related 對映。
+baseline 建立、新失敗攔截與 failure_log 留痕、非確定性失敗放行、manifest test_command 回退、related 對映。
 
 執行：python3 -m unittest discover -s tests -v
 """
@@ -17,18 +17,17 @@ SCRIPT = Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "test_basel
 sys.path.insert(0, str(SCRIPT.parent))
 from test_baseline import build_mine_argv, is_test_file  # noqa: E402
 
-# test_a 永遠失敗（既有壞測試）；test_b 每隔一次失敗（flaky，靠計數檔 n）
-CMD_STABLE_PLUS_FLAKY = (
-    'n=$(cat n 2>/dev/null || echo 0); n=$((n+1)); echo $n > n; '
-    'echo "FAILED tests/test_broken.py::test_a"; '
-    '[ $((n % 2)) -eq 1 ] && echo "FAILED tests/test_flaky.py::test_b"; exit 1'
+# test_a 永遠失敗（既有壞測試，會進 stable_failures）
+CMD_STABLE = (
+    'echo "FAILED tests/test_broken.py::test_a"; exit 1'
 )
 CMD_NEW_FAILURE = (
     'echo "FAILED tests/test_broken.py::test_a"; '
     'echo "FAILED tests/test_new.py::test_c"; exit 1'
 )
-# test_d 只在第一次呼叫失敗（新出現的 flaky，靠計數檔 m）
-CMD_NEW_FLAKY = (
+# test_d 只在第一次呼叫失敗（非確定性失敗，靠計數檔 m）：
+# check 首跑 a+d，重跑只剩 a → d 不可重現 → 放行不擋
+CMD_NEW_NONREPRODUCIBLE = (
     'm=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; '
     'echo "FAILED tests/test_broken.py::test_a"; '
     '[ $m -eq 1 ] && echo "FAILED tests/test_d.py::test_d"; exit 1'
@@ -54,48 +53,46 @@ class BaselineScriptTest(unittest.TestCase):
         return json.loads((self.dir / "run" / "t.test_baseline.json").read_text(encoding="utf-8"))
 
     def build_baseline(self):
-        result = self.run_script("baseline", "--cmd", CMD_STABLE_PLUS_FLAKY)
+        result = self.run_script("baseline", "--cmd", CMD_STABLE)
         self.assertEqual(result.returncode, 0, result.stderr)
         return self.read_baseline()
 
-    def test_baseline_splits_stable_and_flaky(self):
+    def test_baseline_records_all_failures_as_stable(self):
         data = self.build_baseline()
         self.assertEqual(data["stable_failures"], ["tests/test_broken.py::test_a"])
-        self.assertEqual(data["flaky"], ["tests/test_flaky.py::test_b"])
+        self.assertNotIn("flaky", data)  # 單次跑：不再產生 flaky 名單
+        self.assertNotIn("strikes", data)
 
     def test_check_passes_when_only_known_failures(self):
         self.build_baseline()
-        result = self.run_script("check", "--cmd", CMD_STABLE_PLUS_FLAKY, "--strike-key", "s1")
+        result = self.run_script("check", "--cmd", CMD_STABLE, "--strike-key", "s1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("PASS", result.stdout)
 
-    def test_check_blocks_new_stable_failure_and_counts_strikes(self):
+    def test_check_blocks_reproducible_new_failure_and_logs(self):
         self.build_baseline()
         first = self.run_script("check", "--cmd", CMD_NEW_FAILURE, "--strike-key", "s1")
         self.assertEqual(first.returncode, 2)
         self.assertIn("tests/test_new.py::test_c", first.stderr)
-        self.assertIn("第 1 次", first.stderr)
+        self.assertIn("回報使用者裁決", first.stderr)
+        self.assertNotIn("第 1 次", first.stderr)  # 無 strike 計數
+        log = self.read_baseline()["failure_log"]
+        self.assertEqual(log, [{"key": "s1", "tests": ["tests/test_new.py::test_c"]}])
 
+        # failure_log 累積留痕：第二次再 append 一筆（人是計數器，script 不設上限）
         second = self.run_script("check", "--cmd", CMD_NEW_FAILURE, "--strike-key", "s1")
         self.assertEqual(second.returncode, 2)
-        self.assertIn("第 2 次", second.stderr)
-        self.assertIn("2 次上限", second.stderr)
-        self.assertEqual(self.read_baseline()["strikes"]["s1"], 2)
+        self.assertNotIn("2 次上限", second.stderr)
+        self.assertEqual(len(self.read_baseline()["failure_log"]), 2)
 
-    def test_new_flaky_failure_passes_and_is_recorded(self):
+    def test_non_reproducible_new_failure_passes_without_persisting(self):
         self.build_baseline()
-        result = self.run_script("check", "--cmd", CMD_NEW_FLAKY, "--strike-key", "s1")
+        result = self.run_script("check", "--cmd", CMD_NEW_NONREPRODUCIBLE, "--strike-key", "s1")
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("非確定性失敗", result.stdout)
         data = self.read_baseline()
-        self.assertIn("tests/test_d.py::test_d", data["flaky"])
-        self.assertEqual(data["strikes"]["s1"], 0)
-
-    def test_pass_resets_strike_counter(self):
-        self.build_baseline()
-        self.run_script("check", "--cmd", CMD_NEW_FAILURE, "--strike-key", "s1")
-        self.assertEqual(self.read_baseline()["strikes"]["s1"], 1)
-        self.run_script("check", "--cmd", CMD_STABLE_PLUS_FLAKY, "--strike-key", "s1")
-        self.assertEqual(self.read_baseline()["strikes"]["s1"], 0)
+        self.assertNotIn("flaky", data)  # 非確定性失敗不持久化
+        self.assertNotIn("failure_log", data)
 
     def test_check_without_baseline_fails_with_instruction(self):
         result = self.run_script("check", "--cmd", "exit 0")
@@ -153,7 +150,8 @@ class BaselineScriptTest(unittest.TestCase):
         data = self.read_baseline()
         self.assertEqual(data["reused_from"], "prev")
         self.assertEqual(data["stable_failures"], ["tests/test_old.py::test_z"])
-        self.assertEqual(data["strikes"], {})  # strikes 不沿用，歸零重計
+        self.assertNotIn("strikes", data)  # 舊檔的 strikes/flaky 欄位不沿用回填
+        self.assertNotIn("flaky", data)
 
     def test_baseline_no_reuse_when_head_differs(self):
         self.init_git()
@@ -248,12 +246,11 @@ class MineSubcommandTest(unittest.TestCase):
             cwd=self.dir, capture_output=True, text=True,
         )
 
-    def write_baseline(self, strikes=None):
+    def write_baseline(self):
         (self.dir / "run").mkdir(exist_ok=True)
         data = {
             "run_id": "t", "cmd": "exit 0", "head_sha": "abc",
-            "stable_failures": [], "flaky": [],
-            "strikes": strikes or {},
+            "stable_failures": [],
         }
         (self.dir / "run" / "t.test_baseline.json").write_text(
             json.dumps(data), encoding="utf-8"
@@ -294,19 +291,24 @@ class MineSubcommandTest(unittest.TestCase):
         result = self.run_script("mine", "--cmd", "python3 -m unittest discover -s tests")
         self.assertEqual(result.returncode, 2, result.stdout)
 
-    def test_mine_two_failures_with_strike_key_prints_limit_message(self):
-        """連續兩次失敗且有 --strike-key ＋既有 baseline 檔 → 印「2 次上限」。"""
+    def test_mine_failure_with_strike_key_does_not_count(self):
+        """失敗且有 --strike-key ＋既有 baseline 檔 → exit 2，但不寫入計數（strike 已移除）。"""
         (self.dir / "tests").mkdir()
         (self.dir / "tests" / "test_foo.py").write_text(
             "import unittest\nclass T(unittest.TestCase):\n    def test_fail(self): self.fail()\n",
             encoding="utf-8",
         )
-        self.write_baseline(strikes={"mine:sk1": 1})
+        self.write_baseline()
         result = self.run_script(
             "mine", "--cmd", "python3 -m unittest discover -s tests", "--strike-key", "sk1"
         )
         self.assertEqual(result.returncode, 2)
-        self.assertIn("2 次上限", result.stderr)
+        self.assertNotIn("2 次上限", result.stderr)
+        self.assertNotIn("連續失敗", result.stderr)
+        self.assertNotIn("strikes", self.read_baseline())
+
+    def read_baseline(self):
+        return json.loads((self.dir / "run" / "t.test_baseline.json").read_text(encoding="utf-8"))
 
     def test_mine_no_baseline_does_not_create_baseline(self):
         """baseline 不存在時，mine 不建立 baseline 檔。"""

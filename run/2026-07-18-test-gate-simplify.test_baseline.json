@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-07-18-test-gate-simplify",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "739d11a01d9a15245ba19fc8baa9bdf420030839",
+  "stable_failures": []
+}
