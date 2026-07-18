@@ -1,0 +1,18 @@
+{
+  "run_id": "2026-07-18-test-blast-radius",
+  "created_at": "2026-07-18 00:15",
+  "framework_version": "2026.07.17.2",
+  "tier": 1,
+  "tier_rationale": "縮小行為變更的測試爆炸半徑三處方（斷言去重、預期值集中、測試同步獨立 item）：全 prose、目標檔明確、單一路徑、不觸及高風險面 → Tier 1",
+  "phase": "completed",
+  "spec_inline": "解決「改 code 花一點 token、改 test 花更多」：根因是同一行為被多個測試重複斷言（附帶斷言）→ 行為一改全場陪葬，且 writer 邊寫邊被 mine/check 逐個炸出舊測試、強模型逐輪迭代修。三處方：(1) 斷言去重——code-writer 測試管轄規則加規則 7：一個行為只在一個地方被完整斷言，測試只斷言自己的主題，附帶細節用寬鬆檢查（狀態碼對即可，不比對訊息全文／欄位順序）；被多測試共用的預期值收進 builder／常數／golden 單一出處（fixture single source 精神擴及 expected values）。(2) reviewer 扣分項——code-reviewer.md 測試覆蓋範疇加：重複斷言既有行為（同一行為第二處完整斷言）→ 🟡（爆炸半徑稅）。(3) 測試同步獨立 item——task-decomposition skill 加規則：需求含有意的行為變更時，Spec／task 明列「作廢舊行為清單」，拆分時用 test_baseline.py related 預算受影響測試，開獨立「測試同步 item」（輸入＝舊契約→新契約對照，機械批次替換，可派快 model），code item 的 writer 不碰舊測試；該 item 天然滿足「測試過時須記依據」。改完部署同步 ~/.claude/skills/。",
+  "spec_path": null,
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-18 00:15 — 使用者「好，執行」確認三處方計畫（1 task／2 items：agent 定義兩檔合併一輪、task-decomposition＋部署一輪）",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-07-18.md",
+  "status": "completed",
+  "failed_reason": null
+}

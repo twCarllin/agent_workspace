@@ -1,0 +1,46 @@
+{
+  "run_id": "2026-07-18-test-blast-radius",
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "斷言去重＋預期值集中＋reviewer 扣分項（兩 agent 定義，prose 合併）",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/agents/code-writer.md",
+        ".claude/agents/code-reviewer.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "prose 檔（agent 定義），無新增測試檔免 lint；tests.test_docs_consistency 5 tests OK；check --strike-key sub_task_1 PASS 無新增穩定失敗（全套 110 tests）",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Clarity": 2,
+        "Testability": 1,
+        "Completeness": 1
+      }
+    },
+    {
+      "id": 2,
+      "name": "測試同步獨立 item 規則（task-decomposition）＋部署",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/task-decomposition/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "prose 檔（skill），無新增測試檔免 lint；tests.test_docs_consistency 5 tests OK；check --strike-key sub_task_2 PASS 無新增穩定失敗（全套 110 tests）；部署 diff 一致",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Completeness": 1,
+        "Technical_constraints": 1,
+        "Clarity": 1
+      }
+    }
+  ]
+}

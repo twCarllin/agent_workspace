@@ -1,0 +1,12 @@
+{
+  "run_id": "2026-07-18-test-blast-radius",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "496a8878a97836ca3820042c080bc1cdbe9dca47",
+  "stable_failures": [],
+  "flaky": [],
+  "strikes": {
+    "sub_task_1": 0,
+    "sub_task_2": 0,
+    "full_suite": 0
+  }
+}
