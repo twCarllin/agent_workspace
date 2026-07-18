@@ -1,0 +1,44 @@
+{
+  "run_id": "2026-07-18-scout-agent",
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "新增 scout agent 定義",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/agents/scout.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "python3 -m unittest discover -s tests 經 test_baseline.py baseline(0 失敗)+check PASS 無新增穩定失敗;doctor.py 健檢通過",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Completeness": 1
+      }
+    },
+    {
+      "id": 2,
+      "name": "接線四處(eval-flow/usage/impact/CLAUDE.md)",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/eval-flow/SKILL.md",
+        ".claude/agents/usage-analyzer.md",
+        ".claude/agents/impact-analyzer.md",
+        "CLAUDE.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "同 st1 全套綠;部署同步 ~/.claude/skills/eval-flow/SKILL.md diff 一致",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Completeness": 1
+      }
+    }
+  ]
+}

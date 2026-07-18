@@ -1,0 +1,19 @@
+{
+  "run_id": "2026-07-18-scout-agent",
+  "created_at": "2026-07-18 10:30",
+  "framework_version": "2026.07.17.2",
+  "tier": 1,
+  "tier_rationale": "新行為(新增 agent+流程接線)但 DoD 一句話講得清、單一路徑、≤5 items、不沾 auth/金流/schema/部署 → Tier 1",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "新增 scout(haiku 唯讀蒐證 agent),Tier 2 前置 2/2.5 改為「scout 蒐證 → opus 分析」兩段:主 flow 於 risk_done 後派 scout 產 scout/<run_id>.md 證據檔,usage-analyzer 與 impact-analyzer 改為讀證據檔+抽查,降低兩個 opus agent 的掃碼 token 消耗",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-18 10:40 — 確認 1 task／2 items 計畫(scout agent 新增＋四處接線 prose 合併,主 flow 直寫捷徑)",
+  "hitl_rejections": 0,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-07-18.md",
+  "status": "completed",
+  "failed_reason": null
+}

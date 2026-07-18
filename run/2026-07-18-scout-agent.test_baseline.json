@@ -1,0 +1,10 @@
+{
+  "run_id": "2026-07-18-scout-agent",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "7c63c6be8c47692aebb0ff9b68a6a8156135c694",
+  "stable_failures": [],
+  "flaky": [],
+  "strikes": {
+    "full_suite": 0
+  }
+}
