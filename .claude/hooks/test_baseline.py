@@ -25,6 +25,7 @@ exit 0 = gate 通過；exit 2 = 有新增穩定失敗（stderr 列清單）；ex
 """
 import argparse
 import glob
+import hashlib
 import json
 import os
 import re
@@ -294,6 +295,39 @@ def build_mine_argv(cmd, files):
     return [*shlex.split(cmd), *files]
 
 
+def _append_mine_log(run_id, strike_key, test_files, fails):
+    """每次 mine 執行 append 一筆留痕（震盪稽核用：次數、失敗集合、測試檔內容 hash）。
+    純記帳，失敗不得阻擋測試流程。回傳本次序號（記錄失敗時回 None）。"""
+    path = f"run/{run_id}.mine_log.json"
+    try:
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            data = {"run_id": run_id, "runs": []}
+        hashes = {}
+        for tf in test_files:
+            try:
+                with open(tf, "rb") as f:
+                    hashes[tf] = hashlib.sha1(f.read()).hexdigest()[:10]
+            except OSError:
+                hashes[tf] = None
+        seq = len(data["runs"]) + 1
+        data["runs"].append({
+            "seq": seq,
+            "strike_key": strike_key,
+            "fails": sorted(fails),
+            "test_hashes": hashes,
+        })
+        os.makedirs("run", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        return seq
+    except OSError:
+        return None
+
+
 def cmd_mine(args):
     run_id = resolve_run_id(args)
     changed = git_changed_files()
@@ -307,12 +341,14 @@ def cmd_mine(args):
     mine_argv = build_mine_argv(cmd, test_files)
 
     fails, rc = run_tests_argv(mine_argv)
+    seq = _append_mine_log(run_id, args.strike_key or "_default", test_files, fails)
+    seq_note = f"（第 {seq} 次執行，已留痕 run/{run_id}.mine_log.json）" if seq else ""
 
     if rc == 0 and not fails:
-        print(f"[test-gate] mine PASS: {len(test_files)} 個測試檔全部通過")
+        print(f"[test-gate] mine PASS: {len(test_files)} 個測試檔全部通過{seq_note}")
         return
 
-    print(f"[test-gate] mine BLOCK: {len(fails)} 個失敗：", file=sys.stderr)
+    print(f"[test-gate] mine BLOCK: {len(fails)} 個失敗{seq_note}：", file=sys.stderr)
     for t in sorted(fails):
         print(f"  - {t}", file=sys.stderr)
     sys.exit(2)

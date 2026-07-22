@@ -75,6 +75,8 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
      - grep 篩選的對象是**模組名片段**（取自 files 路徑的目錄／檔名，如 `eval_gates`、`hooks`），不是整段路徑——retro 標籤慣用全形 `／`，整段半形路徑會靜默零命中
      - 三源皆無相關內容時在 prompt 註明「知識前置：三源均無相關內容」（留痕，防跳步）
    - **測試管轄註記**：派工 prompt 附一句「測試自驗只准跑 `python3 .claude/hooks/test_baseline.py mine --strike-key sub_task_<id>`，依你定義中的測試管轄規則」（writer 層 mine 模式細節住 test-strategy skill，不重述；`[P]` 平行 item 不適用 mine，改在 prompt 指定測試檔清單，或各開 worktree）
+   - **契約前置與仲裁句（硬性）**：派工 prompt 必須把本 item 的**行為契約表原文**（task 檔的 `契約:` 行，含邊界 row）貼進硬約束區作為仲裁基準——不是叫 writer 自己翻 task 檔（與知識前置同一教訓），並附一句：「測試紅時先仲裁再動手，對到契約表 row 判哪邊錯；**契約表沒答案 → 帶失敗交付是正確行為，硬湊綠燈才是違規**」。無契約表的 item（Tier 1 無表 fallback）此句改指 DoD。writer 以「表沒答案」帶失敗交付時，**主 flow 裁決**：讀 Spec／usage 報告判該行為的預期，把裁決結果補進契約表（表可增補、single source 不變）再回派；Spec 本身有洞才走升級逃生門問使用者
+   - **交付稽核（writer 交付時，兩個對照）**：①工作報告的「仲裁記錄」——紅過的測試每條都要有仲裁行，判「測試超出契約」者核對 row 引文與 task 檔原文一致（對不上＝假仲裁，退件）；②`run/<run_id>.mine_log.json`——mine 執行次數異常多、測試檔 hash 在失敗未清的情況下反覆變動、失敗集合遊走＝「改測試湊綠」的機器指紋，退件重派並要求逐條補仲裁依據。正常交付（次數合理、記錄對得上）瞄一眼即過，不展開
 2. 將變更檔案 `git add` 進 staging area（確保 code-reviewer / task-verifier 可透過 `git diff --cached` 讀取）
 3. **同一訊息並發呼叫** `code-reviewer` 與 `task-verifier`（兩者皆唯讀、讀同一份 staged diff、互不依賴輸出——序列跑是純浪費）。`step` 欄位於並行階段記 `reviewing`（`verifying` 保留供舊 run resume 相容，新路徑不再單獨使用）
    - **審查報告 write-ahead（硬性步驟）**：**每一輪** code-reviewer 交付後，主 flow 立即把審查報告全文落檔 `run/<run_id>.review-st<id>-r<N>.md`（st＝sub_task id、r＝該 sub_task 的審查輪次，逐輪遞增），再進入解析／修正——比照 `step` 欄位的 write-ahead 原則（中斷在 fixing 時整輪 reviewer 只活在對話裡會作廢，落檔後接手者讀報告續修，不重跑 reviewer）。`set-review <id> <🔴數>` 僅於**首輪**落檔後執行（記修正前原始數，與操作規則條呼應）。落檔是熱 scratchpad（只為中斷恢復服務），step 6 收尾時隨 `eval_state.json` 一併清除、不進 git
@@ -92,7 +94,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
    - 通過 → `local_test_passed: true`、`local_test_evidence` 填 script 輸出摘要（hook 於 commit 時檢查兩欄皆已填）
    - 真新失敗 → 依 skill 的處置：測試過時須記依據（無依據改弱測試視同 🔴）、肇因非本 item 走重開路徑；兩者皆非 → **立即回報使用者裁決（人是計數器，無自修額度）**，不自行空轉迴圈
    - 未通過本步不可進入評分與 commit。細則（相關測試選擇、零測試專案、豁免窗口）住在 test-strategy skill，不在此重述
-6. **收尾順序（**hook 強制**，見「Gate 的硬性執行」）**：⓪先跑**全套測試檢查**（`test_baseline.py check --cmd "<全套指令>" --strike-key full_suite`，見 test-strategy skill）——出現新失敗代表相關測試沒抓到的跨 sub_task 破壞，依 skill 的「重開路徑」把肇事 sub_task 改回 in_progress 從步驟 3 重走，**不可收尾** ①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留審查記錄的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json` 與本 run 的 `run/<run_id>.review-st*-r*.md`**（審查落檔是熱 scratchpad，收尾即清；失敗收尾則與 eval_state 一樣保留現場） ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔一併 `git add` ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
+6. **收尾順序（**hook 強制**，見「Gate 的硬性執行」）**：⓪先跑**全套測試檢查**（`test_baseline.py check --cmd "<全套指令>" --strike-key full_suite`，見 test-strategy skill）——出現新失敗代表相關測試沒抓到的跨 sub_task 破壞，依 skill 的「重開路徑」把肇事 sub_task 改回 in_progress 從步驟 3 重走，**不可收尾** ①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留審查記錄的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json`、本 run 的 `run/<run_id>.review-st*-r*.md` 與 `run/<run_id>.mine_log.json`**（審查落檔與 mine 留痕是熱 scratchpad，收尾即清；失敗收尾則與 eval_state 一樣保留現場） ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔一併 `git add` ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
 7. **有條件** 呼叫 `retro` subagent：
    - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro
    - code-reviewer 無 🔴 → **不呼叫 retro**（reviewer 一次過即無回顧價值）
