@@ -82,8 +82,11 @@ script 重跑確認可重現的真新失敗，先判是否屬下列兩種**確�
 |---|---|---|
 | **測試過時** | 測試斷言的是被 Spec **有意**改掉的舊行為 | 更新測試，並在 `local_test_evidence` 註明：改了哪個測試、舊斷言為何不再成立、對應的 Spec／task 依據。**無依據的放寬斷言／刪 case／加 skip 視同 🔴**（code-reviewer 審查重點）。（有意行為變更的舊測試批次同步走 task-decomposition 的「測試同步段」，在實作 item 內、check 之前完成） |
 | **肇因非本 item** | 累積聯集照出的失敗，肇因是**先前已 passed 的 sub_task**（潛伏 bug 被本 item 新測試或新路徑照到；用 `git diff --cached -- <各 sub_task 的 files>` 定位肇事者） | 走「重開路徑」重開肇事 sub_task（同 commit 前全套檢查的處置）；本 item 不動 |
+| **疑似既有失敗（baseline 盲區）** | 失敗的測試檔與本 run 變更檔聯集（`eval_state.py list-files`）**無交集**，或一眼可見與本 run 變更無關 | **不調查、不修，直接回報使用者裁決**。已知盲區成因：related 全 repo 掃可選到 `test_command` 範圍外的測試、環境／日期漂移、參數化 ID 變動——baseline 快照照不到不代表是新失敗。使用者裁定為既有 → 把該測試 ID 補進 baseline 檔的 `stable_failures`（直接編輯 `run/<run_id>.test_baseline.json`），之後的 check 不再回鍋；**裁決不持久化就會每個 sub_task 重複誤報一次** |
 
-**兩者皆非（真的是本 item 的 code 錯，或塞住判不出肇因）→ 立即回報使用者裁決（人是計數器）**：不再有「自修 N 次才舉手」的額度——script 不記 strike、不設上限。把「卡在哪些測試、失敗原文、已試過什麼」回報使用者，由使用者決定續修或改路。塞住時的正確行為是舉手，不是自行空轉迴圈。（真失敗已由 script append 進 baseline 檔的 `failure_log`，稽核時「紅過卻無回報」即抓吞失敗）
+**三分類的判定上限是一次機械比對**（對 list-files 聯集、看 `git diff --cached`）——需要讀測試實作、追 import 鏈、跑額外測試才能歸因的，一律視同塞住，立即 HITL，**禁止自行調查歸因**（實測：這種調查燒大量 token 後結論多半是「與本 run 無關」，白查）。
+
+**三者皆非（真的是本 item 的 code 錯）→ 立即回報使用者裁決（人是計數器）**：不再有「自修 N 次才舉手」的額度——script 不記 strike、不設上限。把「卡在哪些測試、失敗原文、已試過什麼」回報使用者，由使用者決定續修或改路。塞住時的正確行為是舉手，不是自行空轉迴圈。（真失敗已由 script append 進 baseline 檔的 `failure_log`，稽核時「紅過卻無回報」即抓吞失敗）
 
 ## Commit 前全套檢查與重開路徑（跨 sub_task 破壞的最後防線）
 
