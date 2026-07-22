@@ -221,6 +221,23 @@ class BuildMineCmdTest(unittest.TestCase):
     def test_is_test_file_skips_skip_dirs(self):
         self.assertFalse(is_test_file(".venv/tests/test_foo.py"))
 
+    def test_is_test_file_excludes_flow_spec_dir(self):
+        # spec/ 是 eval-flow 自產的產出物目錄，不是測試目錄（L8 教訓：曾被當測試檔餵 pytest）
+        self.assertFalse(is_test_file("spec/2026-07-21-phase-c.md"))
+        self.assertFalse(is_test_file("spec/bootstrap.md"))
+
+    def test_is_test_file_excludes_non_code_extensions(self):
+        # 測試目錄裡的 fixture／文件不餵 runner
+        self.assertFalse(is_test_file("tests/fixture.json"))
+        self.assertFalse(is_test_file("tests/README.md"))
+        self.assertFalse(is_test_file("test_plan.md"))  # TEST_FILE_RE 前綴命中但非 code 檔
+
+    def test_is_test_file_keeps_multi_framework_conventions(self):
+        # 多框架慣例不得因副檔名守門而誤傷
+        self.assertTrue(is_test_file("src/foo.test.ts"))
+        self.assertTrue(is_test_file("src/bar.spec.js"))
+        self.assertTrue(is_test_file("__tests__/baz.jsx"))
+
 
 class MineSubcommandTest(unittest.TestCase):
     """mine 子命令的 subprocess 整合測試（需 git repo）。"""

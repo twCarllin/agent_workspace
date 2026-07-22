@@ -44,7 +44,8 @@ FAIL_PATTERNS = [
 TEST_FILE_RE = re.compile(
     r"(^test_.*|.*_test\.\w+$|.*\.test\.\w+$|.*\.spec\.\w+$|.*Tests?\.\w+$)"
 )
-TEST_DIR_NAMES = {"test", "tests", "__tests__", "spec"}
+TEST_DIR_NAMES = {"test", "tests", "__tests__"}  # 不含 "spec"——與 eval-flow 自產的 spec/ 產出物目錄衝突
+TEST_CODE_EXTS = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".go", ".rb"}
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "__pycache__"}
 
 
@@ -277,6 +278,8 @@ def is_test_file(path):
     name = parts[-1]
     if any(p in SKIP_DIRS for p in parts):
         return False
+    if os.path.splitext(name)[1] not in TEST_CODE_EXTS:
+        return False  # 非測試語言副檔名（.md/.json fixture 等）不餵 runner
     in_test_dir = any(p in TEST_DIR_NAMES for p in parts[:-1])
     return bool(TEST_FILE_RE.match(name)) or in_test_dir
 
@@ -324,11 +327,10 @@ def cmd_related(args):
     related = set()
     for dirpath, dirnames, filenames in os.walk("."):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
-        in_test_dir = any(part in TEST_DIR_NAMES for part in dirpath.split(os.sep))
         for name in filenames:
-            if not (TEST_FILE_RE.match(name) or in_test_dir):
-                continue
             path = os.path.join(dirpath, name).lstrip("./")
+            if not is_test_file(path):
+                continue
             if any(s in name for s in stems):
                 related.add(path)
                 continue

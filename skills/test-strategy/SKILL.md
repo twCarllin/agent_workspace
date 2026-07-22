@@ -69,8 +69,9 @@ python3 .claude/hooks/test_baseline.py mine --strike-key <sub_task 標識>
 1. 挑本 task 至少 2 個**關鍵行為點**（計算邏輯、防呆條件——被弄壞會直接造成錯誤結果的那種）
 2. 逐一 sabotage（改壞實作的一行）→ 跑對應測試，**必須 FAIL**；恢復原狀 → 跑測試，**必須 PASS**
 3. **每次 sabotage 與恢復後清 `__pycache__`**（`find . -name __pycache__ -type d -exec rm -rf {} +`）——stale `.pyc` 會讓判定失真（實測誤判 2 個測試壞掉）
-4. 任一 sabotage 沒讓測試 FAIL → 斷言無效，修測試後重做；結果（sabotage 了哪些點、FAIL/PASS 確認）記入 `local_test_evidence`
-5. **獨立重放（主 flow 執行，不採信自報）**：整合測試 item 的 step 5 收尾時，**主 flow 親自重放至少一組 sabotage→FAIL→恢復→PASS**，不採信 writer 的自報結果（實測「主 flow 重放」抓到自報遺漏）。重放主體是主 flow 而非 code-reviewer——reviewer 是只讀角色，不改檔；重放同樣遵守第 3 步清 `__pycache__`，做完恢復原狀
+4. 任一 sabotage 沒讓測試 FAIL → **第一步先質疑需求，不是加壓**：追該行為點的最終消費點，確認該性質被破壞時可觀察輸出真的會變——輸出不變＝該性質非 load-bearing（假需求，典型如「下游依 key／name 重新定位，中間順序根本不影響輸出」），回報使用者建議自 Spec／DoD 移除，探針作廢不補。確認是真需求 → 斷言無效，修測試後重做
+5. **停損（硬性）**：同一行為點 **2 次 sabotage 仍綠即停手回報使用者**，禁止繼續加時序延遲／調並發數／加壓力硬湊 FAIL（實測：為一條假保序需求反覆調時序空轉數十輪——探針一直綠的最常見原因不是壓力不夠，是需求是假的）；結果（sabotage 了哪些點、FAIL/PASS 確認、作廢的探針與理由）記入 `local_test_evidence`
+6. **獨立重放（主 flow 執行，不採信自報）**：整合測試 item 的 step 5 收尾時，**主 flow 親自重放至少一組 sabotage→FAIL→恢復→PASS**，不採信 writer 的自報結果（實測「主 flow 重放」抓到自報遺漏）。重放主體是主 flow 而非 code-reviewer——reviewer 是只讀角色，不改檔；重放同樣遵守第 3 步清 `__pycache__`，做完恢復原狀
 
 ## 真新失敗的處置（script 確認可重現後才進這裡）
 

@@ -79,6 +79,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 3. **同一訊息並發呼叫** `code-reviewer` 與 `task-verifier`（兩者皆唯讀、讀同一份 staged diff、互不依賴輸出——序列跑是純浪費）。`step` 欄位於並行階段記 `reviewing`（`verifying` 保留供舊 run resume 相容，新路徑不再單獨使用）
    - **審查報告 write-ahead（硬性步驟）**：**每一輪** code-reviewer 交付後，主 flow 立即把審查報告全文落檔 `run/<run_id>.review-st<id>-r<N>.md`（st＝sub_task id、r＝該 sub_task 的審查輪次，逐輪遞增），再進入解析／修正——比照 `step` 欄位的 write-ahead 原則（中斷在 fixing 時整輪 reviewer 只活在對話裡會作廢，落檔後接手者讀報告續修，不重跑 reviewer）。`set-review <id> <🔴數>` 僅於**首輪**落檔後執行（記修正前原始數，與操作規則條呼應）。落檔是熱 scratchpad（只為中斷恢復服務），step 6 收尾時隨 `eval_state.json` 一併清除、不進 git
    - **🔴 重裁條款**：主 flow 對每條 🔴 先做事實核對——至少讀 producer 端證據（上游 schema、函式定義、實際輸出），有反證 → 送獨立重裁（重呼叫 reviewer 附上反證，或取第二意見），**不可未經查證直接派 writer 照修**（reviewer 可能只讀消費面就下錯誤斷言，照修會把正確的 code 改壞）
+   - **引文核實（重裁不限 🔴）**：任何發現（含 🟡）只要引用具體 code 片段／行號，主 flow 套用修正前必須對照 staged 原碼核實——**引文或行號與檔案不符 → 直接駁回該條**（記入審查落檔的「主 flow 處置」行），不進 fixing（實測：reviewer 讀大 diff 會混淆記憶，引用不存在的寫法判 🟡；照修等於為幻覺改 code）。基於錯誤前提（如誤認 commit 狀態）的發現同樣駁回並留痕
    - 取捨：reviewer 有 🔴 時 verifier 白跑一次；🔴 率低時期望值為正
 4. 兩者結果的匯合點：
    - **reviewer 零 🔴 且 verifier 通過** → 進 step 5
