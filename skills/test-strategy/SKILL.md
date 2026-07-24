@@ -80,7 +80,7 @@ script 重跑確認可重現的真新失敗，先判是否屬下列兩種**確�
 
 | 分類 | 判定 | 處置 |
 |---|---|---|
-| **測試過時** | 測試斷言的是被 Spec **有意**改掉的舊行為 | 更新測試，並在 `local_test_evidence` 註明：改了哪個測試、舊斷言為何不再成立、對應的 Spec／task 依據。**無依據的放寬斷言／刪 case／加 skip 視同 🔴**（code-reviewer 審查重點）。（有意行為變更的舊測試批次同步走 task-decomposition 的「測試同步段」，在實作 item 內、check 之前完成） |
+| **測試過時** | 測試斷言的是被 Spec **有意**改掉的舊行為 | 更新測試，並在 `local_test_evidence` 註明：改了哪個測試、舊斷言為何不再成立、對應的 Spec／task 依據。**無依據的放寬斷言／刪 case／加 skip 視同 🔴**（code-reviewer 審查重點）。（有意行為變更的舊測試批次同步走 task-decomposition 的「測試同步段」，在實作 item 內、check 之前完成）。**並行 worktree run 例外（parallel-run）**：既有測試只增不改，需要更新既有測試＝獨立性假設已破，觸發卡住退出並行，不在 worktree 內同步 |
 | **肇因非本 item** | 累積聯集照出的失敗，肇因是**先前已 passed 的 sub_task**（潛伏 bug 被本 item 新測試或新路徑照到；用 `git diff --cached -- <各 sub_task 的 files>` 定位肇事者） | 走「重開路徑」重開肇事 sub_task（同 commit 前全套檢查的處置）；本 item 不動 |
 | **疑似既有失敗（baseline 盲區）** | 失敗的測試檔與本 run 變更檔聯集（`eval_state.py list-files`）**無交集**，或一眼可見與本 run 變更無關 | **不調查、不修，直接回報使用者裁決**。已知盲區成因：related 全 repo 掃可選到 `test_command` 範圍外的測試、環境／日期漂移、參數化 ID 變動——baseline 快照照不到不代表是新失敗。使用者裁定為既有 → 把該測試 ID 補進 baseline 檔的 `stable_failures`（直接編輯 `run/<run_id>.test_baseline.json`），之後的 check 不再回鍋；**裁決不持久化就會每個 sub_task 重複誤報一次** |
 
