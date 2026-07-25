@@ -117,7 +117,7 @@ def validate_state(state, source, require_passed=False):
             if st.get("verify_passed") is not True:
                 block(
                     f"{source} sub_task「{name}」verify_passed 非 true："
-                    f"step 4 task-verifier 尚未通過，須執行 set-verify <id>"
+                    f"step 4 完成度驗證尚未通過（reviewer 完成度節），須執行 set-verify <id>"
                 )
 
 

@@ -38,9 +38,9 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 | step | 含義 | 從哪續跑 |
 |---|---|---|
 | `writing` | code-writer 執行中被斷 | 重跑循環步驟 1（code-writer；prompt 附上已 staged 的部分成果供其接續） |
-| `reviewing` | 並行審查／驗證中被斷 | 重跑循環步驟 3（並發呼叫 code-reviewer 與 task-verifier） |
-| `fixing` | review 有 🔴、修正中被斷 | 讀 `run/<run_id>.review-st<id>-r<N>.md` 的落檔審查報告續修（`<id>`＝該 in_progress sub_task 的 id，`<N>` 取現存檔名中最大者＝最新一輪；無落檔報告＝舊版 run 的現場，重跑步驟 3）；回步驟 3 時 verifier 隨 reviewer 一併重跑（該輪 verify 結果已作廢） → 回步驟 3 |
-| `verifying` | （舊版序列 run 的現場）task-verifier 執行中被斷 | 重跑循環步驟 4 |
+| `reviewing` | 審查中被斷 | **先對賬再認定**：確認該輪審查落檔 `run/<run_id>.review-st<id>-r<N>.md` 是否存在——存在＝該輪審查真的發生過，依其內容續處理；**不存在＝該步只是意圖、未發生**（step 欄是 write-ahead 記的意圖，不是動作證明），重跑循環步驟 3（呼叫 code-reviewer，兩節報告） |
+| `fixing` | review 有 🔴、修正中被斷 | 讀 `run/<run_id>.review-st<id>-r<N>.md` 的落檔審查報告續修（`<id>`＝該 in_progress sub_task 的 id，`<N>` 取現存檔名中最大者＝最新一輪；**無落檔報告＝該輪審查未發生**，重跑步驟 3）；修正後回步驟 3 重審 |
+| `verifying` | （舊版 run 的現場）task-verifier 已退役（2026-07-25，完成度檢查併入 reviewer 完成度節） | 重跑循環步驟 3（reviewer 兩節報告） |
 | `testing` | 本地測試中被斷 | 重跑循環步驟 5（`local_test_passed` 為 `false` 一律重測，不採信中斷前的口頭結果） |
 | `scoring` | （舊版 run 的相容值）評分階段已移除 | 視同 testing 完成，直接進 step 6 收尾順序（歸檔 → 清除 eval_state → git add → commit） |
 | `done` | 該 sub_task 已收完 | 狀態應為 `passed`；不是 → 修正狀態後進下一個 sub_task |

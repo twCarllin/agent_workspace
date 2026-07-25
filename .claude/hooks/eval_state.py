@@ -11,7 +11,7 @@
   python3 .claude/hooks/eval_state.py set-review <id> <reds> [--dimensions '<json>']
                                                    # step 3 首輪 code-reviewer 🔴 數（修正前原始數）
                                                    # --dimensions: 維度→問題數，如 '{"Clarity":1,"Completeness":2}'
-  python3 .claude/hooks/eval_state.py set-verify <id>          # step 4 task-verifier 通過時呼叫
+  python3 .claude/hooks/eval_state.py set-verify <id>          # step 4 reviewer 完成度節通過時呼叫
   python3 .claude/hooks/eval_state.py list-files      # 所有 sub_task files 聯集（餵 related --files）
   python3 .claude/hooks/eval_state.py archive         # 驗證後歸檔 run/<run_id>.eval.json 並刪除 eval_state.json
 

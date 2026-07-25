@@ -19,8 +19,8 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
    - 需求含**有意的既有行為變更**（會觸發 task-decomposition「測試同步段」、需要更新既有測試）→ 該需求**不進並行**，改序列跑——並行模式既有測試只增不改，這種需求進來必觸發卡住，前置就篩掉。
    - **共享可變資源也算相依**：兩支的測試會同時碰同一個本地 DB、固定 port、共用外部沙箱 → 測試並跑必互相污染（假紅／假綠都可能），不並行或由主 session 錯開測試時段。
    - 判不準時保守處理：寧可序列，不賭 merge。
-3. **批次輕量 HITL（取代各 run 內的 HITL）**：把每個需求的「1 task／N items」計畫一次列給使用者，**一次確認全部**。背景 agent 無法做 HITL，此步是它們能帶著 `phase: "decomposed"` 出發的前提。
-   - 任一計畫在此觸發升級逃生門（>5 items、歧義、遠超 300 行）→ 該需求升 Tier 2、退出並行批次，其餘照常。
+3. **批次輕量 HITL（取代各 run 內的 HITL）**：把每個需求的「N tasks／M items」計畫一次列給使用者，**一次確認全部**。背景 agent 無法做 HITL，此步是它們能帶著 `phase: "decomposed"` 出發的前提。
+   - 任一計畫在此觸發升級逃生門（>2 tasks 或合計 >8 items、歧義、遠超 300 行）→ 該需求升 Tier 2、退出並行批次，其餘照常。
 4. **auto-mode 依據**：使用者呼叫本 skill 即視為對本批背景 run **明示開啟 auto-mode**（eval-flow「auto-mode 定義」的明示要件由此滿足），背景 agent 的 Bash 得以自動批准。此依據記入各 run manifest 的 `tier_rationale` 或附註。
 
 ## 開工
