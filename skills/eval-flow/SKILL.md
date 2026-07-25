@@ -28,8 +28,8 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 ### 前置 1：多面向風險分析（必須在第一次呼叫 code-writer 之前完成）
 
 - 使用 **task-risk-analysis** skill，讀取 manifest `run/<run_id>.json` 的 `spec_path` 指向的 Spec，從 6 大面向（技術、安全、資料、效能、部署、業務維護）逐一思考任務風險
-- 每個面向需明確標註等級：🔴 重大 / 🟡 中等 / 🟢 輕微 / 無風險
-- 產出「風險分析報告」，內容包含：每個面向的判斷、風險描述、對應對策
+- **只寫觸及的面向**：有風險者標註等級（🔴 重大 / 🟡 中等 / 🟢 輕微）並寫風險描述與對策；與本任務無關者不逐節填寫，改在報告開頭以一行 `不適用：<面向清單>` 帶過。**面向未寫不等於已評估為無風險——判為不適用者仍須列名，漏列即視同未做**（六面向須全部出現在「有風險節」或「不適用」行之一）
+- 產出「風險分析報告」，內容包含：不適用面向一行、各有風險面向的判斷、風險描述、對應對策
 - **報告存檔（不可只留在對話裡）**：寫入 `risk/<run_id>.md`，並回寫 manifest 的 `risk_report_path`——中斷在前置 1 與前置 2 之間時，接手者才有報告可讀
 - **判斷規則**：
   - 有 🔴 重大風險 → **不可進入任何後續步驟（含使用情境分析）**。必須先修改 **Spec**（補上前置條件 / 縮小範圍 / 釐清描述），再重新分析，直到無 🔴
@@ -38,21 +38,14 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 - 無 🔴 確認後，將 manifest 的 `phase` 更新為 `"risk_done"`（hook 憑此放行 usage-analyzer 呼叫）
 - 風險分析報告先以 **Spec 為單位**產出；待「分拆 task」完成、`sub_tasks` 建立後，再把對應風險映射到 `eval_state.json` 各 sub_task 的 `risk_analysis` 欄位
 
-### 前置 1.5：scout 蒐證（預設執行，可降級）
-
-- `phase` 達 `risk_done` 後，呼叫 **`scout` subagent**（haiku 唯讀蒐證，無 Bash → 可背景執行）。它讀 Spec、掃 codebase 蒐集原始事實，產出 `scout/<run_id>.md` 證據檔（四節：檔案清單／symbol 簽名／慣例原文／呼叫端與測試位置，格式住在其定義）——前置 2／2.5 的 opus analyzer 改讀證據檔＋抽查，省下各自全面掃碼的 token。
-- **回寫責任在主 flow**：scout 交付後，主 flow 把路徑寫入 manifest 的 `scout_report_path`（scout 無 Edit 權限，不碰 json——刻意設計）。
-- **軟性降級（不擋流程）**：scout 失敗或報告缺漏 → `scout_report_path` 記 `"skipped: <理由>"`，前置 2／2.5 退回自行掃碼的原行為。不動 hook、不新增 phase 值——本步是省 token 的優化，不是正確性防線。
-- **skip 條件（主 flow 於呼叫前判定）**：全新模組（codebase 無對應目錄或相關程式碼可掃）。符合時直接記 `"skipped: <理由>"`，不呼叫 scout。誤呼叫時 scout 會交回四節皆 0 命中的報告並於開頭標注——視同「報告缺漏」，主 flow 轉記 `"skipped"`，不回寫路徑。
-
 ### 前置 2：使用情境分析（必須在分拆 task 之前完成）
 
-- 呼叫 **`usage-analyzer` subagent**。它讀 Spec、產出使用情境報告，並在自己的定義與 `usage-scenario-analysis` skill 中規範報告內容、情境 id、邊界盤點與存檔位置。`scout_report_path` 有值（非 skipped）時，呼叫 prompt 須附證據檔路徑。
+- 呼叫 **`usage-analyzer` subagent**。它讀 Spec、產出使用情境報告，並在自己的定義與 `usage-scenario-analysis` skill 中規範報告內容、情境 id、邊界盤點與存檔位置。
 - **flow 層級 gate**：報告需經**使用者確認**；未確認前不進入前置 3（usage-analyzer 在確認後才回寫 `manifest.usage_report_path`，並將 `phase` 更新為 `"usage_confirmed"`）。確認當下主 flow 把「時間＋確認範圍一句話」寫入 manifest 的 `hitl_confirmed_at`（留痕，接手者可驗證）。
 
 ### 前置 2.5：影響面盤點（預設執行）
 
-- 呼叫 **`impact-analyzer` subagent**。它讀 Spec 與使用情境報告，用 Grep／Glob／Bash 掃 codebase（`scout_report_path` 有值時呼叫 prompt 須附證據檔路徑，analyzer 改讀證據檔＋抽查；呼叫端清單的完整性仍由 impact-analyzer 自行重跑 Grep 確認，不吃證據檔省碼紅利），產出 `impact/<run_id>.md`（五節：觸及模組清單、各模組既有慣例、可重用既有元件、被改介面的呼叫端清單、跨模組風險點），並回寫 `manifest.impact_report_path`。
+- 呼叫 **`impact-analyzer` subagent**。它讀 Spec 與使用情境報告，用 Grep／Glob／Bash 自行掃 codebase，產出 `impact/<run_id>.md`（五節：觸及模組清單、各模組既有慣例、可重用既有元件、被改介面的呼叫端清單、跨模組風險點），並回寫 `manifest.impact_report_path`。
 - **skip 條件**：全新模組（codebase 無對應目錄或相關程式碼）或無既有呼叫端。符合時 impact-analyzer 不產出報告，manifest 記 `impact_report_path: "skipped: <理由>"`。
 - **不新增 phase 值**：本步驟完成後 phase 仍保持 `usage_confirmed`；下一步前置 3 的 task-decomposer 呼叫 prompt 須含 impact report 路徑（拆分依模組邊界切 item files 與 DoD）。
 - **防跳過（編排層 gate）**：前置 3 呼叫 task-decomposer 前，主 flow 須確認 `impact_report_path` 非 `null`（`null` → 先補跑本步）。hook 只強制 impact-analyzer 的呼叫時序（AGENT_MIN_PHASE），不強制「必跑」——本步在 Tier 2 是預設步驟、靠編排保證，非 hook 硬防線，接手者勿誤以為已被強制。
@@ -110,7 +103,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 - **auto-mode 定義**：指使用者在本次 session 中**明確表示**開啟（例如「開 auto-mode」「全自動跑」）。未明示一律視為關閉，不可自行推斷。
 - **auto-mode 開啟時**：這 2 個 agent 可以放背景執行（`run_in_background: true`），Bash 會自動批准。
 - **非 auto-mode 時**：這 2 個 agent 必須用前景執行，讓使用者能批准 Bash 權限。不可放背景執行（背景 agent 無法彈出權限確認，會導致 Bash 被拒絕）。
-- **retro / scout** 等不需要 Bash 的 agent：可隨時放背景執行。
+- **retro** 等不需要 Bash 的 agent：可隨時放背景執行。
 - **usage-analyzer / task-decomposer**（規劃型 agent，不需 Bash）：可背景產出。但兩者產出後都有把關、不可背景直接續跑：
   - `usage-analyzer` 後接**使用者確認 gate**（前置 2，逐條裁示開放問題）才回寫 `usage_report_path`
   - `task-decomposer` 交付前自檢通過後才進循環（自檢基準住在其定義）；Tier 1 另由主 flow 做輕量計畫確認
@@ -140,12 +133,15 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、mine 指紋
   "test_command": null,
   "hitl_confirmed_at": null,
   "risk_report_path": null,
-  "scout_report_path": null,
   "usage_report_path": null,
   "impact_report_path": null,
   "task_file": null,
   "status": "in_progress | completed | failed",
-  "failed_reason": null
+  "failed_reason": null,
+  "local_test_passed": null,
+  "local_test_evidence": null,
+  "review_reds": null,
+  "verify_passed": null
 }
 ```
 
@@ -156,12 +152,13 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、mine 指紋
 - `spec_path` / `spec_inline`：Tier 2 用 `spec_path`（Spec 檔）；Tier 1 用 `spec_inline`（需求原文一句話）。**兩者至少一個非空**，皆空不可往下（intent gate）
 - `test_command`：本專案的**全套測試指令**（test-strategy script 省略 `--cmd` 時的預設來源，single source of truth——保證 baseline 與 check 範圍一致）。前置 0 可先 `null`，**第一次 step 5 前必須寫入**；同專案的後續 run 沿用前一個 manifest 的值；Tier B 於 DoD 驗證時寫入
 - `hitl_confirmed_at`：HITL gate 的留痕——使用者確認當下寫入「時間 ＋ 確認範圍一句話」（例：`"2026-07-15 14:30 — 確認 usage 報告 v1（3 情境、2 開放問題已裁示）"`；Tier 1 記輕量計畫確認：`"… — 確認 1 task／3 items 計畫"`）。resume／換手時，接手者憑此驗證確認 gate 真的過過，不只信 `phase` 欄位。Tier B 記選型確認
-- `scout_report_path`：Tier 2 前置 1.5 scout 交付後由**主 flow** 寫入路徑（或 `"skipped: <理由>"`）；Tier 1 固定為 `"skipped"`。舊 manifest 無此欄視同 skipped（向後相容，無 hook 依賴）
+- `scout_report_path`：**已廢止**（前置 1.5 scout 已移除，蒐證職責併回 usage-analyzer／impact-analyzer 自掃）。舊 manifest 仍有此欄者不需回填移除——hook 對此欄無任何依賴，留著不影響任何 gate
 - `usage_report_path`：Tier 2 前置 2 使用者確認後寫入（`null` → 不可分拆 task）；Tier 1 固定為 `"skipped"`
 - `impact_report_path`：Tier 2 前置 2.5 impact-analyzer 產出後寫入路徑（或 `"skipped: <理由>"`）；Tier 1 固定為 `"skipped"`
 - `task_file`：分拆／建 task 後寫入
 - `status`：step 6 收尾時（commit 前）填 `"completed"`。manifest↔commit 的對應不記 `commit_sha`，改由 commit message 的 `Run-Id: <run_id>` trailer 反查（`git log --grep`）
 - `failed_reason`：`status` 設為 `"failed"` 時必填，一句話寫死因（哪個 sub_task、卡在哪一步、為什麼），讓接手者不用翻對話記錄
+- `local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`：**Tier 1 專用憑據欄（豁免歸檔檔）**——Tier 1 不建 `eval_state.json`，這四欄直接寫在 manifest、commit gate 憑此四欄驗放行（語義與 `eval_state.json` 各 sub_task 同欄一致）。Tier 2 仍走歸檔檔路徑，此四欄在 Tier 2 manifest 無意義（可不填）
 - `debt`：僅 hotfix 通道使用（見「Hotfix 通道」），記錄欠下的流程債，如 `["risk", "test", "retro"]`；還清一項移除一項，清空後才可啟動新 run（hook 強制）
 
 ## eval_state.json 格式
@@ -224,14 +221,14 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、mine 指紋
 
 1. **歸檔 gate**：`eval_state.json` 尚存在 → 擋 commit（防跳過歸檔；失敗收尾時也會擋，屬預期）
 2. **intent gate**：staged 的 `run/<run_id>.json` 中 `spec_path` 與 `spec_inline` 皆空、或 `status` 非 `"completed"` → 擋
-3. **測試 gate**：staged manifest 對應的 `run/<run_id>.eval.json` 未同批 staged、或其中任一 sub_task 非 `passed`／`local_test_passed` 非 `true`、或 `review_reds` 未留痕（非 int 或負數）／`verify_passed` 非 `true` → 擋（`verify_passed` 語義＝reviewer 完成度節通過，見操作規則）
+3. **測試 gate**：staged manifest 對應的 `run/<run_id>.eval.json` 未同批 staged、或其中任一 sub_task 非 `passed`／`local_test_passed` 非 `true`、或 `review_reds` 未留痕（非 int 或負數）／`verify_passed` 非 `true` → 擋（`verify_passed` 語義＝reviewer 完成度節通過，見操作規則）。**Tier 1 分支**：若 `run/<run_id>.eval.json` 未 staged，改驗 manifest 自身四欄（`local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`），全過放行、豁免歸檔檔；已 staged 時走原路徑（向後相容）
 4. **假測試 lint gate**：staged 有 manifest（flow 收尾 commit）時，staged 的 Python 測試檔跑 `test_lint.py`，檢出 if-guard 藏斷言／無斷言／恆真斷言 → 擋（誤報以行尾 `# testlint: allow` 豁免並留痕，見 test-strategy skill）
 5. **不變量驗證**：歸檔檔 `run_id` 與 manifest 不一致 → 擋
 6. **phase 狀態機（subagent 呼叫攔截）**：依 `eval_state.json.run_id` 定位 manifest，檢查 `phase` 是否達到該 agent 的最低要求，未達 → 擋呼叫：
    - `usage-analyzer` 需 `phase >= risk_done`（前置 1 未完不可跑前置 2）
    - `task-decomposer` 需 `phase >= usage_confirmed` 且 `usage_report_path` 非空；為 `"skipped"`（Tier 1）也擋
    - `code-writer` 需 `phase >= decomposed` 且 `task_file` 非空；任一 sub_task `risk_analysis.blocking: true` 也擋
-   - 共通前提：`eval_state.json` 與 manifest 存在、intent gate 通過；缺任一 → 擋（前置 0 未完成）
+   - **共通前提**：intent gate 通過且 manifest 存在。`eval_state.json` 存在時依其 `run_id` 定位 manifest；**Tier 1 分支**：`eval_state.json` 不存在時，掃 `run/` 找唯一一個 `tier: 1` 且 `status: "in_progress"` 的 manifest 作為當前 run 依據（找到唯一一個 → 繼續後續 gate；找不到或多個 → 擋，原訊息語義）。`check_other_runs` 在兩條路徑下都執行（Tier 1 單一 run 原則不因豁免而失效）
 
 被擋時 hook 會以 stderr 回報原因，依訊息補齊狀態後重試。流程中亦可隨時自檢：`python3 .claude/hooks/eval_gates.py --validate eval_state.json`。hook 只攔 Claude 的 Bash 工具，不影響使用者自己終端的 git 操作。本 skill 對應條文為流程說明，實際防線以 hook 為準。
 
@@ -243,13 +240,13 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、mine 指紋
 
 明確、單一路徑、不觸及高風險面的小功能。**跳過 Spec 檔與 usage 分析，但仍留溯源、仍守大小上限**。風險由 Router 的排除條件把關（觸及高風險面者根本進不到 Tier 1），故不另跑 6 面向分析。
 
-1. **精簡初始化**：建 manifest `run/<run_id>.json`，填 `tier: 1`、`tier_rationale`、**`spec_inline`**（需求原文一句話，取代 `spec_path`）、`risk_report_path: "skipped"`、`scout_report_path: "skipped"`、`usage_report_path: "skipped"`、`impact_report_path: "skipped"`（前置 1.5／2.5 固定跳過）、`phase: "init"`；建 `eval_state.json`（`run_id` ＋ 空 `sub_tasks`）
+1. **精簡初始化**：建 manifest `run/<run_id>.json`，填 `tier: 1`、`tier_rationale`、**`spec_inline`**（需求原文一句話，取代 `spec_path`）、`risk_report_path: "skipped"`、`usage_report_path: "skipped"`、`impact_report_path: "skipped"`（前置 2.5 固定跳過）、`phase: "init"`。**不建 `eval_state.json`**——Tier 1 的四項憑據（`local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`）直接記在 manifest 自身欄位（commit gate 憑此四欄放行，豁免的是歸檔檔載體，不是證據本身）
    - **intent gate（不可鬆）**：`spec_path` 與 `spec_inline` 至少一個非空，皆空不可往下
 2. **直接建 task 檔**：免呼叫 `task-decomposer` subagent，但上限不變——**≤2 tasks、合計 ≤8 items（硬）、各 item 目標 ≤300 行（軟）；每 task 仍 ≤5 items**（單 task 審查可讀性上限不因放寬而破）。超過 2 tasks／合計超 8 items、或出現遠超 300 行且拆不進去的工作 → 觸發升級逃生門（回 Tier 2）。**功能移除類需求**：既有測試的分流依 task-decomposition skill 的「功能移除的測試三分法」（主題＝被刪行為→隨功能刪；主題是存活行為→只拔斷言行；無關→不動），主 flow 建 task 檔時完成分類
    - **小 prose item 合併（省審查稅）**：純 prose（文件／agent 定義／skill，無 code）、單檔 ≤30 行、語義同源（同一個設計決策的多處投放）的 items，**合併為一個 sub_task 一輪審**——審查稅從 N 輪降 1 輪。約束：合併後單輪 diff 仍須 reviewer 一次讀完可審（總量失控就拆回）；含 code 的 item 不併入 prose 合併
 3. **輕量 HITL**：寫 code 前，把「N tasks／M items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。確認後將 manifest 的 `phase` 設為 `"decomposed"`（hook 憑此放行 code-writer）、`hitl_confirmed_at` 記「時間＋確認範圍一句話」，才進循環
 4. **主 flow 直寫捷徑（可選）**：Tier 1 且單 item 預估 ≤100 行 → 主 flow 可直接寫 code、不 spawn `code-writer`（省一次全新 agent 重建 context 的稅）。守則：「寫的人 ≠ 審的人」防線不變（`code-reviewer` 照常獨立審 staged diff）；知識前置（三源，見循環 step 1）改由主 flow 自查並在回報留痕；超過 ≤100 行或跨多檔複雜 item 仍派 `code-writer`；hook 對 code-writer 的 phase gate 不受影響（直寫路徑不經該 gate，phase 仍須 decomposed 才動工——由輕量 HITL 保證）
-5. **共用循環**：進入上方循環的步驟 1–7（code-writer → review（含完成度節）→ 本地測試 → commit）。收尾比照 step 6：先歸檔並清除 `eval_state.json`、manifest 標 `completed`，再一併 `git add` manifest／task 檔並 commit（message 附 `Run-Id: <run_id>` trailer）
+5. **共用循環**：進入上方循環的步驟 1–7（code-writer → review（含完成度節）→ 本地測試 → commit）。收尾**不歸檔**（無 `eval_state.json`）：manifest 填入四欄憑據（`local_test_passed: true`、`local_test_evidence`、`review_reds`、`verify_passed: true`）並標 `status: "completed"`，直接 `git add` manifest／task 檔並 commit（message 附 `Run-Id: <run_id>` trailer）。不執行 eval_state.py 的 archive 操作、不清除任何 scratchpad（本就沒建）
    - sub_task 的 `risk_analysis` 可簡記為 `"router 已篩（Tier 1）"`，不需逐面向填
    - step 5 可用實際運行功能驗證取代自動化測試（不強制建測試），但 `local_test_evidence` 照填——證據要求不分 tier
 

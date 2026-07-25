@@ -91,6 +91,20 @@ def load_json(path):
         block(f"{path} 無法讀取或非合法 JSON（{e}）")
 
 
+def _validate_credentials(obj, source):
+    """驗四項憑據（per-subtask 與 Tier 1 manifest 共用單一判定點）。"""
+    if obj.get("local_test_passed") is not True:
+        block(f"{source} local_test_passed 非 true：本地測試 gate 未通過，須先完成 step 5 驗證")
+    evidence = obj.get("local_test_evidence")
+    if not (isinstance(evidence, str) and evidence.strip()):
+        block(f"{source} local_test_evidence 為空：須記錄驗證證據（跑了什麼指令、看到什麼結果）")
+    reds = obj.get("review_reds")
+    if not (isinstance(reds, int) and not isinstance(reds, bool)) or reds < 0:
+        block(f"{source} review_reds 未留痕或非合法非負整數：step 3 須記錄 🔴 數（非負整數）")
+    if obj.get("verify_passed") is not True:
+        block(f"{source} verify_passed 非 true：reviewer 完成度節尚未通過")
+
+
 def validate_state(state, source, require_passed=False):
     # rounds 品質不變量已隨 eval-scorer 移除；舊格式歸檔（含 rounds）寬容放行
     if not state.get("run_id"):
@@ -100,25 +114,7 @@ def validate_state(state, source, require_passed=False):
             name = st.get("name") or st.get("id")
             if st.get("status") != "passed":
                 block(f"{source} sub_task「{name}」status 非 passed（{st.get('status')}）")
-            if st.get("local_test_passed") is not True:
-                block(f"{source} sub_task「{name}」local_test_passed 非 true：本地測試 gate 未通過")
-            evidence = st.get("local_test_evidence")
-            if not (isinstance(evidence, str) and evidence.strip()):
-                block(
-                    f"{source} sub_task「{name}」local_test_evidence 為空："
-                    f"step 5 須記錄驗證證據（跑了什麼指令、看到什麼結果）"
-                )
-            reds = st.get("review_reds")
-            if not (isinstance(reds, int) and not isinstance(reds, bool)) or reds < 0:
-                block(
-                    f"{source} sub_task「{name}」review_reds 未留痕或非合法非負整數："
-                    f"step 3 code-reviewer 結束後須執行 set-review <id> <🔴數>"
-                )
-            if st.get("verify_passed") is not True:
-                block(
-                    f"{source} sub_task「{name}」verify_passed 非 true："
-                    f"step 4 完成度驗證尚未通過（reviewer 完成度節），須執行 set-verify <id>"
-                )
+            _validate_credentials(st, f"{source} sub_task「{name}」")
 
 
 def check_manifest(manifest_path, staged):
@@ -143,13 +139,20 @@ def check_manifest(manifest_path, staged):
             )
         return  # Tier B 不走循環評分，豁免 eval 歸檔檔要求
 
+    tier = m.get("tier")
     archive_path = f"run/{run_id}.eval.json"
-    if archive_path not in staged:
+
+    if archive_path in staged:
+        # 歸檔檔已 staged：Tier 1（向後相容）＋ Tier 2（現行）共用此路徑（單一判定點）
+        archive = load_json(archive_path)
+        if archive.get("run_id") != run_id:
+            block(f"{archive_path} 的 run_id（{archive.get('run_id')}）與 manifest 不一致")
+        validate_state(archive, archive_path, require_passed=True)
+    elif tier == 1 or tier == "1":
+        # Tier 1 豁免歸檔檔，改驗 manifest 自身四欄憑據（與 validate_state 共用 _validate_credentials）
+        _validate_credentials(m, manifest_path)
+    else:
         block(f"{manifest_path} 已 staged，但 {archive_path} 未 staged：須先歸檔 eval_state 再 commit")
-    archive = load_json(archive_path)
-    if archive.get("run_id") != run_id:
-        block(f"{archive_path} 的 run_id（{archive.get('run_id')}）與 manifest 不一致")
-    validate_state(archive, archive_path, require_passed=True)
 
 
 def manifest_phase(manifest):
@@ -218,23 +221,50 @@ def check_staged_test_lint(staged):
         block(f"假測試 lint 未過（修測試或以行尾 `# testlint: allow` 豁免並留痕）：\n{detail}")
 
 
+def _find_unique_tier1_inprogress():
+    """掃 run/ 找唯一一個 tier==1 且 status==in_progress 的 manifest。
+    回傳 (manifest_path, manifest_dict) 或 None（找不到或多個）。
+    須重用 MANIFEST_RE（單一判定點，硬約束）。"""
+    found = []
+    for path in sorted(glob.glob("run/*.json")):
+        if not MANIFEST_RE.match(path):
+            continue
+        m = load_json_quiet(path)
+        if not isinstance(m, dict):
+            continue
+        tier = m.get("tier")
+        if (tier == 1 or tier == "1") and m.get("status") == "in_progress":
+            found.append((path, m))
+    return found[0] if len(found) == 1 else None
+
+
 def check_task_gate(tool_input):
     agent = tool_input.get("subagent_type", "")
     required = AGENT_MIN_PHASE.get(agent)
     if not required:
         sys.exit(0)  # 非流程管制的 agent，不擋
 
-    if not os.path.exists("eval_state.json"):
-        block(f"呼叫 {agent} 前須完成前置 0：eval_state.json 不存在（run 未初始化）")
-    state = load_json("eval_state.json")
-    run_id = state.get("run_id")
-    if not run_id:
-        block(f"eval_state.json 缺 run_id，無法定位 manifest；呼叫 {agent} 被擋")
-    manifest_path = f"run/{run_id}.json"
-    if not os.path.exists(manifest_path):
-        block(f"{manifest_path} 不存在（前置 0 未完成），不可呼叫 {agent}")
-    manifest = load_json(manifest_path)
+    # 前置步驟（單一判定點）：取得 manifest_path、manifest、state
+    # eval_state.json 存在 → Tier 2 常規路徑；否則 → Tier 1 豁免路徑
+    if os.path.exists("eval_state.json"):
+        state = load_json("eval_state.json")
+        run_id = state.get("run_id")
+        if not run_id:
+            block(f"eval_state.json 缺 run_id，無法定位 manifest；呼叫 {agent} 被擋")
+        manifest_path = f"run/{run_id}.json"
+        if not os.path.exists(manifest_path):
+            block(f"{manifest_path} 不存在（前置 0 未完成），不可呼叫 {agent}")
+        manifest = load_json(manifest_path)
+    else:
+        state = None
+        # DoD (a)：找唯一 tier 1 in_progress manifest 作為當前 run 依據
+        tier1 = _find_unique_tier1_inprogress()
+        if tier1 is None:
+            block(f"呼叫 {agent} 前須完成前置 0：eval_state.json 不存在（run 未初始化）")
+        manifest_path, manifest = tier1
+        run_id = MANIFEST_RE.match(manifest_path).group("run_id")
 
+    # 以下 gate 邏輯為單一共用路徑（Tier 1 與 Tier 2 不再各有一份）
     check_other_runs(run_id)
 
     if not (manifest.get("spec_path") or manifest.get("spec_inline")):
@@ -257,10 +287,12 @@ def check_task_gate(tool_input):
     if agent == "code-writer":
         if not manifest.get("task_file"):
             block(f"{manifest_path} task_file 為空：前置 3 未完成，不可呼叫 code-writer")
-        for st in state.get("sub_tasks", []):
-            if (st.get("risk_analysis") or {}).get("blocking") is True:
-                name = st.get("name") or st.get("id")
-                block(f"sub_task「{name}」風險分析 blocking=true（🔴），須先修改 Spec 重新分析")
+        # risk_analysis.blocking 遍歷：僅在 state 存在（Tier 2）時執行，Tier 1 無 sub_tasks 可遍歷
+        if state is not None:
+            for st in state.get("sub_tasks", []):
+                if (st.get("risk_analysis") or {}).get("blocking") is True:
+                    name = st.get("name") or st.get("id")
+                    block(f"sub_task「{name}」風險分析 blocking=true（🔴），須先修改 Spec 重新分析")
 
     sys.exit(0)
 

@@ -63,16 +63,20 @@ python3 .claude/hooks/test_baseline.py mine --strike-key <sub_task 標識>
    - exit 2 → 有真的（可重現）新增失敗，進下方分類決策樹
 4. **非確定性失敗由 script 自動放行**：非 baseline 的新失敗會自動重跑一次確認可重現——重跑通過（不可重現）→ 印警示「非確定性失敗，未阻擋」、不擋、**不持久化任何名單**；重跑仍失敗（可重現）→ 真新失敗，script append 一筆 `failure_log`（供稽核「紅過就有痕」）並 exit 2
 
-## Mutation self-check（整合測試 item 的 DoD 一部分，Tier 2）
+## Mutation self-check（每 run 抽樣一次，Tier 2）
 
-測試會跑不代表斷言有效——實測靠事後補做 mutation test 才確認斷言真的抓得到破壞（sabotage 後測試真的 FAIL），此步制度化為整合測試 item 的收尾動作：
+測試會跑不代表斷言有效——實測靠事後補做 mutation test 才確認斷言真的抓得到破壞（sabotage 後測試真的 FAIL），此步制度化為整合測試 item 的收尾動作。
+
+**執行頻率：每 run 抽一個整合測試 item 做完整版（含下方第 6 步的主 flow 獨立重放），其餘整合測試 item 的 `local_test_evidence` 記「沿用本 run mutation 結論（抽樣 item：<id>）」即可**——斷言鑑別力是同一個 run 內測試撰寫習慣的性質，item 間高度相關，逐個重做的邊際資訊低。抽樣對象取**斷言最密集或行為點最關鍵的那個** item（不是最先做完的那個）。
+
+**抽樣不適用、須逐個做完整版的情況**：抽樣 item 的 sabotage 出現任一沒讓測試 FAIL（代表本 run 的斷言品質不可信，不能外推）；或各整合測試 item 由不同 code-writer 產出、撰寫習慣不同源。
 
 1. 挑本 task 至少 2 個**關鍵行為點**（計算邏輯、防呆條件——被弄壞會直接造成錯誤結果的那種）
 2. 逐一 sabotage（改壞實作的一行）→ 跑對應測試，**必須 FAIL**；恢復原狀 → 跑測試，**必須 PASS**
 3. **每次 sabotage 與恢復後清 `__pycache__`**（`find . -name __pycache__ -type d -exec rm -rf {} +`）——stale `.pyc` 會讓判定失真（實測誤判 2 個測試壞掉）
 4. 任一 sabotage 沒讓測試 FAIL → **第一步先質疑需求，不是加壓**：追該行為點的最終消費點，確認該性質被破壞時可觀察輸出真的會變——輸出不變＝該性質非 load-bearing（假需求，典型如「下游依 key／name 重新定位，中間順序根本不影響輸出」），回報使用者建議自 Spec／DoD 移除，探針作廢不補。確認是真需求 → 斷言無效，修測試後重做
 5. **停損（硬性）**：同一行為點 **2 次 sabotage 仍綠即停手回報使用者**，禁止繼續加時序延遲／調並發數／加壓力硬湊 FAIL（實測：為一條假保序需求反覆調時序空轉數十輪——探針一直綠的最常見原因不是壓力不夠，是需求是假的）；結果（sabotage 了哪些點、FAIL/PASS 確認、作廢的探針與理由）記入 `local_test_evidence`
-6. **獨立重放（主 flow 執行，不採信自報）**：整合測試 item 的 step 5 收尾時，**主 flow 親自重放至少一組 sabotage→FAIL→恢復→PASS**，不採信 writer 的自報結果（實測「主 flow 重放」抓到自報遺漏）。重放主體是主 flow 而非 code-reviewer——reviewer 是只讀角色，不改檔；重放同樣遵守第 3 步清 `__pycache__`，做完恢復原狀
+6. **獨立重放（主 flow 執行，不採信自報）**：**抽樣** item 的 step 5 收尾時，**主 flow 親自重放至少一組 sabotage→FAIL→恢復→PASS**，不採信 writer 的自報結果（實測「主 flow 重放」抓到自報遺漏）。重放主體是主 flow 而非 code-reviewer——reviewer 是只讀角色，不改檔；重放同樣遵守第 3 步清 `__pycache__`，做完恢復原狀
 
 ## 真新失敗的處置（script 確認可重現後才進這裡）
 

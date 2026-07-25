@@ -1,0 +1,68 @@
+{
+  "run_id": "2026-07-25-flow-deregulation",
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "文件層放寬（Tier 0 門檻＋風險六面向＋mutation 抽樣）",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "CLAUDE.md",
+        "skills/task-risk-analysis/SKILL.md",
+        "skills/eval-flow/SKILL.md",
+        "skills/test-strategy/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "check --cmd 'python3 -m unittest tests.test_docs_consistency -v' --strike-key sub_task_1 → [test-gate] PASS: 無新增穩定失敗（related --files 選出 tests/test_docs_consistency.py；baseline stable 0）。純 prose 變更、無新增/修改測試檔故未跑 test_lint。DoD grep 斷言主 flow 直驗全過：三條新規則各 ≥1 命中、三條攔截條件（1 行也不例外／不可進入任何後續步驟／2 次 sabotage）各 1 命中未誤傷。",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Clarity": 1
+      }
+    },
+    {
+      "id": 2,
+      "name": "砍掉前置 1.5 scout",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/eval-flow/SKILL.md",
+        ".claude/agents/impact-analyzer.md",
+        ".claude/agents/usage-analyzer.md",
+        ".claude/agents/scout.md",
+        "CLAUDE.md",
+        "skills/task-decomposition/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "check --cmd 'python3 -m unittest tests.test_docs_consistency tests.test_eval_gates' --strike-key sub_task_2 → [test-gate] PASS: 無新增穩定失敗（related 累積聯集選出兩檔）。純 prose 移除類變更、無新增/修改測試檔故未跑 test_lint。DoD (f) 主 flow 直驗：grep scout 於 CLAUDE.md/skills/.claude/agents 命中數=1（唯一為向後相容註）、.claude/agents/scout.md 不存在；reviewer 另獨立驗證 grep scout .claude/hooks/ 零命中，證實向後相容註斷言屬實。",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    },
+    {
+      "id": 3,
+      "name": "Tier 1 豁免 eval_state.json（hook 三處）",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/hooks/eval_gates.py",
+        "tests/test_eval_gates.py",
+        "skills/eval-flow/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "① test_lint.py tests/test_eval_gates.py → PASS（首跑 exit 2：case 3 的 testlint 豁免註記被 writer 標在呼叫行而非 def 行，不符檔案既有慣例；主 flow 移至 def 行後 PASS，純註解位置調整、不改測試行為）。② check --cmd 'python3 -m unittest tests.test_docs_consistency tests.test_eval_gates' --strike-key sub_task_3 → [test-gate] PASS: 無新增穩定失敗。③ 全套 python3 -m unittest discover -s tests → Ran 134 tests OK。④ 主 flow 獨立核實：_find_unique_tier1_inprogress(:224) 確實重用 MANIFEST_RE、多個回 None；_validate_credentials(:94) 唯二呼叫點 :117/:153＝單一判定點成立。",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Technical_constraints": 1,
+        "Testability": 1
+      }
+    }
+  ]
+}

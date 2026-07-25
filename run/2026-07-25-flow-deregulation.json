@@ -1,0 +1,19 @@
+{
+  "run_id": "2026-07-25-flow-deregulation",
+  "created_at": "2026-07-25 16:10",
+  "framework_version": "2026.07.15",
+  "tier": 1,
+  "tier_rationale": "五條流程鬆綁改動。其中 item「Tier 1 豁免 eval_state」須改 .claude/hooks/eval_gates.py 的 gate 判定式，依 Router 排除清單屬高風險面、本應 Tier 2；**使用者於 2026-07-25 明示裁示「五條全走 Tier 1」，覆寫 Router 的高風險排除**（agent 未自行降級，AskUserQuestion 留有選項紀錄）。其餘四項為純 prose 文件變更，本即符合 Tier 1。",
+  "phase": "completed",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-25 16:20 — 確認 2 tasks／3 sub_tasks 計畫（1.1 三條 prose 合併直寫、2.1 砍 scout 直寫、2.2 Tier 1 豁免 eval_state 派 code-writer）",
+  "spec_path": null,
+  "spec_inline": "流程去儀式化五條：①CLAUDE.md Router 的 Tier 0 門檻放寬為 ≤3 檔／合計 ≤80 行（風險軸不動）；②Tier 1 豁免 eval_state.json（比照 Tier B／hotfix），測試證據改記 manifest，需同步改 eval_gates.py 三處 gate；③砍掉前置 1.5 scout（省 token 的步驟本身變成成本，職責併回 impact-analyzer 自掃）；④前置 1 風險六面向改為「只寫觸及的面向、其餘一行不適用」，🔴 攔截條件不變；⑤test-strategy 的 mutation self-check 從「每個整合 item」降為「每 run 一次抽樣」。",
+  "risk_report_path": "skipped",
+  "scout_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-07-25.md",
+  "status": "completed",
+  "failed_reason": null
+}

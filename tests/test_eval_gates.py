@@ -330,5 +330,185 @@ class ParentRunIdCompatTest(unittest.TestCase):
             eval_gates.check_manifest("run/test-run.json", set())
 
 
+class Tier1ManifestCommitTest(unittest.TestCase):
+    """DoD (c)：Tier 1 manifest commit gate 的三條路徑。"""
+
+    def setUp(self):
+        import os
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        os.makedirs("run")
+
+    def tearDown(self):
+        import os
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    def _write_manifest(self, **extra):
+        import json
+        base = {
+            "run_id": "t1-run",
+            "tier": 1,
+            "spec_inline": "test spec",
+            "status": "completed",
+            "local_test_passed": True,
+            "local_test_evidence": "pytest -q -> 5 passed",
+            "review_reds": 0,
+            "verify_passed": True,
+        }
+        base.update(extra)
+        with open("run/t1-run.json", "w", encoding="utf-8") as f:
+            json.dump(base, f)
+
+    # DoD (d) case 1：四欄齊全 → 放行
+    def test_tier1_four_fields_complete_passes(self):  # testlint: allow — 斷言的是「不拋例外」
+        self._write_manifest()
+        eval_gates.check_manifest("run/t1-run.json", set())
+
+    # DoD (d) case 2：缺任一欄 → block（四欄各一 case）
+    def test_tier1_missing_local_test_passed_blocks(self):
+        self._write_manifest(local_test_passed=False)
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_manifest("run/t1-run.json", set())
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_tier1_empty_local_test_evidence_blocks(self):
+        self._write_manifest(local_test_evidence="")
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_manifest("run/t1-run.json", set())
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_tier1_null_review_reds_blocks(self):
+        self._write_manifest(review_reds=None)
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_manifest("run/t1-run.json", set())
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_tier1_missing_verify_passed_blocks(self):
+        self._write_manifest(verify_passed=False)
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_manifest("run/t1-run.json", set())
+        self.assertEqual(ctx.exception.code, 2)
+
+    # DoD (d) case 3：有 staged 歸檔檔 → 走舊路徑（向後相容回歸）
+    def test_tier1_with_staged_archive_uses_old_path(self):  # testlint: allow — 斷言的是「不拋例外」
+        import json
+        # manifest 四欄故意非法：走四欄驗證路徑 → block；走歸檔路徑 → pass
+        # 藉此確認 archive_path in staged 判斷確實分流到正確路徑
+        self._write_manifest(local_test_passed=False, review_reds=None)
+        # 建立合法的 eval 歸檔檔（sub_tasks 全 passed）
+        archive = {
+            "run_id": "t1-run",
+            "sub_tasks": [make_sub_task()],
+        }
+        with open("run/t1-run.eval.json", "w", encoding="utf-8") as f:
+            json.dump(archive, f)
+        staged = {"run/t1-run.json", "run/t1-run.eval.json"}
+        # 應走歸檔路徑（validate_state），不拋例外
+        eval_gates.check_manifest("run/t1-run.json", staged)
+
+    # tier 字串 "1" 與整數 1 兩種都容許
+    def test_tier1_string_tier_also_passes(self):  # testlint: allow — 斷言的是「不拋例外」
+        self._write_manifest(tier="1")
+        eval_gates.check_manifest("run/t1-run.json", set())
+
+    # Tier 2 不受豁免（現行行為不變）
+    def test_tier2_without_archive_still_blocks(self):
+        import json
+        m = {
+            "run_id": "t2-run",
+            "tier": 2,
+            "spec_inline": "spec",
+            "status": "completed",
+        }
+        with open("run/t2-run.json", "w", encoding="utf-8") as f:
+            json.dump(m, f)
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_manifest("run/t2-run.json", set())
+        self.assertEqual(ctx.exception.code, 2)
+
+
+class Tier1SubagentGateTest(unittest.TestCase):
+    """DoD (a)(b)：check_task_gate 在無 eval_state.json 時的三條路徑。"""
+
+    def setUp(self):
+        import os
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        os.makedirs("run")
+
+    def tearDown(self):
+        import os
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    def _write_manifest(self, run_id, tier=1, status="in_progress", phase="decomposed",
+                        task_file="task/x.md", spec_inline="spec", **extra):
+        import json
+        m = {
+            "run_id": run_id,
+            "tier": tier,
+            "status": status,
+            "phase": phase,
+            "spec_inline": spec_inline,
+            "task_file": task_file,
+        }
+        m.update(extra)
+        with open(f"run/{run_id}.json", "w", encoding="utf-8") as f:
+            json.dump(m, f)
+
+    # DoD (d) case 4：唯一 tier 1 in_progress manifest + decomposed → 放行
+    def test_no_eval_state_unique_tier1_inprogress_passes(self):
+        self._write_manifest("tier1-run")
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "code-writer"})
+        self.assertEqual(ctx.exception.code, 0)
+
+    # DoD (d) case 5：無任何 tier 1 in_progress manifest → block
+    def test_no_eval_state_no_tier1_manifest_blocks(self):
+        # 只有 tier 2 manifest
+        self._write_manifest("t2-run", tier=2)
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "code-writer"})
+        self.assertEqual(ctx.exception.code, 2)
+
+    # DoD (d) case 5 變體：完全無 manifest
+    def test_no_eval_state_no_manifest_at_all_blocks(self):
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "code-writer"})
+        self.assertEqual(ctx.exception.code, 2)
+
+    # DoD (d) case 6：有其他 in_progress manifest → check_other_runs 仍擋
+    def test_no_eval_state_other_inprogress_manifest_blocks(self):
+        import json
+        self._write_manifest("tier1-run")
+        # 另一個 in_progress manifest（tier 2）
+        other = {"run_id": "other-run", "tier": 2, "status": "in_progress", "spec_inline": "s"}
+        with open("run/other-run.json", "w", encoding="utf-8") as f:
+            json.dump(other, f)
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "code-writer"})
+        self.assertEqual(ctx.exception.code, 2)
+
+    # phase 未達 decomposed → block
+    def test_no_eval_state_phase_below_decomposed_blocks(self):
+        self._write_manifest("tier1-run", phase="init")
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "code-writer"})
+        self.assertEqual(ctx.exception.code, 2)
+
+    # 兩個以上 tier 1 in_progress manifest → block（邊界）
+    def test_no_eval_state_multiple_tier1_manifests_blocks(self):
+        self._write_manifest("tier1-run-a")
+        self._write_manifest("tier1-run-b")
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "code-writer"})
+        self.assertEqual(ctx.exception.code, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

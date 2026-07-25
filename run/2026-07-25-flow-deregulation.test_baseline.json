@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-07-25-flow-deregulation",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "8ecc7c1c20fb96a220e41564f1064df4e795d882",
+  "stable_failures": []
+}
