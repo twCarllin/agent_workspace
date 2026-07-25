@@ -1,0 +1,20 @@
+{
+  "run_id": "2026-07-25-tier2-p-worktree",
+  "created_at": "2026-07-25 00:00",
+  "framework_version": "2026.07.22.1",
+  "tier": 2,
+  "tier_rationale": "觸及 hook gate 邏輯（高風險面：部署/流程管制）＋多情境（fan-out/退回兩路徑）＋改動面偏大（三 skill＋兩 agent＋hook）→ 強制 Tier 2",
+  "phase": "completed",
+  "spec_path": "spec/2026-07-25-tier2-p-worktree.md",
+  "spec_inline": null,
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-25 — 確認 usage 報告 v1（7 角色/10 情境家族）；6 開放問題全照傾向裁示：①本 run 自身序列不 fan-out ②溯源用 Parent-Run-Id trailer 一次撈全族 ③門檻行數以 decomposer ×2 估計為準、估不準即不 fan-out ④hook 零改動（worktree 天然隔離，仍寫 item DoD 實測驗證）⑤卡點報告 run/<子 run_id>-blocked.md ⑥門檻不進 hook 硬檢",
+  "hitl_rejections": 0,
+  "risk_report_path": "risk/2026-07-25-tier2-p-worktree.md",
+  "scout_report_path": "scout/2026-07-25-tier2-p-worktree.md",
+  "usage_report_path": "usage/2026-07-25-tier2-p-worktree.md",
+  "impact_report_path": "impact/2026-07-25-tier2-p-worktree.md",
+  "task_file": "task/2026-07-25.md",
+  "status": "completed",
+  "failed_reason": null
+}

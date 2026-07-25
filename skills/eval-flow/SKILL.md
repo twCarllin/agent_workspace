@@ -74,10 +74,10 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
      - **impact report 慣例段**：前置 2.5 有跑時，摘錄該模組的「各模組既有慣例」與「可重用既有元件」節（節名見 impact-analyzer 定義）
      - grep 篩選的對象是**模組名片段**（取自 files 路徑的目錄／檔名，如 `eval_gates`、`hooks`），不是整段路徑——retro 標籤慣用全形 `／`，整段半形路徑會靜默零命中
      - 三源皆無相關內容時在 prompt 註明「知識前置：三源均無相關內容」（留痕，防跳步）
-   - **測試管轄註記**：派工 prompt 附一句「測試自驗只准跑 `python3 .claude/hooks/test_baseline.py mine --strike-key sub_task_<id>`，依你定義中的測試管轄規則」（writer 層 mine 模式細節住 test-strategy skill，不重述；`[P]` 平行 item 不適用 mine，改在 prompt 指定測試檔清單，或各開 worktree）
+   - **測試管轄註記**：派工 prompt 附一句「測試自驗只准跑 `python3 .claude/hooks/test_baseline.py mine --strike-key sub_task_<id>`，依你定義中的測試管轄規則」（writer 層 mine 模式細節住 test-strategy skill，不重述；`[P]` item 在 fan-out（各開 worktree）或循序退回下 mine 模式均適用——隔離樹或逐個執行時未提交變更範圍可正確推導，不再需要「指定測試檔清單」舊 workaround）
    - **契約前置與仲裁句（硬性）**：派工 prompt 必須把本 item 的**行為契約表原文**（task 檔的 `契約:` 行，含邊界 row）貼進硬約束區作為仲裁基準——不是叫 writer 自己翻 task 檔（與知識前置同一教訓），並附一句：「測試紅時先仲裁再動手，對到契約表 row 判哪邊錯；**契約表沒答案 → 帶失敗交付是正確行為，硬湊綠燈才是違規**」。無契約表的 item（Tier 1 無表 fallback）此句改指 DoD。writer 以「表沒答案」帶失敗交付時，**主 flow 裁決**：讀 Spec／usage 報告判該行為的預期，把裁決結果補進契約表（表可增補、single source 不變）再回派；Spec 本身有洞才走升級逃生門問使用者
    - **交付稽核（writer 交付時，兩個對照）**：①工作報告的「仲裁記錄」——紅過的測試每條都要有仲裁行，判「測試超出契約」者核對 row 引文與 task 檔原文一致（對不上＝假仲裁，退件）；②`run/<run_id>.mine_log.json`——mine 執行次數異常多、測試檔 hash 在失敗未清的情況下反覆變動、失敗集合遊走＝「改測試湊綠」的機器指紋，退件重派並要求逐條補仲裁依據。正常交付（次數合理、記錄對得上）瞄一眼即過，不展開
-2. 將變更檔案 `git add` 進 staging area（確保 code-reviewer / task-verifier 可透過 `git diff --cached` 讀取）
+2. 將變更檔案 `git add` 進 staging area（確保 code-reviewer / task-verifier 可透過 `git diff --cached` 讀取）。**派 code-reviewer／task-verifier 時，prompt 硬性指示改用 `git diff --cached -- <files>`**，`<files>`＝**當前 sub_task 的 `files`**（主 flow 讀 `eval_state.json` 該 sub_task 的 `files` 欄帶入；收斂到當前 sub_task 涉及檔，避免跨 sub_task staging 累積污染）。**注意**：`eval_state.py list-files` 是全 sub_task 聯集，不是單一 sub_task 來源、不可用於此。此收斂為退回主 worktree 循序時的污染修法（與 fan-out 無關、底層必需）。
 3. **同一訊息並發呼叫** `code-reviewer` 與 `task-verifier`（兩者皆唯讀、讀同一份 staged diff、互不依賴輸出——序列跑是純浪費）。`step` 欄位於並行階段記 `reviewing`（`verifying` 保留供舊 run resume 相容，新路徑不再單獨使用）
    - **審查報告 write-ahead（硬性步驟）**：**每一輪** code-reviewer 交付後，主 flow 立即把審查報告全文落檔 `run/<run_id>.review-st<id>-r<N>.md`（st＝sub_task id、r＝該 sub_task 的審查輪次，逐輪遞增），再進入解析／修正——比照 `step` 欄位的 write-ahead 原則（中斷在 fixing 時整輪 reviewer 只活在對話裡會作廢，落檔後接手者讀報告續修，不重跑 reviewer）。`set-review <id> <🔴數>` 僅於**首輪**落檔後執行（記修正前原始數，與操作規則條呼應）。落檔是熱 scratchpad（只為中斷恢復服務），step 6 收尾時隨 `eval_state.json` 一併清除、不進 git
    - **🔴 重裁條款**：主 flow 對每條 🔴 先做事實核對——至少讀 producer 端證據（上游 schema、函式定義、實際輸出），有反證 → 送獨立重裁（重呼叫 reviewer 附上反證，或取第二意見），**不可未經查證直接派 writer 照修**（reviewer 可能只讀消費面就下錯誤斷言，照修會把正確的 code 改壞）
@@ -107,7 +107,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 
 ## Subagent 呼叫原則（省 token）
 
-- **code-reviewer / task-verifier** 需要讀取程式碼變更時，**必須在 prompt 中指示使用 `git diff --cached`**（Bash 工具），不要用 Read 逐檔讀取完整檔案。`git diff` 只回傳變更部分，token 消耗遠低於讀整檔。
+- **code-reviewer / task-verifier** 需要讀取程式碼變更時，**必須在 prompt 中指示使用 `git diff --cached -- <files>`**（Bash 工具，`<files>`＝當前 sub_task 的 `files` 欄），不要用 Read 逐檔讀取完整檔案。`git diff` 只回傳變更部分，token 消耗遠低於讀整檔；file-scoped 指令另可避免跨 sub_task staging 累積污染（見循環 step 2）。
 - **auto-mode 定義**：指使用者在本次 session 中**明確表示**開啟（例如「開 auto-mode」「全自動跑」）。未明示一律視為關閉，不可自行推斷。
 - **auto-mode 開啟時**：這 2 個 agent 可以放背景執行（`run_in_background: true`），Bash 會自動批准。
 - **非 auto-mode 時**：這 2 個 agent 必須用前景執行，讓使用者能批准 Bash 權限。不可放背景執行（背景 agent 無法彈出權限確認，會導致 Bash 被拒絕）。
@@ -276,4 +276,61 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 - **要並行 → 開 `git worktree`**：每個 run 在自己的 worktree／branch 裡跑，單例假設在 worktree 內自然成立，收尾各自 commit 後合回主線。**≥2 個互不相依的 Tier 1 需求同時進來時，依 `parallel-run` skill 執行**（批次 HITL、背景 agent、merge 收尾的細節住在該 skill）
 - **插單（run 跑到一半來了急件）**：原 run 的 worktree **原地凍結**（狀態已全在 manifest／`eval_state.json`／staging area 裡，不需要任何「暫停」操作），急件在新 worktree 處理，完成後回原 worktree 依 `eval-flow-resume` skill 接續
 - hook 強制：呼叫流程管制的 subagent 時，若本工作區存在**其他** in_progress 的 manifest（run_id 與 `eval_state.json` 不一致）→ 擋，並提示「先收尾／封存既有 run，或開 worktree 並行」
-- **單一 run 內 [P] 平行寫作的測試 barrier**：若同一 run 內多個 `[P]` item 由併發 code-writer 寫作，各 item 的 step 5 相關測試可各自先跑，但**全套 baseline/check（step 6 ⓪ full_suite）是 join barrier**——必須等**所有**平行 writer 都交付、各自 🔴 清零並過 task-verifier 後，才跑一次；不可在部分 writer 交付時就跑（會測到不完整／交錯的樹，gate 判定失真）。此條僅限「單一 run 內」平行；跨 run 平行走 `parallel-run` skill，各自 worktree 各跑各的 step 5，不受此條約束。**mine 模式在 `[P]` 平行下不適用**：共用同一棵樹時未提交變更混雜多個 writer，範圍推導失效——派工 prompt 改指定測試檔清單，或各開 worktree（見 test-strategy skill 的 writer 層 mine 模式節）
+- **`[P]` item 的並行執行由 fan-out 達成，不再有共用同一棵樹的併發 writer**：門檻滿足（`[P]` item ≥2 且各自預估 ≥150 行）→ 走「## Tier 2 [P] fan-out（worktree 並行）」節，各開 worktree 隔離，mine 模式在各自樹內正常生效；門檻不足 → 退回主 worktree **循序**執行（一次一個 item），亦無共用樹併發。舊「shared-tree join barrier」概念隨共用樹模型一併移除；跨 item 的全套測試把關由 rolling merge 段的全套 baseline gate（見 `parallel-run` skill 步驟 8）負責
+
+## Tier 2 [P] fan-out（worktree 並行）
+
+Tier 2 run 內符合門檻的 `[P]` item 各開 git worktree 並行執行，取得真正的 worktree 隔離：每個 item 在自己的樹裡，`git diff --cached` 天生乾淨、mine 模式復活。本節描述三段式 fan-out 執行協定，由**主 flow**（前景，判門檻／開 worktree／rolling merge）編排、**背景 item agent**（在各自 worktree 跑迷你 run，具備 Bash／Write／Edit 工具）執行、收尾序列**直接引用 `skills/parallel-run/SKILL.md`**（避免兩處漂移）。改此 skill 的 run 自身序列跑、不 fan-out（新機制首次執行不用在改它自己的 run 上）。
+
+### 門檻與退回
+
+fan-out 僅在「**`[P]` item ≥2 且各自預估 ≥150 行**（以 task-decomposer 的 `~<行數>行` 欄位 ×2 校準估計為準）」時啟動。估計不準即不 fan-out（保守偏循序）。不滿足門檻 → 該批 `[P]` item 退回主 worktree **循序**執行（不開 worktree），派 code-reviewer／task-verifier 時改用循環 step 2 的 file-scoped diff 收斂（引用循環 step 2 的規則，不在此重述）。含「有意行為變更需更新既有測試」的 item 不可進 fan-out 批，改留循序段——理由與 `parallel-run` skill 相同：既有測試只增不改是 merge gate 的裁判前提，破掉它等於裁判換人、全套綠燈失去安全保證。
+
+### 三段式執行協定
+
+三段的跨段不變量：**prep 段的父 manifest 標 `completed` 是 fan-out 的必要前提，fan-out 不可提前**。這個跨段條件的機械依據有二：`eval_gates.py` 的 `check_other_runs`（約 :155）對同工作區另一個 in_progress manifest 直接 block subagent 呼叫——父 run 若保持 in_progress，item worktree 裡的 code-writer 就會被擋；歸檔 gate 對未歸檔的 `eval_state.json` 擋 commit——prep 段必須照現行 step 6 正常歸檔後才能 commit，commit 完父 manifest 才能標 `completed`。
+
+**① 循序前置段（prep run）**
+
+依賴型 item（task 中標 `depends`、不可標 `[P]`，典型如 DB schema 定義、共用型別）在主 worktree 循序做完，照現行 step 6 正常歸檔＋commit，父 manifest 標 `status: "completed"` 後才進入 fan-out。這批 item 是各 `[P]` item branch 出去時的共同基礎，必須先落地才能確保各子 worktree 起點一致。沒有 depends 型 item 時，此段為空、直接進入 fan-out。
+
+**② Fan-out 段**
+
+主 flow 為每個符合門檻的 `[P]` item 各開一個 worktree，從當前 run HEAD 切出：
+
+```
+git worktree add ../<repo>-item-<id> -b feat/<父run_id>-item-<id>
+```
+
+然後同一訊息 spawn 全部背景 item agent（一 item 一 agent，並發啟動）。每個背景 agent 以**獨立 sibling 迷你 run**執行完整 Tier 2 循環：
+
+- **子 manifest**：`run/<父run_id>-item-<id>.json`，填入 `parent_run_id: <父run_id>`、`spec_path` 指回父 Spec（`spec/<父run_id>.md`）、`tier: 2`、`status: "in_progress"`，以及自己的 `run_id`、`created_at`、`phase`。
+- **自己的 `eval_state.json`**（在自己 worktree 初始化），自己的 eval_state 貫穿自己的 code-writer → review∥verify → step 5 本地測試 → 自己歸檔。
+- **mine 模式在隔離樹下復活**：各 worktree diff 乾淨，未提交變更只屬於自己，`python3 .claude/hooks/test_baseline.py mine --strike-key <item_id>` 可正常推導範圍。
+- **hook gate 在各 worktree 內獨立生效**：每個 worktree 有自己的 staging area 與 `eval_state.json`，所有現行 gate 照常運作、零後門。
+- **自己 branch commit**：step 6 收尾 commit 附 trailer `Run-Id: <子run_id>` 與 `Parent-Run-Id: <父run_id>`（後者讓主 session 一次 grep `Parent-Run-Id: <父run_id>` 撈全族 commit）。禁止 merge、禁止 push、禁止切 branch（同 `parallel-run` skill 的背景 agent 規則）。
+- **BUGLOG 條目寫進回報內容、不 append 檔案**：沿 `parallel-run` skill 規則——各 worktree grep 自己的快照會漏看對方的條目，兩層制升級判定由主 session 於 merge 後統一做。
+- **blocker 出在 main 既有 code 時禁止在 item worktree 修**：標明後依 `parallel-run` skill 的「卡住／HITL 協定」停下，由主 session 在 main 上走 bugfix 流程，修完後各 item worktree `git merge main` 同步（修一次、多支受惠）。
+- 卡住（2 次真失敗、任何需使用者裁決的事）→ 依 `parallel-run` skill 的「卡住／HITL 協定」停止並回報主 session，manifest 標 `status: "blocked"`，落盤卡點報告 `run/<子run_id>-blocked.md`，**不自行猜測往下**。
+
+角色確認（retro 約束）：主 flow 能開 worktree、讀寫 manifest（成立）；背景 agent 在隔離 worktree 內具 Bash／Write／Edit、hook gate 照常生效且能 commit 自己 branch（成立）；引用 `parallel-run` skill 的收尾步驟確實存在於該 skill（收尾序列見 `parallel-run/SKILL.md` 步驟 7–10，機械檢查①②見步驟 8 的子項 8.1／8.2，已 Read 佐證）。
+
+**③ Rolling merge 段**
+
+直接引用 `skills/parallel-run/SKILL.md` 的收尾序列（步驟 7–10），不重寫——避免兩處機制描述漂移。重用其：① 測試只增不改機械檢查（`git diff main...feat/<子run_id>` 過濾測試路徑，出現 M／D 不 merge）② 實際交集重驗（本支與其他未合支的實際 changed-file 清單取交集，非空停下回報）③ 後合者先 `git merge main` 同步再重跑相關測試 ④ 全套 baseline gate（`git merge feat/<子run_id>` 後跑全套，判準為相對 merge 前 main baseline 無新增失敗）⑤ BUGLOG 帶回統一 append＋兩層制升級判定＋ `git worktree remove` 及刪 feat branch（append 前 grep 舊條目判是否升級 RETRO；一族 fan-out 完成後的 worktree／branch 清理隨此步，不可遺留孤兒 worktree）。誰先完成先收，不等全批。**本①-⑤為重點提示，完整子步驟以 `parallel-run` 步驟 8 之子項 1–5 為準、不由本清單替代。**
+
+一族 commit 完成後，可用 `git log --grep "Parent-Run-Id: <父run_id>"` 反查全族。
+
+### 錯誤路徑與批次中斷恢復
+
+**F-err1（rolling merge 後測試紅燈）**：全套測試在 merge 後出現新增失敗，根因跨兩支 branch 語意衝突。由 bugfix 走既有「診斷先行」流程、在**主 session（main）**做（單一 worktree 視野只有一半）——見 `parallel-run` skill 步驟 9。
+
+**F-err2（機械檢查② 實際交集非空）**：fan-out 前置預估 disjoint、但合併前重驗時本支與其他未合支的實際 changed-file 清單有交集——disjoint 前提被實際變更打破。該支停下回報、退出並行改循序——見 `parallel-run` skill 步驟 8 子項 2（8.2）。
+
+**G（批次中斷恢復）**：主 session 死掉後，以下痕跡機械重建批次狀態，不靠記憶——見 `parallel-run` skill 步驟 14：
+- `git worktree list`：還有哪些 worktree 存活
+- 各子 manifest `status`（in_progress／blocked／completed）：哪支還在跑、哪支卡住
+- `git log --grep "Parent-Run-Id: <父run_id>"`：哪支已 merge 進 main
+- `run/parallel-merge-*.test_baseline.json` 存在與否：全套 baseline 是否已快照
+
+**特別檢查項——已 merge 但 BUGLOG 未 append 的遺失窗口**：子 manifest 標 `completed`、commit 已在 main 的 `git log` 內，但 `retro/BUGLOG.md` 沒有對應條目（收尾步驟 8.5 的 append 在 session 死掉前未完成）。重建後逐支確認：已 merge 的 run 有無帶 BUGLOG 條目（回報內容或卡點報告），有條目未 append → 補問使用者確認後補 append，並依兩層制做升級判定。

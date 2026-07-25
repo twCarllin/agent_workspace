@@ -1,0 +1,181 @@
+{
+  "run_id": "2026-07-25-tier2-p-worktree",
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "1.1 兩 agent 定義改 file-scoped diff",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/agents/task-verifier.md",
+        ".claude/agents/code-reviewer.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "prose item(兩 agent 定義)無對映相關測試；全套 baseline stable 0、check sub_task_1 PASS(含 test_docs_consistency.py 綠);一致性由 verifier grep 5/5+reviewer r2 零🔴零🟡 佐證;r1 🟡(list-files 聯集誤標為來源)已修並防傳播至 1.2",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Completeness": 1
+      }
+    },
+    {
+      "id": 2,
+      "name": "1.2 eval-flow step3+呼叫原則 file-scoped ＋Task1一致性驗證",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/eval-flow/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "prose item(eval-flow SKILL.md step2+呼叫原則)無對映相關測試;全套 check sub_task_2 PASS(含 docs 一致性);跨檔一致性 verifier grep 5命中(4目標+resume 233未動)、reviewer 零🔴零🟡",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    },
+    {
+      "id": 3,
+      "name": "2.1 eval-flow 三段式 fan-out 主體＋門檻退回",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/eval-flow/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "prose item(eval-flow 新增 Tier2 fan-out 節 :281-322)無對映相關測試;全套 check sub_task_3 PASS(含 docs 一致性);r1 2個🟡(引用精度 8.i→8.1、⑤補 worktree 清理)已修、reviewer r2 零🔴零🟡逐條核實引文;verifier r1 誤判污染(錯誤前提:假設逐 sub_task commit)已駁回留痕、r2 帶同檔跨界框架🟢通過",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Completeness": 2
+      }
+    },
+    {
+      "id": 4,
+      "name": "2.2 eval-flow 舊[P]共用樹段273-279改寫＋殘留清除",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/eval-flow/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "prose item(eval-flow :77 mine 註記+:279 舊共用樹 barrier bullet 改寫)無對映相關測試;全套 check sub_task_4 PASS;殘留 grep 僅剩對照句、與 fan-out 新節無矛盾;reviewer/verifier 皆 🟢",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    },
+    {
+      "id": 5,
+      "name": "2.3 parallel-run 標明 Tier2 fan-out 重用點",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/parallel-run/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "prose item(parallel-run 新增被 Tier2 fan-out 重用節)無對映相關測試;全套 check sub_task_5 PASS;三向引用一致(reviewer 逐一核步驟號)、既有零改動;2個Clarity🟡(feat/<run_id>佔位、步驟6序位)走🟡-only快速路徑主flow直接套用",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Clarity": 2
+      }
+    },
+    {
+      "id": 6,
+      "name": "2.4 task-decomposition 補[P]worktree門檻註記",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/task-decomposition/SKILL.md",
+        ".claude/agents/task-decomposer.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "prose item(task-decomposition :60 雙閾值+:88 [P] worktree門檻)無對映相關測試;全套 check sub_task_6 PASS;門檻數字與eval-flow:287逐字一致、disjoint前提保留、task-decomposer.md無需改;code-writer撞花費上限但edits完整、主flow補git add;reviewer/verifier皆🟢",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    },
+    {
+      "id": 7,
+      "name": "2.5 fan-out 錯誤路徑/溯源/中斷恢復 prose＋跨檔一致性",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/eval-flow/SKILL.md",
+        "skills/parallel-run/SKILL.md",
+        "skills/test-strategy/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "prose item(eval-flow 錯誤路徑/中斷恢復子段:324-336 + test-strategy:33 清舊語義)無對映相關測試;全套 check sub_task_7 PASS;跨檔一致性總驗:舊共用樹語義僅剩3處否定對照句、[P]五檔語義一致;引用parallel-run步驟9/8.2/14逐條核實;reviewer/verifier 皆🟢",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    },
+    {
+      "id": 8,
+      "name": "3.1 eval_gates.py parent_run_id 相容＋子manifest MANIFEST_RE",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/hooks/eval_gates.py"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "code item(eval_gates.py MANIFEST_RE 防禦性文件註記)零邏輯改動;全套 check sub_task_8 PASS;reviewer實跑核5檔名分類、pattern與gate邏輯零改動、retro2015合規;1個Clarity🟡(parent_run_id誤述為gate以.get()讀取,實為gate不讀)走快速路徑改為契約語氣",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Clarity": 1
+      }
+    },
+    {
+      "id": 9,
+      "name": "3.2 hook 相容迴歸測試",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "tests/test_eval_gates.py"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "code/test item(test_eval_gates.py 新增7測試固化3.1相容)自跑16測試全綠、testlint PASS;全套 check sub_task_9 PASS;真整合非假測(tmp manifest被check_other_runs/check_manifest實際消費斷言)、DoD↔契約5row對7case完整;reviewer/verifier皆🟢",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    },
+    {
+      "id": 10,
+      "name": "3.3 worktree 隔離實測腳本",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "tests/check_worktree_isolation.sh"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "artifact(tests/check_worktree_isolation.sh)主flow獨立重跑4/4 pass、run/快照零污染、無殘留worktree=假設4實測坐實;全套check sub_task_10 PASS(此.sh不入unittest discover);r1 3個品質🟡(Test2假驗證/Test3歸因/python插值)已修、r2 reviewer零🔴零🟡實跑複核、verifier🟢",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Testability": 1,
+        "Clarity": 1,
+        "Non-functional": 1
+      }
+    }
+  ]
+}

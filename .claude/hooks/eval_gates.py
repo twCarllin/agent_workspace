@@ -18,7 +18,27 @@ import sys
 
 GIT_COMMIT_RE = re.compile(r"\bgit\s+(?:-[A-Za-z0-9-]+(?:[= ]\S+)?\s+)*commit\b")
 # 衍生檔（.eval.json / .test_baseline.json）的排除寫進 pattern 本身（單一判定點），
-# 不散落在各呼叫點用 endswith 補丁——新增衍生檔種類時只改這裡
+# 不散落在各呼叫點用 endswith 補丁——新增衍生檔種類時只改這裡。
+#
+# 本 pattern 的合法匹配對象：
+#   - run/<run_id>.json                       一般主 manifest
+#   - run/<run_id>-item-<id>.json             Tier 2 fan-out 子 manifest
+#       └ run_id 群組捕捉結果含「-item-<id>」後綴；子 manifest 是獨立合法 manifest，
+#         與主 manifest 平行受同一 gate 管轄；各子 run 各自歸檔自己的 .eval.json。
+#
+# 負向後查排除的衍生檔（不屬於 manifest）：
+#   - *.eval.json          （主 run 歸檔）
+#   - *.test_baseline.json （測試基線快照）
+#   - *-item-<id>.eval.json（子 run 歸檔，同樣被「(?<!\.eval)」正確排除）
+#
+# 子 manifest 額外欄位：
+#   parent_run_id（可選）— 指向父 run_id（契約定義於 eval-flow / parallel-run skill）。
+#   本檔 gate 目前不消費此欄（故多帶此欄不影響任何判定、不會 KeyError）；
+#   未來任何消費點須以 .get() 讀取，以相容無此欄的舊版 manifest。
+#
+# !! 本 pattern 是「以檔名識別 manifest 身分」的唯一判定點 !!
+# 新增子 manifest 命名規則或衍生檔種類時，必須先在此更新 pattern 與上方說明，
+# 不可在呼叫點用 endswith / startswith 補丁繞過（違反單一判定點原則）。
 MANIFEST_RE = re.compile(
     r"^run/(?P<run_id>[^/]+?)(?<!\.eval)(?<!\.test_baseline)\.json$"
 )

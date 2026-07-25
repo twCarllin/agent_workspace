@@ -128,6 +128,19 @@ class ManifestPhaseTest(unittest.TestCase):
     def test_unknown_phase_falls_back_to_derivation(self):
         self.assertEqual(eval_gates.manifest_phase({"phase": "bogus"}), "init")
 
+    # parent_run_id 相容：多帶此欄不影響 phase 推導
+    def test_explicit_phase_unaffected_by_parent_run_id(self):
+        without = eval_gates.manifest_phase({"phase": "risk_done"})
+        with_parent = eval_gates.manifest_phase({"phase": "risk_done", "parent_run_id": "P"})
+        self.assertEqual(without, with_parent)
+        self.assertEqual(with_parent, "risk_done")
+
+    def test_legacy_task_file_path_unaffected_by_parent_run_id(self):
+        without = eval_gates.manifest_phase({"task_file": "task/x.md"})
+        with_parent = eval_gates.manifest_phase({"task_file": "task/x.md", "parent_run_id": "P"})
+        self.assertEqual(without, with_parent)
+        self.assertEqual(with_parent, "decomposed")
+
 
 class ManifestRegexTest(unittest.TestCase):
     def test_matches_plain_manifest(self):
@@ -145,6 +158,14 @@ class ManifestRegexTest(unittest.TestCase):
 
     def test_ignores_nested_paths(self):
         self.assertIsNone(eval_gates.MANIFEST_RE.match("run/sub/foo.json"))
+
+    def test_matches_sub_manifest_with_item_suffix(self):
+        m = eval_gates.MANIFEST_RE.match("run/2026-07-25-x-item-1.json")
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group("run_id"), "2026-07-25-x-item-1")
+
+    def test_ignores_sub_manifest_eval_archive(self):
+        self.assertIsNone(eval_gates.MANIFEST_RE.match("run/2026-07-25-x-item-1.eval.json"))
 
 
 class TestFileDetectionTest(unittest.TestCase):
@@ -256,6 +277,57 @@ class ImpactAnalyzerGateTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as ctx:
             eval_gates.check_task_gate({"subagent_type": "impact-analyzer"})
         self.assertEqual(ctx.exception.code, 0)
+
+
+class ParentRunIdCompatTest(unittest.TestCase):
+    """check_other_runs／check_manifest 對含 parent_run_id 欄位的 manifest 相容性迴歸測試。"""
+
+    def setUp(self):
+        import os
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+
+    def tearDown(self):
+        import os
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    def test_check_other_runs_blocks_in_progress_with_parent_run_id(self):
+        import json
+        import os
+        os.makedirs("run")
+        other = {"run_id": "other-run", "status": "in_progress", "parent_run_id": "parent-x"}
+        with open("run/other-run.json", "w", encoding="utf-8") as f:
+            json.dump(other, f)
+        with self.assertRaises(SystemExit):
+            eval_gates.check_other_runs("current-run")
+
+    def test_check_other_runs_allows_completed_with_parent_run_id(self):  # testlint: allow — 斷言的是「不拋例外」
+        import json
+        import os
+        os.makedirs("run")
+        other = {"run_id": "other-run", "status": "completed", "parent_run_id": "parent-x"}
+        with open("run/other-run.json", "w", encoding="utf-8") as f:
+            json.dump(other, f)
+        eval_gates.check_other_runs("current-run")  # must not raise
+
+    def test_check_manifest_requires_eval_archive_for_manifest_with_parent_run_id(self):
+        import json
+        import os
+        os.makedirs("run")
+        manifest = {
+            "run_id": "test-run",
+            "spec_inline": "test spec",
+            "status": "completed",
+            "parent_run_id": "parent-x",
+        }
+        with open("run/test-run.json", "w", encoding="utf-8") as f:
+            json.dump(manifest, f)
+        # archive not in staged → block（同無 parent_run_id 的 completed manifest 路徑）
+        with self.assertRaises(SystemExit):
+            eval_gates.check_manifest("run/test-run.json", set())
 
 
 if __name__ == "__main__":

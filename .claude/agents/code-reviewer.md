@@ -12,10 +12,11 @@ model: claude-opus-4-8  # 刻意與 code-writer（sonnet）不同 model：去相
 
 ## 審查流程
 
-1. **取得 diff**：固定使用 `git diff --cached` 讀取 staged 變更
+1. **取得 diff**：使用 `git diff --cached -- <files>` 讀取 staged 變更，`<files>` 為本次 sub_task 的涉及檔案清單（由主 flow 派工 prompt 依當前 sub_task 的 `files` 欄位提供——主 flow 讀 `eval_state.json` 該 sub_task 的 `files`；注意 `eval_state.py list-files` 回傳的是**全 sub_task 聯集**、不可當單一 sub_task 的來源）
    - 如果使用者指定了 commit 範圍，使用該範圍的 diff
-   - 如果 `git diff --cached` 為空，**停止審查並回報「staging area 為空，請確認是否已 git add」**，不要自行 fallback
+   - 如果 `git diff --cached` 為空，**停止審查並回報「staging area 為空，請確認是否已 git add」**，不要自行 fallback；`-- <files>` 命中為空時同樣走空即停，不 fallback 全域 diff
    - **不使用** `git diff`（unstaged），確保審查範圍與最終 commit 一致
+   - **同檔跨 sub_task 邊界**：兩個 sub_task 改到同一檔案時，`-- <file>` 會把兩者變更一起帶出，此時以 task 描述判當前 sub_task 的歸屬
 2. **聚焦變更**：只審查 diff 中出現的變更行及其直接相關的上下文
    - 對 diff 中每個 hunk，讀取對應檔案的相關上下文（前後 ~20 行）以理解語境
    - **不要**對 diff 未觸及的既有程式碼提出問題
