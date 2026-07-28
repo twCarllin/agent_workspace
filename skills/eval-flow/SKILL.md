@@ -311,13 +311,13 @@ git worktree add ../<repo>-item-<id> -b feat/<父run_id>-item-<id>
 - **子 manifest**：`run/<父run_id>-item-<id>.json`，填入 `parent_run_id: <父run_id>`、`spec_path` 指回父 Spec（`spec/<父run_id>.md`）、`tier: 2`、`status: "in_progress"`，以及自己的 `run_id`、`created_at`、`phase`。
 - **自己的 `eval_state.json`**（在自己 worktree 初始化），自己的 eval_state 貫穿自己的 code-writer → review（含完成度節）→ step 5 本地測試 → 自己歸檔。
 - **mine 模式在隔離樹下復活**：各 worktree diff 乾淨，未提交變更只屬於自己，`python3 .claude/hooks/test_baseline.py mine --strike-key <item_id>` 可正常推導範圍。
-- **hook gate 在各 worktree 內獨立生效**：每個 worktree 有自己的 staging area 與 `eval_state.json`，所有現行 gate 照常運作、零後門。
+- **hook gate 在各 worktree 內獨立生效（有前提，非天然成立）**：每個 worktree 有自己的 staging area 與 `eval_state.json`，所有現行 gate 照常運作、零後門——**前提是 hook 以該次 tool call 的實際 cwd（payload 的 `cwd`）解析所屬 worktree 根後才 chdir**。`CLAUDE_PROJECT_DIR` 由 Claude Code 釘死在 session 啟動目錄、**不隨 worktree 移動**（`EnterWorktree` 與背景 subagent 皆然），若 gate 逕以它決定工作區，worktree 內的 run 會誤用主工作區狀態：subagent 呼叫 gate 誤判、commit gate 因讀主工作區空 index 而靜默失效。此解析住在 `.claude/hooks/eval_gates.py`，改動該處等同動搖本節前提。**限制**：`CLAUDE_PROJECT_DIR` 為 git 儲存庫子目錄的專案開 worktree 時會解析到 worktree 根（不拼接子路徑），該類專案目前不支援 fan-out。
 - **自己 branch commit**：step 6 收尾 commit 附 trailer `Run-Id: <子run_id>` 與 `Parent-Run-Id: <父run_id>`（後者讓主 session 一次 grep `Parent-Run-Id: <父run_id>` 撈全族 commit）。禁止 merge、禁止 push、禁止切 branch（同 `parallel-run` skill 的背景 agent 規則）。
 - **BUGLOG 條目寫進回報內容、不 append 檔案**：沿 `parallel-run` skill 規則——各 worktree grep 自己的快照會漏看對方的條目，兩層制升級判定由主 session 於 merge 後統一做。
 - **blocker 出在 main 既有 code 時禁止在 item worktree 修**：標明後依 `parallel-run` skill 的「卡住／HITL 協定」停下，由主 session 在 main 上走 bugfix 流程，修完後各 item worktree `git merge main` 同步（修一次、多支受惠）。
 - 卡住（2 次真失敗、任何需使用者裁決的事）→ 依 `parallel-run` skill 的「卡住／HITL 協定」停止並回報主 session，manifest 標 `status: "blocked"`，落盤卡點報告 `run/<子run_id>-blocked.md`，**不自行猜測往下**。
 
-角色確認（retro 約束）：主 flow 能開 worktree、讀寫 manifest（成立）；背景 agent 在隔離 worktree 內具 Bash／Write／Edit、hook gate 照常生效且能 commit 自己 branch（成立）；引用 `parallel-run` skill 的收尾步驟確實存在於該 skill（收尾序列見 `parallel-run/SKILL.md` 步驟 7–10，機械檢查①②見步驟 8 的子項 8.1／8.2，已 Read 佐證）。
+角色確認（retro 約束）：主 flow 能開 worktree、讀寫 manifest（成立）；背景 agent 在隔離 worktree 內具 Bash／Write／Edit、hook gate 照常生效且能 commit 自己 branch（成立——gate 生效以上一項的 root 解析前提為條件）；引用 `parallel-run` skill 的收尾步驟確實存在於該 skill（收尾序列見 `parallel-run/SKILL.md` 步驟 7–10，機械檢查①②見步驟 8 的子項 8.1／8.2，已 Read 佐證）。
 
 **③ Rolling merge 段**
 

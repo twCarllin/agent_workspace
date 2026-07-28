@@ -1,0 +1,57 @@
+{
+  "run_id": "2026-07-28-gate-worktree-root",
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "run_hook root 解析修正＋e2e 測試",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/hooks/eval_gates.py",
+        "tests/test_eval_gates.py"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "baseline: stable=0（進場零既有壞測試）| lint: test_lint.py tests/test_eval_gates.py PASS 無假測試模式 | check: --cmd \"python3 -m unittest tests.test_eval_gates -v\" --strike-key sub_task_1 → PASS 無新增穩定失敗 exit=0 | 全套: python3 -m unittest discover -s tests → Ran 141 tests OK（134 進場基線＋7 新增） | mutation self-check（主 flow 親自重放，非採信 writer 自報）: sabotage cwd_top != cpd_top → == 後 RunHookWorktreeRootTest FAILED(failures=4)、主 flow 獨立 e2e 腳本亦轉紅；還原後 7/7 OK、141 OK、e2e 5/5 全過；sabotage 前後均清 __pycache__；還原後 git diff 對 index 為空（無殘留） | 主 flow 獨立端到端驗證（不採信 writer DoD 3 的弱情境）: 建真實 git worktree 發真實 payload，5/5 通過——①跨worktree commit→exit2(讀到 worktree 的 eval_state) ②主工作區 commit→exit0 ③缺cwd→回CPD→exit0 無 traceback ④非git cwd→回CPD→exit0 且 stderr 無 fatal 洩漏 ⑤worktree 子目錄→解析到 worktree 根→exit2",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Non-functional": 1
+      }
+    },
+    {
+      "id": 2,
+      "name": "check_worktree_isolation.sh 範圍註記",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "tests/check_worktree_isolation.sh"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "純註解變更（檔頭 11 行範圍註記），無可執行邏輯。驗證：git diff --cached 顯示僅新增註解行、既有 Test 1-4 邏輯零改動；bash tests/check_worktree_isolation.sh → 4/4 passed（該 .sh 不在 unittest discover 範圍，故另行手動重跑）；check --cmd \"python3 -m unittest tests.test_docs_consistency tests.test_eval_gates\" --strike-key sub_task_2_3 → PASS 無新增穩定失敗。mutation self-check 不適用（純註解無行為點）；本 run 抽樣 item 為 sub_task 1，已由主 flow 完整重放，結論沿用。",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    },
+    {
+      "id": 3,
+      "name": "SKILL.md 敘述更正＋部署副本同步",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/parallel-run/SKILL.md",
+        "skills/eval-flow/SKILL.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "純文件敘述變更（兩份 SKILL.md 三處），無可執行邏輯。驗證：python3 -m unittest tests.test_docs_consistency → Ran 5 tests OK（格式約束未破）；部署副本同步後 diff skills/parallel-run/SKILL.md ~/.claude/skills/parallel-run/SKILL.md 與 eval-flow 對應 diff 皆空輸出（DoD 8）；全套 python3 -m unittest discover -s tests → Ran 141 tests OK；主 flow 獨立 grep 複驗活文件無殘留錯誤斷言（僅前一 run 的冷溯源產出物保留舊敘述，屬歷史記錄刻意不改）。mutation self-check 不適用（純文件無行為點）；沿用本 run 抽樣 item sub_task 1 的結論。",
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    }
+  ]
+}

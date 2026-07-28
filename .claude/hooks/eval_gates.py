@@ -297,6 +297,54 @@ def check_task_gate(tool_input):
     sys.exit(0)
 
 
+def _git_toplevel(path):
+    """以 git rev-parse --show-toplevel 解析 path 所屬 git root；失敗回 None。
+    capture_output=True 吸掉 stderr（非 git 目錄會輸出 fatal: not a git repository）。
+    errors="replace"：路徑含非 UTF-8 位元組時不拋 UnicodeDecodeError（ValueError 子類，
+    不在下方 except 涵蓋範圍內，逸出會使 hook 以非 2 的碼結束＝gate 靜默不套用）。
+    兩側同屬一個 repo 時等量替換、比對仍相等 → 退回 CLAUDE_PROJECT_DIR（fail-safe）。
+    跨 worktree 且僅一側含非 UTF-8 位元組時比對不相等，會回傳含 U+FFFD 的路徑、使
+    run_hook 的 os.chdir 拋 OSError（fail-open）——此分支不另加防護：toplevel 是 cwd
+    的祖先，payload.cwd 既為合法 UTF-8 字串，其祖先亦然，故實務上不可達。"""
+    try:
+        result = subprocess.run(
+            ["git", "-C", path, "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, errors="replace", timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _resolve_root(payload):
+    """解析 run_hook() 應 chdir 的工作區根目錄。H1 最小偏離設計：只有確認
+    cwd 與 CLAUDE_PROJECT_DIR 屬不同 git worktree 時才改變行為，其餘一律回 CPD。
+    """
+    cpd = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    cwd = payload.get("cwd")
+
+    # H1: 無 cwd 鍵 → 嚴格回 CPD（不落到 os.getcwd()；CPD 為 None 時已於上行退路）
+    if cwd is None:
+        return cpd
+
+    # H1: 字串相等短路，跳過 git（覆蓋主工作區最熱路徑）
+    if cpd == cwd:
+        return cpd
+
+    # 各跑一次 git rev-parse 吸收 symlink/尾斜線差異
+    cwd_top = _git_toplevel(cwd)
+    cpd_top = _git_toplevel(cpd)
+
+    # 兩者皆成功且 toplevel 不相等 → 回 cwd 的 toplevel（唯一改變行為的分支）
+    if cwd_top is not None and cpd_top is not None and cwd_top != cpd_top:
+        return cwd_top
+
+    # 其餘所有情況（任一失敗、或相等）→ 回 CPD
+    return cpd
+
+
 def run_hook():
     global _hint_enabled
     _hint_enabled = True  # 只在 hook 模式附提示；--validate 為人工自檢，不需要
@@ -305,7 +353,7 @@ def run_hook():
     except json.JSONDecodeError:
         sys.exit(0)  # 非預期輸入，不擋
 
-    root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd()
+    root = _resolve_root(payload)
     os.chdir(root)
 
     tool_name = payload.get("tool_name", "")

@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-07-28-gate-worktree-root",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "04802d9ab3dc9ce6815c0e76f581f034a2bd4a92",
+  "stable_failures": []
+}

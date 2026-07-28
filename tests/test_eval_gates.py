@@ -510,5 +510,202 @@ class Tier1SubagentGateTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 2)
 
 
+class RunHookWorktreeRootTest(unittest.TestCase):
+    """end-to-end 測試：run_hook() root 解析在 git worktree 下的正確性。
+
+    以 subprocess 跑 eval_gates.py --hook，每個案例都建真實 git worktree，
+    斷言 returncode（exit 0 放行 / exit 2 攔截）反映了對正確工作區的判定。
+    安全慣例：所有操作在 TemporaryDirectory 拋棄式 git repo 內，絕不觸碰真實 run/。
+    """
+
+    def setUp(self):
+        import json
+        import os
+        import subprocess
+        import tempfile
+        self.old_cwd = os.getcwd()
+        self.tmp_base = tempfile.TemporaryDirectory()
+        base = self.tmp_base.name
+        self.main = os.path.join(base, "main")
+        os.makedirs(self.main)
+
+        # 初始化拋棄式 main git repo
+        subprocess.run(["git", "init", self.main], check=True, capture_output=True)
+        subprocess.run(["git", "-C", self.main, "config", "user.email", "t@t.com"],
+                       check=True, capture_output=True)
+        subprocess.run(["git", "-C", self.main, "config", "user.name", "T"],
+                       check=True, capture_output=True)
+        # worktree add 需要至少一個 commit
+        open(os.path.join(self.main, ".gitkeep"), "w").close()
+        subprocess.run(["git", "-C", self.main, "add", ".gitkeep"],
+                       check=True, capture_output=True)
+        subprocess.run(["git", "-C", self.main, "commit", "-m", "init"],
+                       check=True, capture_output=True)
+
+        # 建立 worktree（path 不可預先存在）
+        self.worktree = os.path.join(base, "worktree")
+        subprocess.run(
+            ["git", "-C", self.main, "worktree", "add", "--detach", self.worktree],
+            check=True, capture_output=True,
+        )
+        self.eval_gates_py = str(
+            Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "eval_gates.py"
+        )
+
+    def tearDown(self):
+        import os
+        os.chdir(self.old_cwd)
+        self.tmp_base.cleanup()
+
+    def _run_hook(self, payload, cpd):
+        """以 subprocess 跑 eval_gates.py --hook，回傳 returncode。"""
+        import json
+        import os
+        import subprocess
+        env = {**os.environ, "CLAUDE_PROJECT_DIR": cpd}
+        result = subprocess.run(
+            [sys.executable, self.eval_gates_py, "--hook"],
+            input=json.dumps(payload),
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode
+
+    def test_g_commit_gate_reads_worktree_eval_state(self):
+        """[核心/G] worktree 有 eval_state.json、主 repo 無 → exit 2（命中歸檔 gate）。
+        修正前：chdir 到主 repo（無 eval_state.json）→ exit 0（此即 RED 錨點）。"""
+        import json
+        import os
+        with open(os.path.join(self.worktree, "eval_state.json"), "w") as f:
+            json.dump({"run_id": "wt-run"}, f)
+        payload = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m x"},
+            "cwd": self.worktree,
+        }
+        rc = self._run_hook(payload, self.main)
+        # 命中 worktree eval_state.json → block → exit 2
+        self.assertEqual(rc, 2)
+
+    def test_f_subagent_gate_reads_worktree_state(self):
+        """[核心/F] worktree 備妥合法 tier2 state+manifest → check_task_gate 讀 worktree → exit 0。
+        修正前：chdir 到主 repo（無 eval_state.json 且無 tier1 manifest）→ exit 2（誤判）。"""
+        import json
+        import os
+        wt_run_dir = os.path.join(self.worktree, "run")
+        os.makedirs(wt_run_dir)
+        state = {"run_id": "wt-run", "sub_tasks": []}
+        with open(os.path.join(self.worktree, "eval_state.json"), "w") as f:
+            json.dump(state, f)
+        manifest = {
+            "run_id": "wt-run",
+            "tier": 2,
+            "status": "in_progress",
+            "phase": "decomposed",
+            "spec_inline": "spec",
+            "task_file": "task/x.md",
+        }
+        with open(os.path.join(wt_run_dir, "wt-run.json"), "w") as f:
+            json.dump(manifest, f)
+        payload = {
+            "tool_name": "Task",
+            "tool_input": {"subagent_type": "code-writer"},
+            "cwd": self.worktree,
+        }
+        rc = self._run_hook(payload, self.main)
+        # chdir 到 worktree → 讀正確 state → phase=decomposed 放行 → exit 0
+        self.assertEqual(rc, 0)
+
+    def test_a_h_same_dir_short_circuit(self):
+        """[核心/A,H] CPD==cwd 字串相等 → 短路回 CPD，行為與修正前逐位元同。
+        主 repo 有 eval_state.json → exit 2；worktree 無 → exit 0（差別行為驗短路）。"""
+        import json
+        import os
+        with open(os.path.join(self.main, "eval_state.json"), "w") as f:
+            json.dump({"run_id": "main-run"}, f)
+        # worktree 無 eval_state.json
+        payload = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m x"},
+            "cwd": self.main,  # == CPD
+        }
+        rc = self._run_hook(payload, self.main)
+        # 短路到主 repo → 命中 eval_state.json → exit 2
+        self.assertEqual(rc, 2)
+
+    def test_e_no_cwd_key_uses_cpd(self):
+        """[邊界/E] payload 無 cwd 鍵 → 嚴格回 CPD（主 repo），不拋例外。
+        主 repo 有 eval_state.json → exit 2 證明確實讀了主 repo。"""
+        import json
+        import os
+        with open(os.path.join(self.main, "eval_state.json"), "w") as f:
+            json.dump({"run_id": "main-run"}, f)
+        payload = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m x"},
+            # 故意不帶 cwd 鍵
+        }
+        rc = self._run_hook(payload, self.main)
+        # 嚴格回 CPD（主 repo）→ 命中 eval_state.json → exit 2
+        self.assertEqual(rc, 2)
+
+    def test_c_subdir_cpd_regression(self):
+        """[邊界/C] CPD 為子目錄、cwd 為同 repo 他處 → git toplevel 相等 → 回 CPD（子目錄）。
+        eval_state.json 放在子目錄（CPD），exit 2 證明 chdir 到子目錄而非 git 根。"""
+        import json
+        import os
+        subdir = os.path.join(self.main, "subproject")
+        os.makedirs(subdir)
+        with open(os.path.join(subdir, "eval_state.json"), "w") as f:
+            json.dump({"run_id": "sub-run"}, f)
+        payload = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m x"},
+            "cwd": self.main,  # 同 repo 他處（git root）
+        }
+        # CPD = subdir（子目錄），cwd = main（git root）；两者 git toplevel 相等
+        rc = self._run_hook(payload, subdir)
+        # toplevel 相等 → 回 CPD(=subdir) → 命中 eval_state.json → exit 2
+        self.assertEqual(rc, 2)
+
+    def test_d_non_git_cwd_falls_back_to_cpd(self):
+        """[邊界/D] cwd 為非 git 目錄 → _git_toplevel 失敗 → 回 CPD，不拋例外。
+        主 repo 有 eval_state.json → exit 2 證明確實回落到 CPD（主 repo）。"""
+        import json
+        import os
+        import tempfile
+        with open(os.path.join(self.main, "eval_state.json"), "w") as f:
+            json.dump({"run_id": "main-run"}, f)
+        with tempfile.TemporaryDirectory() as non_git_dir:
+            payload = {
+                "tool_name": "Bash",
+                "tool_input": {"command": "git commit -m x"},
+                "cwd": non_git_dir,
+            }
+            rc = self._run_hook(payload, self.main)
+        # _git_toplevel(non_git_dir) 失敗 → 回 CPD → exit 2
+        self.assertEqual(rc, 2)
+
+    def test_b_edge1_worktree_subdir_chdir_to_root(self):
+        """[邊界/B-edge1] cwd 為 worktree 子目錄 → git rev-parse 回 worktree 根 → chdir 到根。
+        eval_state.json 在 worktree 根（非子目錄），exit 2 證明 chdir 目標是根而非子目錄。"""
+        import json
+        import os
+        subdir = os.path.join(self.worktree, "src")
+        os.makedirs(subdir)
+        # eval_state.json 在 worktree 根（不在 subdir）
+        with open(os.path.join(self.worktree, "eval_state.json"), "w") as f:
+            json.dump({"run_id": "wt-run"}, f)
+        payload = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m x"},
+            "cwd": subdir,  # worktree 子目錄
+        }
+        rc = self._run_hook(payload, self.main)
+        # git rev-parse(subdir) → worktree 根 → chdir 到根 → 命中 eval_state.json → exit 2
+        self.assertEqual(rc, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

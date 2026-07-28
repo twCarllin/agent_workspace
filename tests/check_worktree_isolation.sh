@@ -2,6 +2,17 @@
 # tests/check_worktree_isolation.sh
 # 驗證「worktree 天然隔離 → check_other_runs 只掃當前工作目錄」（DoD 3.3 / 假設 4）
 # 安全保證：所有 worktree 操作在 mktemp 建出的拋棄式 git repo 內，絕不觸碰真實 run/
+#
+# ── 涵蓋範圍的界線（勿誤讀本腳本的綠燈）──────────────────────────────────────
+# 本腳本以 `import eval_gates; eval_gates.check_other_runs(...)` **直接呼叫函式**，
+# 先自行 `cd` 到目標目錄再呼叫，因此**完全不經 run_hook() 的 root 解析與 os.chdir**。
+# 它驗證的是「函式在給定 CWD 下只掃該 CWD 的 run/」，**不涵蓋**「run_hook() 會把 CWD
+# 換到哪裡」——後者才是 hook 實際跑起來時決定 gate 套用在哪個工作區的關鍵。
+# root 解析（含 CLAUDE_PROJECT_DIR 與 payload.cwd 不一致、跨 worktree、子目錄等情境）
+# 的端到端覆蓋住在 tests/test_eval_gates.py 的 RunHookWorktreeRootTest，該處以
+# subprocess 執行 `eval_gates.py --hook`、stdin 餵構造 payload，且會被
+# `python3 -m unittest discover -s tests` 執行到；本 .sh 不在 discover 範圍內。
+# ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
 # 取得真實 repo 根目錄（腳本在 tests/ 下，往上一層即 repo root）

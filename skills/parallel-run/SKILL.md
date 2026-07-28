@@ -35,7 +35,7 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
    - 載入 `eval-flow` skill，走 **Tier 1 精簡路徑**，但：
      - 精簡初始化照常（manifest 填 `tier: 1`、`spec_inline`、`risk_report_path: "skipped"`、`usage_report_path: "skipped"`）；因 HITL 已在主 session 完成，`phase` 直接設 `"decomposed"`，並在 manifest 附註「HITL 於主 session 批次完成（parallel-run）」。
      - **task 檔命名例外**：用 `task/YYYY-MM-DD-<slug>.md`（防兩個 run 同建當天檔造成 merge 衝突）。僅並行 run 適用此例外；單一 run 維持 `task/YYYY-MM-DD.md`。
-   - 跑循環 1–7，全部 gate 照常（hook 在各 worktree 內獨立生效）。
+   - 跑循環 1–7，全部 gate 照常（hook 以該次 tool call 的實際 cwd 解析所屬 worktree 根後才套用 gate，故在各 worktree 內獨立生效——`CLAUDE_PROJECT_DIR` 釘死在 session 啟動目錄、不隨 worktree 移動，此前提由 `.claude/hooks/eval_gates.py` 的 root 解析建立，非天然成立）。**限制**：`CLAUDE_PROJECT_DIR` 為 git 儲存庫子目錄的專案開 worktree 時解析到 worktree 根，該類專案目前不支援並行。
    - **既有測試只增不改**（含 fixture／conftest／測試工具檔）：發現必須修改既有測試＝這個變更動到既有行為＝獨立性假設已破 → 觸發「卡住即停」，該需求退出並行（之後改序列跑）。單一 run 的「有意行為變更同步舊測試」規則僅在非並行模式適用。
    - **BUGLOG 不落盤**：修到 bug 時，BUGLOG 條目寫進回報內容，**不** append `retro/BUGLOG.md`；由主 session 於 merge 後統一 append 並做兩層制升級判定（兩個 worktree 各 grep 自己的快照會漏看對方，重複偵測會失靈）。
    - **blocker 出在 main 既有 code 時禁止在 worktree 修**：標明後依「卡住／HITL 協定」停下，由主 session 在 main 上走 bugfix 流程（診斷先行→判級→修），修完後本 worktree `git merge main` 同步再續跑（修一次、兩支受惠、merge 零衝突）。

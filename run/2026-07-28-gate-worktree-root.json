@@ -1,0 +1,22 @@
+{
+  "run_id": "2026-07-28-gate-worktree-root",
+  "created_at": "2026-07-28 22:39",
+  "framework_version": "2026.07.22.1",
+  "tier": 2,
+  "tier_rationale": "觸及 .claude/hooks/eval_gates.py 的 gate 判定路徑解析（可執行邏輯），屬 Router 防濫用規則明列的高風險面『gate 判斷式』，一行也不例外 → 強制 Tier 2",
+  "phase": "completed",
+  "spec_path": "spec/2026-07-28-gate-worktree-root.md",
+  "spec_inline": null,
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-28 22:58 — 確認 usage 報告（10 情境、4 假設；5 個開放問題全採預設：子目錄型+worktree 接受限制、缺 cwd 嚴格回 CPD、字串相等短路、timeout 5s、任一 git_toplevel 失敗回 CPD）",
+  "risk_report_path": "risk/2026-07-28-gate-worktree-root.md",
+  "usage_report_path": "usage/2026-07-28-gate-worktree-root.md",
+  "impact_report_path": "impact/2026-07-28-gate-worktree-root.md",
+  "task_file": "task/2026-07-28.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": null,
+  "local_test_evidence": null,
+  "review_reds": null,
+  "verify_passed": null
+}
