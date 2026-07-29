@@ -22,6 +22,70 @@ HOOKS = ["eval_gates.py", "test_baseline.py", "test_lint.py", "eval_state.py", "
 CORE_SKILLS = ["eval-flow", "eval-flow-resume", "test-strategy", "task-decomposition"]
 
 
+def _non_dotfile(name):
+    """排除 dotfile（.DS_Store 等），集中判定點。"""
+    return not name.startswith(".")
+
+
+def check_skills_sync(repo_skills_dir, deploy_skills_dir):
+    """比對 repo skills/ 與部署層的存在性與內容一致性，回傳 (ok, issues) 兩個字串 list。"""
+    ok = []
+    issues = []
+
+    if not os.path.isdir(repo_skills_dir):
+        ok.append(f"repo skills/ 不存在，略過同步健檢（{repo_skills_dir}）")
+        return ok, issues
+
+    if not os.path.isdir(deploy_skills_dir):
+        ok.append(f"部署層 skills/ 不存在，略過同步健檢（{deploy_skills_dir}）")
+        return ok, issues
+
+    def list_skills(d):
+        return {n for n in os.listdir(d) if _non_dotfile(n) and os.path.isdir(os.path.join(d, n))}
+
+    def dirs_equal(a, b):
+        a_entries = {n for n in os.listdir(a) if _non_dotfile(n)}
+        b_entries = {n for n in os.listdir(b) if _non_dotfile(n)}
+        if a_entries != b_entries:
+            return False
+        for name in a_entries:
+            ap, bp = os.path.join(a, name), os.path.join(b, name)
+            if os.path.isdir(ap) and os.path.isdir(bp):
+                if not dirs_equal(ap, bp):
+                    return False
+            elif os.path.isfile(ap) and os.path.isfile(bp):
+                with open(ap, "rb") as f:
+                    ac = f.read()
+                with open(bp, "rb") as f:
+                    bc = f.read()
+                if ac != bc:
+                    return False
+            else:
+                return False
+        return True
+
+    repo_skills = list_skills(repo_skills_dir)
+    deploy_skills = list_skills(deploy_skills_dir)
+    repo_only = repo_skills - deploy_skills
+    deploy_only = deploy_skills - repo_skills
+    common = repo_skills & deploy_skills
+
+    for skill in sorted(repo_only):
+        issues.append(f"skill '{skill}' 在 repo 有但未部署到部署層")
+
+    for skill in sorted(deploy_only):
+        issues.append(f"skill '{skill}' 在部署層有但未納入版控")
+
+    for skill in sorted(common):
+        if not dirs_equal(os.path.join(repo_skills_dir, skill), os.path.join(deploy_skills_dir, skill)):
+            issues.append(f"skill '{skill}' 兩邊都有但內容不同步")
+
+    if not issues:
+        ok.append(f"skills 同步一致（{len(common)} 個 skill）")
+
+    return ok, issues
+
+
 def main():
     hooks_dir = os.path.dirname(os.path.abspath(__file__))
     issues = []
@@ -58,6 +122,11 @@ def main():
         issues.append(f"settings.json 讀不到或非法 JSON（{e}）")
 
     skills_dir = os.path.join(os.path.expanduser("~"), ".claude", "skills")
+    repo_skills_dir = os.path.join(os.path.dirname(os.path.dirname(hooks_dir)), "skills")
+    sync_ok, sync_issues = check_skills_sync(repo_skills_dir, skills_dir)
+    ok.extend(sync_ok)
+    issues.extend(sync_issues)
+
     missing = [s for s in CORE_SKILLS if not os.path.isdir(os.path.join(skills_dir, s))]
     if missing:
         issues.append(f"~/.claude/skills 缺核心 skill：{', '.join(missing)}")

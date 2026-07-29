@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-07-29-doctor-skill-sync",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "1e8dae7fd4424ca4490bd99753f03fc735f9e1de",
+  "stable_failures": []
+}
