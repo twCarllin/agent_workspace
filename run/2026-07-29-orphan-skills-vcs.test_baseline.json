@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-07-29-orphan-skills-vcs",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "9022d85b7c9a45302b0aed16e1feac31bebd91e5",
+  "stable_failures": []
+}

@@ -1,0 +1,22 @@
+{
+  "run_id": "2026-07-29-orphan-skills-vcs",
+  "created_at": "2026-07-29 22:10",
+  "framework_version": "2026.07.22.1",
+  "tier": 1,
+  "tier_rationale": "純檔案納管：把 6 個只存在於 ~/.claude/skills/ 的 skill 複製進 repo skills/，不改變任何引用關係、不刪任何檔、不動 agent 定義。無新行為面（這些 skill 目前本就無投放路徑、未被載入），不觸及 auth／金流／schema／部署設定；6 檔 275 行超過 Tier 0 的 3 檔/80 行上限 → Tier 1",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "把 6 個只存在於 ~/.claude/skills/、未納入 repo 版控的 skill（eval-scoring、report-format、review-checklist、root-cause-table、task-checklist、task-verify-checklist）原樣複製進 repo 的 skills/ 目錄，使其進入版控。目的是讓後續的汰除處置成為可逆操作（目前刪掉即永久遺失）。本 run 不改變任何引用關係、不刪除任何檔案、不修改 agent 定義或 CLAUDE.md。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-29 22:11 — 確認 1 task／1 item 計畫（純機械複製 6 個孤兒 skill 進版控，不刪不改不動引用關係）；使用者原話「好」",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-07-29.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "baseline: stable=0 | check --strike-key item_1_1 → PASS 無新增穩定失敗 exit=0 | 全套 python3 -m unittest discover -s tests → Ran 141 tests OK（與進場基線相同，新增 6 份 skill 文件未影響 test_docs_consistency 的 skills/*/SKILL.md glob 檢查）| DoD 逐條主 flow 實測：①6 檔 diff 對 ~/.claude/skills/ 全部空輸出（逐位元相同）②git status 無任何 M（零既有檔污染）③來源 ~/.claude/skills/ 仍 13 目錄（複製非搬移）④141 OK ⑤repo skills/ = 13 與來源一致 | reviewer 亦獨立實跑複驗 DoD 1–5 全通過。無自動化測試新增（純文件納管、無行為面可測，符合 Tier 1「實際運行驗證亦可」）",
+  "review_reds": 0,
+  "verify_passed": true
+}
