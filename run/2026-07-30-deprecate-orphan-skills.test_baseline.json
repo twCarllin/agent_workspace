@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-07-30-deprecate-orphan-skills",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "e4f5306a51e5ddeacf7845065bee9bd40d1a1078",
+  "stable_failures": []
+}

@@ -26,14 +26,11 @@ SCAN_FILES = (
 #
 # 格式：{ agent_name: "說明" }
 EXCEPTION_LIST = {
-    # eval-scorer：skills/eval-scoring/SKILL.md 的 description 與正文仍引用此 agent，
-    # 但 .claude/agents/eval-scorer.md 已於 run 2026-07-17-remove-eval-scorer 移除。
-    # 這是已知死引用，待 eval-scoring skill 汰除後，從例外清單與掃描來源同步移除本條目。
-    "eval-scorer": (
-        "已知死引用：skills/eval-scoring/SKILL.md 依賴此 agent，"
-        "但 .claude/agents/eval-scorer.md 已於 run 2026-07-17-remove-eval-scorer 刪除，"
-        "待 eval-scoring skill 汰除後清理本條目。"
-    ),
+    # 目前無例外。原有的 eval-scorer 條目已於 run 2026-07-30-deprecate-orphan-skills
+    # 移除——該條目的說明本身即預告「待 eval-scoring skill 汰除後清理」，而該 skill 已
+    # 移入 skills/_deprecated/、脫離上方 SCAN_FILES 的單層 glob，全 repo 再無 eval-scorer
+    # 的引用來源，hygiene 檢查（清單內 agent 已無人引用即 fail）如設計般要求清理本條目。
+    # 移除是收緊而非放寬：主檢查不再豁免 eval-scorer，涵蓋範圍變大。
 }
 
 

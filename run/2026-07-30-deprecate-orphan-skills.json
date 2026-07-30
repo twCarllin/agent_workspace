@@ -1,0 +1,22 @@
+{
+  "run_id": "2026-07-30-deprecate-orphan-skills",
+  "created_at": "2026-07-30 15:47",
+  "framework_version": "2026.07.30.1",
+  "tier": 1,
+  "tier_rationale": "檔案移動＋一處既有測試的例外清單同步（有意行為變更，序列模式允許並須寫依據）。不觸 gate 判定式、權限規則、schema 定義；歧義已由 2026-07-29～30 的比對查證消除。本需求原列入 2026-07-30 並行批次，因需修改既有測試（違反並行模式『既有測試只增不改』硬前提）而依 parallel-run 卡住協定退出並行，經使用者裁示改由主 session 序列執行。",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "把已死或已被 agent 內嵌版取代的 5 個 skill（eval-scoring、report-format、review-checklist、task-checklist、task-verify-checklist）移入 skills/_deprecated/，與現行有效的 skill 在結構上區隔，避免後續讀者誤把陳舊文件當現行規則；root-cause-table 仍被 CLAUDE.md 實際引用，留在原處。因 doctor.py 的 check_skills_sync 比對 repo skills/ 與部署層 ~/.claude/skills/，兩側須對稱移動。連帶移除 tests/test_agent_refs.py 中 eval-scorer 的例外條目——移動後 skills/_deprecated/eval-scoring/SKILL.md 脫離該測試僅掃一層的 SCAN_FILES，而它是全 repo 唯一引用 eval-scorer 的來源，例外清單的 hygiene 檢查會如設計般要求移除該條目；該測試第 31 行的註解已預告此動作。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-30 15:48 — 確認退出並行改序列重跑（1 task／1 item：兩側對稱移入 _deprecated ＋ 移除 test_agent_refs.py 的 eval-scorer 例外）；使用者裁示「退出並行，序列重跑」",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-07-30-deprecate-orphan-skills.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "baseline: stable=0 | check --strike-key item_1_1 → PASS exit=0 | test_lint.py tests/test_agent_refs.py → PASS | 全套 python3 -m unittest discover -s tests → Ran 162 tests OK | DoD 1-8 主 flow 實測＋reviewer 獨立重跑全部通過：5 個移動皆 R100（純 rename 零內容變更）；doctor 健檢通過並回報 9 個 skill；diff -r skills/_deprecated ~/.claude/skills/_deprecated 空輸出、部署頂層 9 個；test_agent_refs.py 的 diff 僅移除 eval-scorer 例外條目（SCAN_FILES／extract_agent_refs／所有測試方法零改動）| DoD 8 反向驗證（鑑別力）：把 eval-scoring 複本放回頂層掃描範圍 → test_all_refs_exist FAIL(agent='eval-scorer')，移除後 PASS；reviewer 亦獨立重放確認 | 既有測試修改的依據：test_agent_refs.py 第 31 行註解明文預告『待 eval-scoring skill 汰除後，從例外清單與掃描來源同步移除本條目』，本 run 即該時點；移除為非放寬（豁免路徑是 `if name in EXCEPTION_LIST: continue`，清空只會減少 continue、讓更多斷言實際執行），非空性守護 test_non_vacuous 不依賴該清單、原封不動仍有效",
+  "review_reds": 0,
+  "verify_passed": true
+}
