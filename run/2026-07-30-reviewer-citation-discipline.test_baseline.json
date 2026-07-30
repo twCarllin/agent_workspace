@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-07-30-reviewer-citation-discipline",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "ac2b30987f3f3d868f39a9e4ccf8fc168db51a22",
+  "stable_failures": []
+}
