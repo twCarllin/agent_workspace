@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-07-25-tier2-p-worktree",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "132b7413645bc9ce75414272806ef6cec5edb980",
+  "stable_failures": []
+}

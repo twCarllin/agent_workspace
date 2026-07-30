@@ -1,3 +1,5 @@
 .DS_Store
 eval_state.json
 .claude/worktrees/
+__pycache__/
+run/gate_hits.log
