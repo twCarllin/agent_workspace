@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-07-30-flow-doc-gaps",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "675fbeb3473b08fd703f0b2d3e15e1fb24f08805",
+  "stable_failures": []
+}

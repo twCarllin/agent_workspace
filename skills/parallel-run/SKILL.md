@@ -29,7 +29,9 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
    - **釘定是 gate 生效的前提，不是便利**：hook 依該次 tool call 的**實際 cwd** 解析所屬工作區（見 `.claude/hooks/eval_gates.py` 的 root 解析）。agent 若改用 `cd` 進 worktree，cwd 仍被判為主工作區 → gate 套用到錯的 repo → 檔案改在 worktree、憑據卻對主工作區判定，等同無 gate。
    - **禁止改用「主 session 先 `git worktree add`，再叫 agent 自己進去」**：實測（2026-07-29）從 repo root 啟動的 subagent cwd 被釘死，`EnterWorktree` 明文拒絕從 repo root 做 path 切換（`switching is only available to sessions whose working directory is inside a worktree`），兩支 agent 皆於第一步即無法起跑。
    - **branch 由 harness 指派**（`worktree-agent-<id>`），**不是** `feat/<run_id>`。agent 必須在最終回報附上自己的 branch 名稱，主 session 靠它做 merge；run↔commit 的溯源靠 commit message 的 `Run-Id:` trailer，不靠 branch 名。
-   - **worktree 起點不是主線 HEAD**：harness 從 `origin/<預設分支>` 切出，會少掉主線上未 push 的 commit，故 agent 起手必須同步（見步驟 6）。
+   - **worktree 起點＝主線本地 HEAD**（本專案已於 `.claude/settings.json` 設 `worktree.baseRef: "head"`）：worktree 從當前 session 所在 branch 的本地 HEAD 切出，**含尚未 push 的 commit**。此值經配對對照實測坐實（`head` 看得到未 push 的 commit ∧ `fresh` 看不到）。
+     - **失效情境**：設定未套用時（他人 clone 未取得、設定被改、harness 行為變動）會退回預設 `fresh`、從 `origin/<預設分支>` 切出而**靜默落後主線**——這正是步驟 6 起手第②步存在的理由，故該步不可移除。
+     - **潛在假設（目前恆成立，但值得知道）**：`head` 取的是「**當前 session 所在 branch** 的本地 HEAD」，隱含**主 session 位於 `main`**。若在 feature branch 上 spawn 並行批次，worktree 會繼承該 branch 的尖端、其未合併的工作會洩入並行 run；起手第②步的 `git merge main` 只是把 main **疊加**上去，不會取代那些工作。本 skill 流程中此假設恆成立（批次判級與 HITL 在主 session 完成，當時位於 `main`），但若日後允許從 feature branch 起批次，須重新檢視此處。
    - `run_id` 仍依 eval-flow 慣例 `YYYY-MM-DD-<slug>`，只是不再體現在 branch 名上。
 6. **同一訊息 spawn 全部背景 agent**（一 run 一 agent，並發啟動）。每個 agent 的指示必須包含：
    - **起手三步（順序不可換，任一步不符即停下回報）**：①`pwd && git branch --show-current && git log --oneline -1`——確認位於 `.claude/worktrees/` 底下並記下 branch 名稱 ②**`git merge main`**——確認與主線同步。本專案已設 `worktree.baseRef: "head"`（`.claude/settings.json`），harness worktree 直接從當前本地 HEAD 切出，故此步在正常情況下是 **no-op**（fast-forward 到同一個 commit，零成本）。**仍保留不移除**：設定未套用時（他人 clone 未取得、設定被改、harness 行為變動）worktree 會退回從 `origin/<預設分支>` 切出而**靜默落後主線**，此步是唯一攔截點；保留的代價是一次 no-op，移除而設定又沒生效的代價是整個 run 帶著錯誤前提做完 ③驗證本需求的前提在同步後確實成立（例如所需檔案／目錄存在、數量符合預期）。**前提不成立就停下回報，不可帶著錯的前提往下做**——第②③步互為備援：②保證起點正確，③保證即使②失效也攔得住。

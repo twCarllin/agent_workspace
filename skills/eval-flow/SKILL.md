@@ -90,7 +90,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
    - 通過 → `local_test_passed: true`、`local_test_evidence` 填 script 輸出摘要（hook 於 commit 時檢查兩欄皆已填）
    - 真新失敗 → 依 skill 的處置：測試過時須記依據（無依據改弱測試視同 🔴）、肇因非本 item 走重開路徑；兩者皆非 → **立即回報使用者裁決（人是計數器，無自修額度）**，不自行空轉迴圈
    - 未通過本步不可進入評分與 commit。細則（相關測試選擇、零測試專案、豁免窗口）住在 test-strategy skill，不在此重述
-6. **收尾順序（**hook 強制**，見「Gate 的硬性執行」）**：⓪先跑**全套測試檢查**（`test_baseline.py check --cmd "<全套指令>" --strike-key full_suite`，見 test-strategy skill）——出現新失敗代表相關測試沒抓到的跨 sub_task 破壞，依 skill 的「重開路徑」把肇事 sub_task 改回 in_progress 從步驟 3 重走，**不可收尾** ①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留審查記錄的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json`、本 run 的 `run/<run_id>.review-st*-r*.md` 與 `run/<run_id>.mine_log.json`**（審查落檔與 mine 留痕是熱 scratchpad，收尾即清；失敗收尾則與 eval_state 一樣保留現場） ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔一併 `git add` ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
+6. **收尾順序（**hook 強制**，見「Gate 的硬性執行」）**：⓪先跑**全套測試檢查**（`test_baseline.py check --cmd "<全套指令>" --strike-key full_suite`，見 test-strategy skill）——出現新失敗代表相關測試沒抓到的跨 sub_task 破壞，依 skill 的「重開路徑」把肇事 sub_task 改回 in_progress 從步驟 3 重走，**不可收尾** ①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留審查記錄的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json`、本 run 的 `run/<run_id>.review-st*-r*.md` 與 `run/<run_id>.mine_log.json`**（審查落檔與 mine 留痕是熱 scratchpad，收尾即清；失敗收尾則與 eval_state 一樣保留現場） ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔、**測試 baseline `run/<run_id>.test_baseline.json`** 一併 `git add`（baseline 進 git 的要求住在 `test-strategy` skill——其 `stable_failures` 是本 run 進場的既有欠帳快照，漏掉不會有任何 gate 攔截或錯誤訊息，屬靜默遺失；本清單與該 skill 須一致，改任一端時對照另一端） ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
 7. **有條件** 呼叫 `retro` subagent：
    - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro
    - code-reviewer 無 🔴 → **不呼叫 retro**（reviewer 一次過即無回顧價值）
@@ -250,7 +250,7 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、mine 指紋
    - **小 prose item 合併（省審查稅）**：純 prose（文件／agent 定義／skill，無 code）、單檔 ≤30 行、語義同源（同一個設計決策的多處投放）的 items，**合併為一個 sub_task 一輪審**——審查稅從 N 輪降 1 輪。約束：合併後單輪 diff 仍須 reviewer 一次讀完可審（總量失控就拆回）；含 code 的 item 不併入 prose 合併
 3. **輕量 HITL**：寫 code 前，把「N tasks／M items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。確認後將 manifest 的 `phase` 設為 `"decomposed"`（hook 憑此放行 code-writer）、`hitl_confirmed_at` 記「時間＋確認範圍一句話」，才進循環
 4. **主 flow 直寫捷徑（可選）**：Tier 1 且單 item 預估 ≤100 行 → 主 flow 可直接寫 code、不 spawn `code-writer`（省一次全新 agent 重建 context 的稅）。守則：「寫的人 ≠ 審的人」防線不變（`code-reviewer` 照常獨立審 staged diff）；知識前置（三源，見循環 step 1）改由主 flow 自查並在回報留痕；超過 ≤100 行或跨多檔複雜 item 仍派 `code-writer`；hook 對 code-writer 的 phase gate 不受影響（直寫路徑不經該 gate，phase 仍須 decomposed 才動工——由輕量 HITL 保證）
-5. **共用循環**：進入上方循環的步驟 1–7（code-writer → review（含完成度節）→ 本地測試 → commit）。收尾**不歸檔**（無 `eval_state.json`）：manifest 填入四欄憑據（`local_test_passed: true`、`local_test_evidence`、`review_reds`、`verify_passed: true`）並標 `status: "completed"`，直接 `git add` manifest／task 檔並 commit（message 附 `Run-Id: <run_id>` trailer）。不執行 eval_state.py 的 archive 操作、不清除任何 scratchpad（本就沒建）
+5. **共用循環**：進入上方循環的步驟 1–7（code-writer → review（含完成度節）→ 本地測試 → commit）。收尾**不歸檔**（無 `eval_state.json`）：manifest 填入四欄憑據（`local_test_passed: true`、`local_test_evidence`、`review_reds`、`verify_passed: true`）並標 `status: "completed"`，直接 `git add` **依 step 6 子項②的清單，減去 eval 歸檔檔與 usage 報告**（Tier 1 無此二者）並 commit（message 附 `Run-Id: <run_id>` trailer）。**收尾要 add 哪些檔以 step 6 子項②為單一枚舉點**，本處與 fan-out 節皆指向它、不各自重列（實測：各自重列必漂移——2026-07-30 一次修正只改到 step 6，Tier 1 與 fan-out 兩處同義敘述當場漏改）。不執行 eval_state.py 的 archive 操作、不清除任何 scratchpad（本就沒建）
    - sub_task 的 `risk_analysis` 可簡記為 `"router 已篩（Tier 1）"`，不需逐面向填
    - step 5 可用實際運行功能驗證取代自動化測試（不強制建測試），但 `local_test_evidence` 照填——證據要求不分 tier
 
@@ -306,7 +306,7 @@ fan-out 僅在「**`[P]` item ≥2 且各自預估 ≥150 行**（以 task-decom
 
 主 flow 為每個符合門檻的 `[P]` item spawn 一個背景 item agent，**worktree 交由 harness 建立**：以 `Agent` 工具的 `isolation: "worktree"` 啟動，harness 建 `.claude/worktrees/agent-<id>/` 並在啟動時釘定該 agent 的工作目錄。細節與禁止事項見 `parallel-run` skill 步驟 5（**禁止改用「主 flow 先 `git worktree add`，再叫 agent 自己進去」**——2026-07-29 實測證明 repo root 啟動的 subagent 無法切入，`EnterWorktree` 會拒絕；亦禁止用 `cd` 替代，那會使 gate 判到主工作區）。
 
-branch 名稱由 harness 指派（非 `feat/<父run_id>-item-<id>`），item agent 須在回報中附上；全族溯源靠 commit trailer `Parent-Run-Id: <父run_id>`，不靠 branch 命名。**worktree 起點是 `origin/<預設分支>`、不是父 run 的 HEAD**，故 item agent 起手必須依 `parallel-run` 步驟 6 的「起手三步」`git merge main` 同步並驗證前提（本節的 prep 段成果若未 push，正是靠這一步才進得了 item worktree）。
+branch 名稱由 harness 指派（非 `feat/<父run_id>-item-<id>`），item agent 須在回報中附上；全族溯源靠 commit trailer `Parent-Run-Id: <父run_id>`，不靠 branch 命名。**worktree 起點見 `parallel-run` 步驟 5**（單一來源，本節不自述以免漂移；現況為主線本地 HEAD，設定未套用時會退回 origin）。item agent 起手仍必須依 `parallel-run` 步驟 6 的「起手三步」`git merge main` 同步並驗證前提——該步是設定失效時的唯一攔截點（本節的 prep 段成果若未 push，正是靠這一步才進得了 item worktree）。
 
 然後同一訊息 spawn 全部背景 item agent（一 item 一 agent，並發啟動）。每個背景 agent 以**獨立 sibling 迷你 run**執行完整 Tier 2 循環：
 

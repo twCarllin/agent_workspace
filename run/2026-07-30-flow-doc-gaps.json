@@ -1,0 +1,22 @@
+{
+  "run_id": "2026-07-30-flow-doc-gaps",
+  "created_at": "2026-07-30 22:27",
+  "framework_version": "2026.07.30.1",
+  "tier": 1,
+  "tier_rationale": "純 skill 文件敘述修正（兩份 SKILL.md）。不觸 gate 判定式、權限規則、schema 定義、設定值；歧義已由 2026-07-29／30 的實戰與事後查證消除。三處變更同源——皆為 parallel-run 首次實戰所暴露的『文件與實際行為／與另一份 skill 不一致』，故併為一個 sub_task 一輪審（eval-flow 小 prose item 合併）。約 25 行。",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "修正三處 skill 文件缺口，皆源自 2026-07-29／30 parallel-run 首次實戰：①eval-flow step 6 收尾的 git add 清單漏列 run/<run_id>.test_baseline.json，與 test-strategy「此檔隨 commit 進 git」不一致——實證：本 repo 唯二漏進 git 的 baseline（2026-07-25-tier2-p-worktree、2026-07-30-reviewer-citation-discipline）都出自照該清單執行的情境，主 flow 逐檔手動 stage 者皆未漏。②parallel-run 步驟 5「worktree 起點不是主線 HEAD：harness 從 origin/<預設分支> 切出」已於 run 2026-07-30-worktree-baseref 設定 worktree.baseRef: head 後過時，該處未同步更新。③補注 baseRef: head 的潛在假設：它隱含「主 session 位於 main」，若在 feature branch 上 spawn 並行批次，worktree 會繼承該 branch 尖端而非 main。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-30 22:28 — 確認 1 task／1 item（三處同源文件缺口）；使用者原話「修 1, 2」",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-07-30-flow-doc-gaps.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "baseline stable=0 | check --strike-key item_1_1 → PASS exit=0 | 全套 Ran 162 tests OK | tests.test_docs_consistency → 5 tests OK | 兩份部署副本 diff 皆空輸出 | DoD 1-7 主 flow 與 reviewer 各自實跑通過 | DoD 8（本 item 的鑑別力設計，缺口①失效模式為靜默）：依修正後的 :253 推導＝step 6 子項②清單減去 eval 歸檔檔與 usage 報告 ⇒ manifest、task 檔、test_baseline；收尾即照此清單 git add，並以 git cat-file -e main:run/2026-07-30-flow-doc-gaps.test_baseline.json 確認確實進 git | reviewer 2 輪：r1 抓到兩個 Completeness 🔴——本 run 重演了它要消滅的模式（eval-flow:309 fan-out 起點敘述漏改、:253 Tier 1 收尾清單自成一套不繼承 step 6，且與本 run 自身 DoD 8 互斥）；r2 採單一枚舉點設計修正後確認推導閉合、無第三處自述，殘留 1 項 🟡（:253 的 inline 枚舉與同句『不各自重列』互斥）已以純減法規則收乾——該 🟡 判為措辭級（reviewer 已推導確認『清單−減法』與 inline 三項逐項相符，刪除後語義可證等價），適用 🟡-only 快速路徑不重跑第三輪",
+  "review_reds": 2,
+  "verify_passed": true
+}
