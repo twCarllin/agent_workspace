@@ -1,0 +1,23 @@
+{
+  "run_id": "2026-07-30-reviewer-citation-discipline",
+  "created_at": "2026-07-30 16:10",
+  "framework_version": "2026.07.30.1",
+  "tier": 1,
+  "tier_rationale": "需求無歧義（一句話講得清 DoD：reviewer 引用行號前必須以指令核對）＋單一使用路徑（只有主 flow 派審這一條路）＋預估 1 task／2 items、合計 <60 行；變更內容為 agent 定義與流程規則的 prose（code-reviewer.md 的工作守則、eval-flow SKILL.md 的引文核實條），不觸及 auth／金流／DB schema／部署設定，亦不動任何 gate 判定式（.claude/hooks/*.py 零變更）→ Tier 1。auto-mode 依 parallel-run skill 由使用者呼叫而明示開啟。",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "在 `.claude/agents/code-reviewer.md` 加入硬性要求：審查報告引用任何行號前，必須以指令對照實際檔案核對該行內容，禁止憑記憶書寫行號。現況缺口：2026-07-28～30 期間 code-reviewer 的審查報告出現 5 次行號漂移（引用的程式碼文字為真、但行號與實際檔案不符，偏移 1～16 行）。現行防線只在消費端——`skills/eval-flow/SKILL.md` 的「引文核實」規則要求主 flow 發現不符即駁回該條發現。但實測顯示：主 flow 在 prompt 中明確要求 reviewer「行號請以實際檔案核對過再寫」的輪次未發生漂移，未特別要求的輪次則發生，代表此問題在生產端可控。目前的處置全靠主 flow 每次臨時在 prompt 補一句，未制度化；且因發現的實質多為真，主 flow 實際上曾三次未依規則駁回，使該規則形同虛設。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-30 16:10 — HITL 於主 session 批次完成（parallel-run），確認 1 task／2 items 計畫",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-07-30-reviewer-citation-discipline.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "python3 .claude/hooks/test_baseline.py check --run-id 2026-07-30-reviewer-citation-discipline → PASS: 無新增穩定失敗；full_suite（--cmd 'python3 -m unittest discover -s tests' --strike-key full_suite）→ PASS；python3 -m unittest discover -s tests → Ran 162 tests, OK；python3 -m unittest tests.test_docs_consistency → Ran 5 tests, OK；diff skills/eval-flow/SKILL.md ~/.claude/skills/eval-flow/SKILL.md → 空輸出（部署副本已同步）；grep -c 'sed -n' .claude/agents/code-reviewer.md → 1",
+  "review_reds": 0,
+  "verify_passed": true,
+  "notes": "parallel-run 背景 worktree run：HITL 於主 session 批次完成；不建 eval_state.json，四項憑據直接寫本 manifest。"
+}
