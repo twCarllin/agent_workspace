@@ -1,0 +1,22 @@
+{
+  "run_id": "2026-07-30-worktree-baseref",
+  "created_at": "2026-07-30 16:44",
+  "framework_version": "2026.07.30.1",
+  "tier": 1,
+  "tier_rationale": "**Router 機械判定為 Tier 2**：變更 .claude/settings.json 屬設定值變更，為 CLAUDE.md 防濫用規則明列的高風險面（『可執行邏輯／判定行為／設定值的變更（gate 判斷式、權限規則、schema 定義、部署參數）』），且影響之後每一個 worktree 的建立方式（含所有並行 run）。**使用者於 2026-07-30 明示裁示降為 Tier 1**（原話「走 tier 1」），理由為變更規模為單一 JSON 鍵＋一處文件敘述更新，且生效性已於前置實測坐實。**此降級為使用者裁量，非 agent 自行判定**——依 CLAUDE.md『agent 不可自行降級』，此處留痕以供事後審計區分兩者。",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "在 .claude/settings.json 加入 worktree.baseRef: \"head\"，使 harness 建立的 worktree（Agent 的 isolation: \"worktree\"）從當前本地 HEAD 切出，而非預設的 origin/<預設分支>。現況問題：預設 fresh 使 worktree 少掉主線上尚未 push 的 commit，2026-07-30 兩批並行皆需依賴 agent 起手 git merge main 才能取得正確前提（第一批的 Run A 差點帶著錯誤前提執行）。連帶更新 skills/parallel-run/SKILL.md 起手三步第②步的敘述：機制保留、理由改寫——baseRef: head 下該步為 no-op 確認，但在設定未套用或未生效時它是唯一攔截點，故不移除。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-30 16:45 — 使用者裁示走 Tier 1（原話「走 tier 1」，Router 機械判定為 Tier 2，降級為使用者裁量）；1 task／1 item 計畫",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-07-30-worktree-baseref.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "baseline stable=0 | check --strike-key item_1_1 → PASS exit=0 | 全套 Ran 162 tests OK | doctor 健檢通過 | DoD 1/2/4/5/6/7 主 flow 與 reviewer 各自實跑通過 | DoD 3 配對對照實測（reviewer 指出正向單測有假陽性風險後補做負向組）：前置斷言 main==origin/main 且 origin/main 不含拋棄式 commit；正向組 baseRef=head → 探測 worktree HEAD=96780f8（拋棄式 commit）、MARKER 存在；負向組 baseRef=fresh → 同一拋棄式 commit(cbf8a2c) 存在下，探測 worktree HEAD=03a8d79(=origin/main)、MARKER 不存在，且探測 agent 確認該指令為其唯一工具呼叫、無任何前置動作污染。成對成立排除了「harness 未讀懂該鍵、fallback 到 git 原生 HEAD-default」的假陽性路徑 | 還原以 git reset HEAD~1（mixed，非 --hard——工作區有未提交變更）：驗證工作區==index==head、main==origin/main==03a8d79、marker 已刪",
+  "review_reds": 0,
+  "verify_passed": true
+}

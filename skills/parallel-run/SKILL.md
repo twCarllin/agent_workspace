@@ -32,7 +32,7 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
    - **worktree 起點不是主線 HEAD**：harness 從 `origin/<預設分支>` 切出，會少掉主線上未 push 的 commit，故 agent 起手必須同步（見步驟 6）。
    - `run_id` 仍依 eval-flow 慣例 `YYYY-MM-DD-<slug>`，只是不再體現在 branch 名上。
 6. **同一訊息 spawn 全部背景 agent**（一 run 一 agent，並發啟動）。每個 agent 的指示必須包含：
-   - **起手三步（順序不可換，任一步不符即停下回報）**：①`pwd && git branch --show-current && git log --oneline -1`——確認位於 `.claude/worktrees/` 底下並記下 branch 名稱 ②**`git merge main`**——同步主線上未 push 的 commit（通常是 fast-forward）③驗證本需求的前提在同步後確實成立（例如所需檔案／目錄存在、數量符合預期）。**前提不成立就停下回報，不可帶著錯的前提往下做**——harness worktree 的起點落後主線是常態，這一步是唯一的攔截點。
+   - **起手三步（順序不可換，任一步不符即停下回報）**：①`pwd && git branch --show-current && git log --oneline -1`——確認位於 `.claude/worktrees/` 底下並記下 branch 名稱 ②**`git merge main`**——確認與主線同步。本專案已設 `worktree.baseRef: "head"`（`.claude/settings.json`），harness worktree 直接從當前本地 HEAD 切出，故此步在正常情況下是 **no-op**（fast-forward 到同一個 commit，零成本）。**仍保留不移除**：設定未套用時（他人 clone 未取得、設定被改、harness 行為變動）worktree 會退回從 `origin/<預設分支>` 切出而**靜默落後主線**，此步是唯一攔截點；保留的代價是一次 no-op，移除而設定又沒生效的代價是整個 run 帶著錯誤前提做完 ③驗證本需求的前提在同步後確實成立（例如所需檔案／目錄存在、數量符合預期）。**前提不成立就停下回報，不可帶著錯的前提往下做**——第②③步互為備援：②保證起點正確，③保證即使②失效也攔得住。
    - 工作目錄已由 harness 釘定：**禁止呼叫 `EnterWorktree`、禁止用 `cd` 換目錄**，**禁止碰主工作區與其他 worktree**。
    - 載入 `eval-flow` skill，走 **Tier 1 精簡路徑**，但：
      - 精簡初始化照常（manifest 填 `tier: 1`、`spec_inline`、`risk_report_path: "skipped"`、`usage_report_path: "skipped"`）；因 HITL 已在主 session 完成，`phase` 直接設 `"decomposed"`，並在 manifest 附註「HITL 於主 session 批次完成（parallel-run）」。

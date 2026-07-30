@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-07-30-worktree-baseref",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "03a8d79bd242059e88f4bf80c7f4e34221037372",
+  "stable_failures": []
+}
