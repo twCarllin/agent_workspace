@@ -300,11 +300,9 @@ fan-out 僅在「**`[P]` item ≥2 且各自預估 ≥150 行**（以 task-decom
 
 **② Fan-out 段**
 
-主 flow 為每個符合門檻的 `[P]` item 各開一個 worktree，從當前 run HEAD 切出：
+主 flow 為每個符合門檻的 `[P]` item spawn 一個背景 item agent，**worktree 交由 harness 建立**：以 `Agent` 工具的 `isolation: "worktree"` 啟動，harness 建 `.claude/worktrees/agent-<id>/` 並在啟動時釘定該 agent 的工作目錄。細節與禁止事項見 `parallel-run` skill 步驟 5（**禁止改用「主 flow 先 `git worktree add`，再叫 agent 自己進去」**——2026-07-29 實測證明 repo root 啟動的 subagent 無法切入，`EnterWorktree` 會拒絕；亦禁止用 `cd` 替代，那會使 gate 判到主工作區）。
 
-```
-git worktree add ../<repo>-item-<id> -b feat/<父run_id>-item-<id>
-```
+branch 名稱由 harness 指派（非 `feat/<父run_id>-item-<id>`），item agent 須在回報中附上；全族溯源靠 commit trailer `Parent-Run-Id: <父run_id>`，不靠 branch 命名。**worktree 起點是 `origin/<預設分支>`、不是父 run 的 HEAD**，故 item agent 起手必須依 `parallel-run` 步驟 6 的「起手三步」`git merge main` 同步並驗證前提（本節的 prep 段成果若未 push，正是靠這一步才進得了 item worktree）。
 
 然後同一訊息 spawn 全部背景 item agent（一 item 一 agent，並發啟動）。每個背景 agent 以**獨立 sibling 迷你 run**執行完整 Tier 2 循環：
 
@@ -312,7 +310,7 @@ git worktree add ../<repo>-item-<id> -b feat/<父run_id>-item-<id>
 - **自己的 `eval_state.json`**（在自己 worktree 初始化），自己的 eval_state 貫穿自己的 code-writer → review（含完成度節）→ step 5 本地測試 → 自己歸檔。
 - **mine 模式在隔離樹下復活**：各 worktree diff 乾淨，未提交變更只屬於自己，`python3 .claude/hooks/test_baseline.py mine --strike-key <item_id>` 可正常推導範圍。
 - **hook gate 在各 worktree 內獨立生效（有前提，非天然成立）**：每個 worktree 有自己的 staging area 與 `eval_state.json`，所有現行 gate 照常運作、零後門——**前提是 hook 以該次 tool call 的實際 cwd（payload 的 `cwd`）解析所屬 worktree 根後才 chdir**。`CLAUDE_PROJECT_DIR` 由 Claude Code 釘死在 session 啟動目錄、**不隨 worktree 移動**（`EnterWorktree` 與背景 subagent 皆然），若 gate 逕以它決定工作區，worktree 內的 run 會誤用主工作區狀態：subagent 呼叫 gate 誤判、commit gate 因讀主工作區空 index 而靜默失效。此解析住在 `.claude/hooks/eval_gates.py`，改動該處等同動搖本節前提。**限制**：`CLAUDE_PROJECT_DIR` 為 git 儲存庫子目錄的專案開 worktree 時會解析到 worktree 根（不拼接子路徑），該類專案目前不支援 fan-out。
-- **自己 branch commit**：step 6 收尾 commit 附 trailer `Run-Id: <子run_id>` 與 `Parent-Run-Id: <父run_id>`（後者讓主 session 一次 grep `Parent-Run-Id: <父run_id>` 撈全族 commit）。禁止 merge、禁止 push、禁止切 branch（同 `parallel-run` skill 的背景 agent 規則）。
+- **自己 branch commit**：step 6 收尾 commit 附 trailer `Run-Id: <子run_id>` 與 `Parent-Run-Id: <父run_id>`（後者讓主 session 一次 grep `Parent-Run-Id: <父run_id>` 撈全族 commit）。禁止 push、禁止切 branch、禁止把自己的 branch 合進 main（同 `parallel-run` skill 的背景 agent 規則；起手的 `git merge main` 是反方向同步，允許且必要）。
 - **BUGLOG 條目寫進回報內容、不 append 檔案**：沿 `parallel-run` skill 規則——各 worktree grep 自己的快照會漏看對方的條目，兩層制升級判定由主 session 於 merge 後統一做。
 - **blocker 出在 main 既有 code 時禁止在 item worktree 修**：標明後依 `parallel-run` skill 的「卡住／HITL 協定」停下，由主 session 在 main 上走 bugfix 流程，修完後各 item worktree `git merge main` 同步（修一次、多支受惠）。
 - 卡住（2 次真失敗、任何需使用者裁決的事）→ 依 `parallel-run` skill 的「卡住／HITL 協定」停止並回報主 session，manifest 標 `status: "blocked"`，落盤卡點報告 `run/<子run_id>-blocked.md`，**不自行猜測往下**。
@@ -321,7 +319,7 @@ git worktree add ../<repo>-item-<id> -b feat/<父run_id>-item-<id>
 
 **③ Rolling merge 段**
 
-直接引用 `skills/parallel-run/SKILL.md` 的收尾序列（步驟 7–10），不重寫——避免兩處機制描述漂移。重用其：① 測試只增不改機械檢查（`git diff main...feat/<子run_id>` 過濾測試路徑，出現 M／D 不 merge）② 實際交集重驗（本支與其他未合支的實際 changed-file 清單取交集，非空停下回報）③ 後合者先 `git merge main` 同步再重跑相關測試 ④ 全套 baseline gate（`git merge feat/<子run_id>` 後跑全套，判準為相對 merge 前 main baseline 無新增失敗）⑤ BUGLOG 帶回統一 append＋兩層制升級判定＋ `git worktree remove` 及刪 feat branch（append 前 grep 舊條目判是否升級 RETRO；一族 fan-out 完成後的 worktree／branch 清理隨此步，不可遺留孤兒 worktree）。誰先完成先收，不等全批。**本①-⑤為重點提示，完整子步驟以 `parallel-run` 步驟 8 之子項 1–5 為準、不由本清單替代。**
+直接引用 `skills/parallel-run/SKILL.md` 的收尾序列（步驟 7–10），不重寫——避免兩處機制描述漂移。重用其：① 測試只增不改機械檢查（`git diff main...<branch>` 過濾測試路徑，出現 M／D 不 merge；`<branch>` 取自該 item agent 回報的 harness 指派 branch）② 實際交集重驗（本支與其他未合支的實際 changed-file 清單取交集，非空停下回報）③ 後合者先 `git merge main` 同步再重跑相關測試 ④ 全套 baseline gate（`git merge <branch>` 後跑全套，判準為相對 merge 前 main baseline 無新增失敗；批次層 baseline 快照須手動帶 `--cmd`）⑤ BUGLOG 帶回統一 append＋兩層制升級判定＋清理 worktree 與 branch（append 前 grep 舊條目判是否升級 RETRO；清理**可能因 harness 的 worktree lock 而失敗，失敗時不可強拆**，依 `parallel-run` 步驟 8.5 處置——未上鎖者照常移除，仍上鎖者列入回報交由使用者或 harness 回收）。誰先完成先收，不等全批。**本①-⑤為重點提示，完整子步驟以 `parallel-run` 步驟 8 之子項 1–5 為準、不由本清單替代。**
 
 一族 commit 完成後，可用 `git log --grep "Parent-Run-Id: <父run_id>"` 反查全族。
 

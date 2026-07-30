@@ -1,0 +1,22 @@
+{
+  "run_id": "2026-07-30-parallel-run-contract",
+  "created_at": "2026-07-30 11:07",
+  "framework_version": "2026.07.22.1",
+  "tier": 1,
+  "tier_rationale": "純文件敘述更正（兩份 SKILL.md 的啟動／收尾契約）＋兩個單行設定（.gitignore 一行、VERSION 一行）。不動任何 gate 判定式、權限規則、schema 定義；歧義已由 2026-07-29 的 parallel-run 首次實戰實測消除（有「哪條路可行」的直接證據）。4-5 檔、約 100 行 → Tier 1",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "修正 parallel-run skill 的啟動與收尾契約，使其與 harness 實際支援的方式一致：①步驟 5–6 的「主 session 建 worktree → spawn 背景 agent 進去」改為「以 isolation: worktree spawn，harness 建 worktree 並自動釘定 cwd」，並寫明起手必須 git merge main（harness 從 origin/main 切出，會少掉未 push 的 commit）②branch 命名改為 harness 指派、由 agent 回報，連帶更新步驟 8 各處對 feat/<run_id> 的引用 ③步驟 8.5 加註 harness worktree 帶 lock、git worktree remove 可能失敗且不可強拆 ④步驟 8.4 加註批次層 baseline 需手動帶 --cmd（無對應 manifest 可讀 test_command）⑤加註「後合者先同步」會產生名稱怪異的 merge commit ⑥eval-flow 的 [P] fan-out 節重用清單同步更新，並同步 ~/.claude/skills/ 部署副本。另補 .gitignore 的 .claude/worktrees/（用 isolation 後 worktree 一律落在此處，不 ignore 會污染主工作區 git status）與 VERSION 升版（今日已實質改過 eval_gates.py 與多份 skill，manifest 的 framework_version 目前歸錯版本）。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-07-30 11:09 — 確認 1 task／2 items 計畫（parallel-run 啟動與收尾契約五處更正＋.gitignore 與 VERSION 兩個單行設定）；使用者原話「先這樣跑吧」",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-07-30.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "baseline: stable=0 | check --strike-key items_1_1_1_2 → PASS 無新增穩定失敗 exit=0 | 全套 python3 -m unittest discover -s tests → Ran 162 tests OK（與進場基線相同）| tests.test_docs_consistency → 5 tests OK（SKILL.md 格式約束未破）| doctor.py 健檢通過且回報 framework 版本 2026.07.30.1 | DoD 主 flow 實測：舊啟動指令 git worktree add ../ 於現行來源零命中；feat/ 僅存否定說明語境（parallel-run:31、eval-flow:305）；git check-ignore -v .claude/worktrees/ 命中 .gitignore:3 且 16 個被追蹤的 .claude/ 檔案零個被誤 ignore（reviewer 逐一核對）；兩份部署副本 diff 皆空輸出 | reviewer 2 輪：r1 發現 eval-flow Rolling merge 段殘留舊契約（完成度缺席項，非 🟡，故走 fixing 迴圈重審）、r2 並排比對確認三處與 parallel-run 8.1/8.4/8.5 逐項對齊、零 🔴 零 🟡 | 無自動化測試新增（純文件與單行設定，無行為面可測；符合 Tier 1『實際運行驗證亦可』）",
+  "review_reds": 0,
+  "verify_passed": true
+}

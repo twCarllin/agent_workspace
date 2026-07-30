@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-07-30-parallel-run-contract",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "432c529e8deb541a820763a9aeeac405a6ac9878",
+  "stable_failures": []
+}
