@@ -94,15 +94,19 @@ def load_json(path):
 def _validate_credentials(obj, source):
     """驗四項憑據（per-subtask 與 Tier 1 manifest 共用單一判定點）。"""
     if obj.get("local_test_passed") is not True:
-        block(f"{source} local_test_passed 非 true：本地測試 gate 未通過，須先完成 step 5 驗證")
+        block(f"{source} local_test_passed 非 true：本地測試 gate 未通過，須先完成 step 5 驗證\n"
+              f"→ 補救：Tier 2 `python3 .claude/hooks/eval_state.py set-test <id> --passed --evidence \"指令＋結果摘要\"`；Tier 1 直接填 manifest 同名欄")
     evidence = obj.get("local_test_evidence")
     if not (isinstance(evidence, str) and evidence.strip()):
-        block(f"{source} local_test_evidence 為空：須記錄驗證證據（跑了什麼指令、看到什麼結果）")
+        block(f"{source} local_test_evidence 為空：須記錄驗證證據（跑了什麼指令、看到什麼結果）\n"
+              f"→ 補救：同上，`set-test <id> --passed --evidence \"...\"` 的 --evidence 不可省；Tier 1 直接填 manifest 同名欄")
     reds = obj.get("review_reds")
     if not (isinstance(reds, int) and not isinstance(reds, bool)) or reds < 0:
-        block(f"{source} review_reds 未留痕或非合法非負整數：step 3 須記錄 🔴 數（非負整數）")
+        block(f"{source} review_reds 未留痕或非合法非負整數：step 3 須記錄 🔴 數（非負整數）\n"
+              f"→ 補救：Tier 2 `python3 .claude/hooks/eval_state.py set-review <id> <reds 數字>`；Tier 1 直接填 manifest 同名欄")
     if obj.get("verify_passed") is not True:
-        block(f"{source} verify_passed 非 true：reviewer 完成度節尚未通過")
+        block(f"{source} verify_passed 非 true：reviewer 完成度節尚未通過\n"
+              f"→ 補救：Tier 2 `python3 .claude/hooks/eval_state.py set-verify <id>`（無 --passed 旗標）；Tier 1 直接填 manifest 同名欄")
 
 
 def validate_state(state, source, require_passed=False):
@@ -113,7 +117,8 @@ def validate_state(state, source, require_passed=False):
         if require_passed:
             name = st.get("name") or st.get("id")
             if st.get("status") != "passed":
-                block(f"{source} sub_task「{name}」status 非 passed（{st.get('status')}）")
+                block(f"{source} sub_task「{name}」status 非 passed（{st.get('status')}）\n"
+                      f"→ 補救：該 sub_task 走完循環後 `python3 .claude/hooks/eval_state.py set-status <id> passed`（status 可選 passed／failed／in_progress）")
             _validate_credentials(st, f"{source} sub_task「{name}」")
 
 
@@ -152,7 +157,8 @@ def check_manifest(manifest_path, staged):
         # Tier 1 豁免歸檔檔，改驗 manifest 自身四欄憑據（與 validate_state 共用 _validate_credentials）
         _validate_credentials(m, manifest_path)
     else:
-        block(f"{manifest_path} 已 staged，但 {archive_path} 未 staged：須先歸檔 eval_state 再 commit")
+        block(f"{manifest_path} 已 staged，但 {archive_path} 未 staged：須先歸檔 eval_state 再 commit\n"
+              f"→ 補救：`python3 .claude/hooks/eval_state.py archive` 產出 {archive_path}，再 `git add {archive_path}`")
 
 
 def manifest_phase(manifest):
@@ -250,7 +256,8 @@ def check_task_gate(tool_input):
         state = load_json("eval_state.json")
         run_id = state.get("run_id")
         if not run_id:
-            block(f"eval_state.json 缺 run_id，無法定位 manifest；呼叫 {agent} 被擋")
+            block(f"eval_state.json 缺 run_id，無法定位 manifest；呼叫 {agent} 被擋\n"
+                  f"→ 補救：`python3 .claude/hooks/eval_state.py init --run-id <run_id>` 重建（run_id 須與 run/<run_id>.json 一致）")
         manifest_path = f"run/{run_id}.json"
         if not os.path.exists(manifest_path):
             block(f"{manifest_path} 不存在（前置 0 未完成），不可呼叫 {agent}")
@@ -260,7 +267,8 @@ def check_task_gate(tool_input):
         # DoD (a)：找唯一 tier 1 in_progress manifest 作為當前 run 依據
         tier1 = _find_unique_tier1_inprogress()
         if tier1 is None:
-            block(f"呼叫 {agent} 前須完成前置 0：eval_state.json 不存在（run 未初始化）")
+            block(f"呼叫 {agent} 前須完成前置 0：eval_state.json 不存在（run 未初始化）\n"
+                  f"→ 補救：`python3 .claude/hooks/eval_state.py init --run-id <run_id>`（Tier 1 不建 eval_state.json，若本 run 為 Tier 1 請改走精簡路徑）")
         manifest_path, manifest = tier1
         run_id = MANIFEST_RE.match(manifest_path).group("run_id")
 
@@ -369,7 +377,9 @@ def run_hook():
     if os.path.exists("eval_state.json"):
         block(
             "eval_state.json 仍存在。須先歸檔為 run/<run_id>.eval.json 並清除後才可 commit；"
-            "若為失敗收尾（status: failed），依規則由使用者裁決，不可由 Claude commit"
+            "若為失敗收尾（status: failed），依規則由使用者裁決，不可由 Claude commit\n"
+            "→ 補救：`python3 .claude/hooks/eval_state.py archive`（會驗四項憑據、寫出歸檔檔並刪除 eval_state.json），"
+            "再把 manifest 標 status: completed 並 git add 歸檔檔"
         )
 
     try:
