@@ -60,6 +60,7 @@ python3 .claude/hooks/test_baseline.py mine --strike-key <sub_task 標識>
    python3 .claude/hooks/test_baseline.py check --cmd "<相關測試指令>" --strike-key sub_task_<id>
    ```
    - exit 0（無新增穩定失敗）→ gate 通過：`local_test_passed: true`，`local_test_evidence` 填 script 輸出摘要（指令＋PASS 行＋略過的 baseline 失敗數）
+   - 本步跑過的每一條驗證指令另以 `add-verification` 逐條記入 `verification_commands`（純記錄、無 gate；與 `local_test_evidence` 並存，語義與操作見 `eval-flow` skill，此處不重述）
    - exit 2 → 有真的（可重現）新增失敗，進下方分類決策樹
 4. **非確定性失敗由 script 自動放行**：非 baseline 的新失敗會自動重跑一次確認可重現——重跑通過（不可重現）→ 印警示「非確定性失敗，未阻擋」、不擋、**不持久化任何名單**；重跑仍失敗（可重現）→ 真新失敗，script append 一筆 `failure_log`（供稽核「紅過就有痕」）並 exit 2
 

@@ -165,6 +165,55 @@ class EvalStateHelperTest(unittest.TestCase):
         # 不落盤
         self.assertIsNone(self.read_state()["sub_tasks"][0]["review_dimensions"])
 
+    # --- add-verification（純記錄欄位，不被任何 gate 消費）---
+
+    def test_add_subtask_skeleton_has_empty_verification_commands(self):
+        self.bootstrap()
+        self.assertEqual(self.read_state()["sub_tasks"][0]["verification_commands"], [])
+
+    def test_add_verification_appends_in_order(self):
+        self.bootstrap()
+        run_cli("add-verification", "1", "--command", "pytest -q", "--exit-code", "0")
+        run_cli("add-verification", "1", "--command", "ruff check .", "--exit-code", "1")
+        vc = self.read_state()["sub_tasks"][0]["verification_commands"]
+        self.assertEqual(vc, [
+            {"command": "pytest -q", "exit_code": 0},
+            {"command": "ruff check .", "exit_code": 1},
+        ])
+
+    def test_add_verification_accepts_negative_exit_code(self):
+        self.bootstrap()
+        run_cli("add-verification", "1", "--command", "killed", "--exit-code", "-9")
+        vc = self.read_state()["sub_tasks"][0]["verification_commands"]
+        self.assertEqual(vc[0]["exit_code"], -9)
+
+    def test_add_verification_unknown_id_exits(self):
+        self.bootstrap()
+        with self.assertRaises(SystemExit) as ctx:
+            run_cli("add-verification", "99", "--command", "pytest", "--exit-code", "0")
+        self.assertEqual(ctx.exception.code, 1)
+
+    def test_add_verification_rejects_blank_command(self):
+        self.bootstrap()
+        with self.assertRaises(SystemExit) as ctx:
+            run_cli("add-verification", "1", "--command", "   ", "--exit-code", "0")
+        self.assertEqual(ctx.exception.code, 1)
+        # 不落盤
+        self.assertEqual(self.read_state()["sub_tasks"][0]["verification_commands"], [])
+
+    def test_add_verification_backward_compat_missing_key(self):
+        """本欄位為後加的可選欄位：舊 eval_state.json 的 sub_task 無此鍵時不可 KeyError。"""
+        self.bootstrap()
+        state = self.read_state()
+        del state["sub_tasks"][0]["verification_commands"]
+        with open("eval_state.json", "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False)
+        self.assertNotIn("verification_commands", self.read_state()["sub_tasks"][0])
+
+        run_cli("add-verification", "1", "--command", "pytest -q", "--exit-code", "0")
+        vc = self.read_state()["sub_tasks"][0]["verification_commands"]
+        self.assertEqual(vc, [{"command": "pytest -q", "exit_code": 0}])
+
 
 if __name__ == "__main__":
     unittest.main()

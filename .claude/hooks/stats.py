@@ -14,6 +14,9 @@
                    優先讀 review_dimensions（維度→問題數）；
                    legacy 的 deduction_reasons（points_lost 加權）併入，標「含 legacy 扣分權重」
   baseline 欠帳    既有壞測試（stable_failures）的走勢
+  驗證指令數       每個 run 實際跑了幾條獨立驗證指令（verification_commands）；
+                   Tier 1 讀 manifest、Tier 2 讀各 sub_task。鍵不存在＝無記錄（不計入分母），
+                   存在但空陣列＝有記錄但 0 條——兩者不可混為一談
   gate 命中        每條 gate 的觸發次數——從不觸發的 gate 是修剪候選
 
 資料來源：run/*.json（manifest）、run/*.eval.json、run/*.test_baseline.json、
@@ -45,6 +48,7 @@ def collect(run_dir="run"):
         "sub_tasks": 0, "rework": 0,
         "scores": [], "dim_counter": Counter(), "has_legacy_dims": False,
         "baseline": [],  # (run_id, stable)
+        "verif_runs": 0, "verif_cmds": 0,
         "gate_hits": Counter(), "gate_hit_lines": [],
     }
     for path in sorted(glob.glob(os.path.join(run_dir, "*.json"))):
@@ -62,6 +66,11 @@ def collect(run_dir="run"):
         if m.get("hitl_confirmed_at"):
             data["hitl_confirmed"] += 1
         data["hitl_rejections"] += int(m.get("hitl_rejections") or 0)
+
+        # verification_commands：Tier 1 記在 manifest、Tier 2 記在各 sub_task（下方 archive 迴圈併計）。
+        # 鍵不存在＝該 run 無記錄（不計入平均分母）；存在但為空陣列＝有記錄但 0 條
+        verif_recorded = isinstance(m.get("verification_commands"), list)
+        verif_cmds = len(m["verification_commands"]) if verif_recorded else 0
 
         archive = load(os.path.join(run_dir, f"{m['run_id']}.eval.json"))
         if isinstance(archive, dict):
@@ -82,6 +91,10 @@ def collect(run_dir="run"):
                     if isinstance(score, (int, float)):
                         data["scores"].append(score)
                 # 維度分佈：優先讀 review_dimensions（維度→問題數）
+                sub_vc = st.get("verification_commands")
+                if isinstance(sub_vc, list):
+                    verif_recorded = True
+                    verif_cmds += len(sub_vc)
                 review_dims = st.get("review_dimensions")
                 if isinstance(review_dims, dict):
                     for dim, cnt in review_dims.items():
@@ -95,6 +108,10 @@ def collect(run_dir="run"):
                             if pts:
                                 data["dim_counter"][d.get("dimension", "?")] += pts
                                 data["has_legacy_dims"] = True
+
+        if verif_recorded:
+            data["verif_runs"] += 1
+            data["verif_cmds"] += verif_cmds
 
         base = load(os.path.join(run_dir, f"{m['run_id']}.test_baseline.json"))
         if isinstance(base, dict):
@@ -150,6 +167,14 @@ def report(data):
     if data["dim_counter"]:
         suffix = "（含 legacy 扣分權重）" if data["has_legacy_dims"] else ""
         out.append(f"維度分佈{suffix}：{dict(data['dim_counter'].most_common())}")
+    if data["verif_runs"]:
+        avg = data["verif_cmds"] / data["verif_runs"]
+        out.append(
+            f"驗證指令數：共 {data['verif_cmds']} 條／{data['verif_runs']} 個有記錄的 run"
+            f"（平均 {avg:.1f} 條）　無記錄：{n_runs - data['verif_runs']} 個 run"
+        )
+    else:
+        out.append(f"驗證指令數：無記錄（{n_runs} 個 run 皆無 verification_commands 欄位）")
     if data["baseline"]:
         trend = "、".join(f"{r}: stable {s}" for r, s in data["baseline"])
         out.append(f"baseline 欠帳走勢：{trend}")

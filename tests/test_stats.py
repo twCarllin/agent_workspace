@@ -173,6 +173,63 @@ class StatsCollectTest(unittest.TestCase):
         text = stats.report(data)
         self.assertIn("含 legacy 扣分權重", text)
 
+    # --- verification_commands 彙總 ---
+
+    def test_verification_absent_key_is_unrecorded(self):
+        """既有 run 皆無此欄位（後加的可選欄位）→ 不可拋例外，且明確報「無記錄」。"""
+        write(os.path.join(self.run_dir, "old.json"),
+              {"run_id": "old", "tier": 1, "status": "completed"})
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["verif_runs"], 0)
+        self.assertEqual(data["verif_cmds"], 0)
+        self.assertIn("驗證指令數：無記錄", stats.report(data))
+
+    def test_verification_empty_list_is_recorded_zero(self):
+        """空陣列＝有記錄但 0 條，與「無記錄」必須可區分（記錄了卻沒跑 vs 根本沒這欄位）。"""
+        write(os.path.join(self.run_dir, "t1.json"), {
+            "run_id": "t1", "tier": 1, "status": "completed",
+            "verification_commands": [],
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["verif_runs"], 1)
+        self.assertEqual(data["verif_cmds"], 0)
+        text = stats.report(data)
+        self.assertIn("共 0 條／1 個有記錄的 run", text)
+        self.assertNotIn("驗證指令數：無記錄", text)
+
+    def test_verification_tier1_manifest_and_tier2_subtasks_mixed(self):
+        """Tier 1 記在 manifest、Tier 2 記在各 sub_task、另有一個舊 run 無記錄。"""
+        write(os.path.join(self.run_dir, "t1.json"), {
+            "run_id": "t1", "tier": 1, "status": "completed",
+            "verification_commands": [
+                {"command": "pytest -q", "exit_code": 0},
+                {"command": "ruff check .", "exit_code": 0},
+            ],
+        })
+        write(os.path.join(self.run_dir, "t2.json"),
+              {"run_id": "t2", "tier": 2, "status": "completed"})
+        write(os.path.join(self.run_dir, "t2.eval.json"), {
+            "run_id": "t2", "sub_tasks": [
+                {"id": 1, "review_reds": 0,
+                 "verification_commands": [{"command": "pytest tests/a.py", "exit_code": 0}]},
+                {"id": 2, "review_reds": 0,
+                 "verification_commands": [
+                     {"command": "pytest tests/b.py", "exit_code": 1},
+                     {"command": "pytest tests/b.py", "exit_code": 0},
+                 ]},
+            ],
+        })
+        write(os.path.join(self.run_dir, "old.json"),
+              {"run_id": "old", "tier": 1, "status": "completed"})
+
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["verif_runs"], 2)      # t1 + t2，old 不計入分母
+        self.assertEqual(data["verif_cmds"], 5)      # 2 + 1 + 2
+        text = stats.report(data)
+        self.assertIn("共 5 條／2 個有記錄的 run", text)
+        self.assertIn("平均 2.5 條", text)
+        self.assertIn("無記錄：1 個 run", text)
+
 
 if __name__ == "__main__":
     unittest.main()

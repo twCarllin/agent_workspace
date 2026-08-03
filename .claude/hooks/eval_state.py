@@ -12,6 +12,8 @@
                                                    # step 3 首輪 code-reviewer 🔴 數（修正前原始數）
                                                    # --dimensions: 維度→問題數，如 '{"Clarity":1,"Completeness":2}'
   python3 .claude/hooks/eval_state.py set-verify <id>          # step 4 reviewer 完成度節通過時呼叫
+  python3 .claude/hooks/eval_state.py add-verification <id> --command "<指令>" --exit-code <int>
+                                                   # step 5 每跑一條驗證指令 append 一筆（純記錄，無 gate）
   python3 .claude/hooks/eval_state.py list-files      # 所有 sub_task files 聯集（餵 related --files）
   python3 .claude/hooks/eval_state.py archive         # 驗證後歸檔 run/<run_id>.eval.json 並刪除 eval_state.json
 
@@ -74,6 +76,7 @@ def cmd_add_subtask(args):
         "id": args.id, "name": args.name, "status": "in_progress", "step": None,
         "files": [], "warning": False,
         "local_test_passed": False, "local_test_evidence": None,
+        "verification_commands": [],
         "review_reds": None, "verify_passed": False,
         "risk_analysis": None, "review_dimensions": None,
     })
@@ -163,6 +166,22 @@ def cmd_set_verify(args):
     print(f"[eval-state] sub_task {args.id} verify_passed -> True")
 
 
+def cmd_add_verification(args):
+    """step 5 的驗證指令留痕（append 累積）。純記錄欄位、不被任何 gate 消費——
+    與 local_test_evidence 並存：後者記推理留痕（散文），本欄記「跑了哪些指令、結果如何」。"""
+    if not args.command.strip():
+        fail("--command 不可為空字串")
+    state = load()
+    st = find_subtask(state, args.id)
+    # 舊 eval_state.json 的 sub_task 無此鍵（本欄位為後加的可選欄位）→ 補上再 append
+    st.setdefault("verification_commands", []).append(
+        {"command": args.command, "exit_code": args.exit_code}
+    )
+    save(state)
+    print(f"[eval-state] sub_task {args.id} verification_commands "
+          f"+1（共 {len(st['verification_commands'])} 筆）exit={args.exit_code}")
+
+
 def cmd_list_files(args):
     state = load()
     seen = {}
@@ -235,6 +254,12 @@ def main():
     p = sub.add_parser("set-verify")
     p.add_argument("id", type=int)
     p.set_defaults(func=cmd_set_verify)
+
+    p = sub.add_parser("add-verification")
+    p.add_argument("id", type=int)
+    p.add_argument("--command", required=True)
+    p.add_argument("--exit-code", type=int, required=True, dest="exit_code")
+    p.set_defaults(func=cmd_add_verification)
 
     p = sub.add_parser("list-files")
     p.set_defaults(func=cmd_list_files)

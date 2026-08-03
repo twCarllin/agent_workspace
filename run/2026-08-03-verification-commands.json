@@ -1,0 +1,56 @@
+{
+  "run_id": "2026-08-03-verification-commands",
+  "created_at": "2026-08-03 22:35",
+  "framework_version": "2026.07.30.1",
+  "tier": 1,
+  "tier_rationale": "來源：對照 loopx 的 evidence ledger 檢視本框架的證據欄位。原提案（項目 5）為「把 local_test_evidence 由字串改為結構化陣列」，查證後為機械 Tier 2（同時觸及 eval_gates.py:98 的 isinstance 判定式＝gate 判斷式，與被 gate 消費的 schema 定義），且設計本身有缺陷——local_test_evidence 實際承載的是 agent 推理留痕（mutation sabotage 點與作廢探針理由、2 次停損結論、測試過時三項依據、testlint 豁免理由、測試同步段的對照表 row 對映），結構化陣列裝不下。使用者於 2026-08-03 選定改走「加法版」：新增 verification_commands 純記錄欄位，local_test_evidence 完全不動。判 Tier 1 的依據：新欄位不被任何 gate 消費（eval_gates.py 零改動），故不觸及 CLAUDE.md 防濫用規則所指的「判定行為」；欄位為可選新增，run/ 內 25 個既有檔不需 migration。此判級屬邊界案例（仍是狀態檔的 schema 擴充），故在此完整留痕供事後審計：若日後為此欄位加上 gate，該變更必為 Tier 2。",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "在 eval_state.json 的 sub_task 與 Tier 1 manifest 新增 verification_commands 欄位（陣列，每筆 {\"command\": \"<實際執行的驗證指令>\", \"exit_code\": <整數>}），純記錄用途、不被任何 gate 消費，供 stats.py 彙總「每個 run 實際跑了幾條獨立驗證指令」這個目前完全不可見的指標。eval_state.py 加 add-verification 子命令（可重複呼叫 append）並在 sub_task 骨架預設 []；stats.py 加對應彙總；eval-flow 與 test-strategy skill 同步敘述（eval-flow 的子命令清單受 tests/test_docs_consistency.py::test_eval_state_subcommands_in_docs_exist 強制）。明確不做：不改 local_test_evidence 的型別與用途、不改 eval_gates.py、不對新欄位加任何攔截。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-08-03 22:40 — 確認 1 task／2 items 計畫（item 1.1 欄位＋helper＋skill 同步、item 1.2 stats 彙總＋step 5 敘述）；使用者選「確認，開工」，同意主 flow 直寫捷徑",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-08-03.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "baseline stable=0（乾淨進場）| check --strike-key item_1 → PASS exit=0 | 全套 check --strike-key full_suite → PASS exit=0 | unittest discover 171 tests OK（改動前 162，+9 新測試）| doctor 健檢通過 | item 1.1 DoD 1-8 與 item 1.2 DoD 1-6 由 code-reviewer 逐條對 diff 核實（0 🔴／0 🟡，報告見 st1-r1 落檔）| item 1.2 DoD 5（eval_gates.py 零改動）以 git diff --cached --name-only 實測確認該檔不在 staged 集合 | 向後相容以真實資料驗證：對 run/ 內 25 個無此欄位的既有檔實跑 stats.py，不拋例外且正確輸出「無記錄（25 個 run 皆無 verification_commands 欄位）」，非僅以 tmp fixture 推論 | 新欄位無任何 gate 消費（純記錄），故 commit gate 不驗此欄——漏記只會在 stats 顯示為無記錄，不擋流程",
+  "review_reds": 0,
+  "verify_passed": true,
+  "verification_commands": [
+    {
+      "command": "python3 -m unittest tests.test_eval_state -v",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 -m unittest tests.test_stats -v",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/stats.py",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py baseline --run-id 2026-08-03-verification-commands",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-08-03-verification-commands --strike-key item_1",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-08-03-verification-commands --cmd \"python3 -m unittest discover -s tests\" --strike-key full_suite",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 -m unittest discover -s tests",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/doctor.py",
+      "exit_code": 0
+    }
+  ]
+}
