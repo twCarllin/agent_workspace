@@ -39,7 +39,8 @@ SRC_HOOKS="$SCRIPT_DIR/.claude/hooks"
 DST_HOOKS="$PARENT_DIR/.claude/hooks"
 if [ -d "$SRC_HOOKS" ]; then
   mkdir -p "$DST_HOOKS"
-  cp "$SRC_HOOKS"/* "$DST_HOOKS/"
+  # 只複製一般檔案：跳過 __pycache__ 等生成目錄（clone 跑過測試後必有；裸 cp 撞目錄會因 set -e 中斷，造成 step 3 之後的部署靜默缺失）
+  find "$SRC_HOOKS" -maxdepth 1 -type f -exec cp {} "$DST_HOOKS/" \;
   chmod +x "$DST_HOOKS/gate-check.sh"
   echo "[3/6] Copied hooks -> $DST_HOOKS/"
 else
