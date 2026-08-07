@@ -1,0 +1,26 @@
+{
+  "run_id": "2026-08-07-router-risk-boundary",
+  "created_at": "2026-08-07 00:00",
+  "framework_version": "2026.08.07.3",
+  "tier": 1,
+  "tier_rationale": "來源：使用者反映 Tier 2 入口過寬（run/ 審計：27 run 中 2 次機械判 Tier 2 遭使用者豁免，卡點均為高風險面「觸及」語義）。經 AskUserQuestion 使用者選定僅收斂第 1 條：高風險面判準由「觸及」改為「變更本體」。變更全部是 CLAUDE.md Router prose＋eval-flow skill 一行內嵌複述同步＋VERSION 純文字，不動任何 hook 可執行邏輯（eval_gates.py 只認 tier 數字、無高風險面清單）；DoD 一句話講得清、單一路徑、1 task／1 item 遠低於上限 → Tier 1",
+  "phase": "decomposed",
+  "spec_path": null,
+  "spec_inline": "Router 高風險面排除的判準由「觸及」收斂為「變更本體」：只有 diff 修改 auth 判定邏輯／金流計算與交易處理／DB schema 定義／部署設定內容本體才觸發排除；呼叫既有權限 helper、在既有 auth 保護路徑下新增功能、讀取既有設定＝使用，不觸發。判準明文只住防濫用規則一處（單一枚舉點），Tier 1／2 表格列改指向式；同步 skills/eval-flow/SKILL.md:252 的內嵌複述句，避免跨文件矛盾。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-08-07 14:38 — 確認 1 task／1 item 計畫（三檔 prose 合併：CLAUDE.md 判準改寫＋eval-flow 一行同步＋VERSION bump；AskUserQuestion 選「確認，動工」）",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-08-07.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "相關測試 check（test_agent_refs＋test_docs_consistency＋test_doctor）→ PASS 無新增穩定失敗；全套 check --strike-key full_suite（manifest test_command）→ PASS；baseline stable 0。註：首次相關測試 check 的 --cmd 誤帶 pipe（| tail -3）會遮蔽 unittest exit code，該次 PASS 作廢，已以乾淨指令重跑為準",
+  "verification_commands": [
+    {"command": "python3 .claude/hooks/test_baseline.py check --cmd \"python3 -m unittest tests.test_agent_refs tests.test_docs_consistency tests.test_doctor\" --strike-key sub_task_1 --run-id 2026-08-07-router-risk-boundary", "exit_code": 0},
+    {"command": "python3 .claude/hooks/test_baseline.py check --strike-key full_suite --run-id 2026-08-07-router-risk-boundary", "exit_code": 0}
+  ],
+  "review_reds": 0,
+  "verify_passed": true
+}

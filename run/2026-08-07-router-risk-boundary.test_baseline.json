@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-08-07-router-risk-boundary",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "0348c3e2e0140adf68d5e69776bfae441dcf65e5",
+  "stable_failures": []
+}
