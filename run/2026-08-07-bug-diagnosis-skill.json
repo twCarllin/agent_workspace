@@ -1,0 +1,30 @@
+{
+  "run_id": "2026-08-07-bug-diagnosis-skill",
+  "created_at": "2026-08-07 11:08",
+  "framework_version": "2026.08.04.1",
+  "tier": 1,
+  "tier_rationale": "來源：對照 mattpocock/skills 的 diagnosing-bugs，補本框架「診斷先行」節缺乏執行紀律的空白。純新增一個 skill 文件＋CLAUDE.md 一行指向＋VERSION bump，全部是 prose／文件變更，不動 hooks 的任何可執行邏輯行（依 CLAUDE.md 高風險面機械判準：diff 未觸及 gate 判斷式／權限規則／schema 定義／部署參數）。需求無歧義（DoD 一句話：診斷先行有可依循的紀律文件且 CLAUDE.md 指向它）、單一路徑、預估 1 task／3 items，判 Tier 1。",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "新增 skills/bug-diagnosis/SKILL.md：把 CLAUDE.md「診斷先行（重現→定位根因→三行診斷結論）」擴充為有完成判準的紀律，內容改編自 mattpocock diagnosing-bugs 並接上本框架既有機制——(1) 先建 feedback loop 才准提假設：完成判準是「一條命令」，對這個 bug 會紅、修好會綠、可重複、幾秒跑完、agent 可自跑；沒有此命令禁止進入假設階段。(2) 重現後最小化：逐項削減輸入／呼叫端／設定，每削一項重跑 loop，直到每個殘留元素都承重。(3) 假設一次列 3–5 個、每個可否證（「若 X 是根因，改 Y 則 bug 消失」格式），列完先給使用者看再驗（不阻塞）。(4) 插樁紀律：一次只變一個變數；debug log 一律帶唯一前綴（如 [DEBUG-a4f2]），收尾一次 grep 清除。(5) 修法：先寫回歸測試再修；找不到正確 seam 時「無 seam 本身就是發現」，記入診斷結論。(6) 收尾清單含「什麼能預防這個 bug」一問，答案接回 BUGLOG 兩層制（證據層照 CLAUDE.md 規則 append，不重述）。同時在 CLAUDE.md 工作型態前判的「診斷先行」句加一行指向本 skill，並 bump .claude/hooks/VERSION 為 2026.08.07.1。明確不做：不改 BUGLOG／RETRO 兩層制規則、不動 hooks 可執行邏輯、不引入對方的 grilling／CONTEXT.md 機制。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-08-07 11:15 — 確認 1 task／2 items 計畫（1.1 skill 新建派 writer、1.2 CLAUDE.md 指向＋VERSION 直寫合併）；使用者選「三個 run 一次確認」，Run 3（雙軸審查 1 task／2 items）與 Run 2（blocking edges 1 task／2 items）一併預告確認，屆時不再停",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-08-07.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "baseline stable=0（乾淨進場）| check --strike-key item_1 → PASS exit=0 | 全套 check --strike-key full_suite → PASS exit=0 | unittest discover 171 tests OK（純 prose 變更，零測試觸動符合預期）| doctor 健檢通過 | Tier 1 功能驗證：skill frontmatter 以 regex 實際解析通過（name=bug-diagnosis、description 含觸發語與不適用）| st1 DoD 9/9、st2 DoD 4/4 由 code-reviewer 逐條對 diff 核實（兩輪皆 0 🔴／0 🟡，報告見 review-st1-r1／review-st2-r1 落檔，收尾清除）| st2 機械 DoD 主 flow 直驗：CLAUDE.md 變更 2 行（≤3）、VERSION 內容 2026.08.07.1 | 直寫捷徑（st2）知識前置留痕：RETRO 單一枚舉點（純指向不重述）與投放路徑（init.sh 同步 skills/*）已核",
+  "review_reds": 0,
+  "verify_passed": true,
+  "verification_commands": [
+    {"command": "python3 .claude/hooks/test_baseline.py baseline --run-id 2026-08-07-bug-diagnosis-skill", "exit_code": 0},
+    {"command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-08-07-bug-diagnosis-skill --strike-key item_1", "exit_code": 0},
+    {"command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-08-07-bug-diagnosis-skill --cmd \"python3 -m unittest discover -s tests\" --strike-key full_suite", "exit_code": 0},
+    {"command": "python3 -m unittest discover -s tests", "exit_code": 0},
+    {"command": "python3 .claude/hooks/doctor.py", "exit_code": 0},
+    {"command": "python3 -c \"<frontmatter regex 解析驗證，見 local_test_evidence>\"", "exit_code": 0}
+  ]
+}
