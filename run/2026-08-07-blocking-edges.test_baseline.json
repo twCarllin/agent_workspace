@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-08-07-blocking-edges",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "7c3440e8c1828513c9cea4a3a142aeadc8fa453e",
+  "stable_failures": []
+}

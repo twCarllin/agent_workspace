@@ -84,12 +84,25 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 
 ---
 
+## 寬幅重構例外（expand–contract，唯一不縱切的拆法）
+
+**適用判準（三者全中才適用）**：同一個**機械式變更**（改名、retype 共用符號、換欄位）＋ 爆炸半徑**跨全庫**（一動就破壞大量呼叫端）＋ **任何縱切片都無法獨綠**（單片改完必留紅燈給下一片）。滿足時不硬拆 tracer-bullet 縱切，改**三段序列**：
+
+1. **expand** — 新形式加在舊形式**旁邊**（新名稱、新欄位、新簽名並存），零呼叫端破壞。一個 item。
+2. **migrate** — 呼叫端**按爆炸半徑分批**遷移到新形式（per 套件／per 目錄），每批一個 item、`depends` expand 批；舊形式仍在，**批批之間 step 5 check 保持綠**。
+3. **contract** — `grep` 確認舊形式**零呼叫端殘留**後刪除舊形式。一個 item，`depends` 全部 migrate 批。
+
+與 Tier 0 機械式改動例外的分界：Tier 0 例外（CLAUDE.md 分級表）管每檔 ≤50 行、可一次直改完的機械變更；超出該量級（一次改不完、改了必紅）→ 進本節的分批序列。
+
+---
+
 ## Step 4：標註平行化與依賴
 
 - **`[P]` 可平行化**的條件（兩者都要成立）：
   - 不共用檔案（無 merge 衝突面）
   - 無資料依賴（不需要另一個 item 的產出當輸入）
 - 有依賴的 item 明確標 `depends: <item id>`。前置基礎 task（DB schema / 共用型別）幾乎都是其他 item 的依賴，不可標 `[P]`。
+- **frontier 排程規則（供下游主 flow 排程，僅管循序執行）**：item 的可開工判準是「其 `depends` 全部完成」，**不是編號順序**——當前所有可開工 item 的集合即 **frontier**，循序執行時主 flow 從 frontier 取工即可，編號只是識別不是序（depends 已全部完成的 item，不必等編號在前的無關 item）。`depends` 與 `[P]` 的分工：`depends` 描述依賴圖的**邊**（誰擋誰），`[P]` 描述無依賴 item 間**可同時派工**（無檔案交集、無資料依賴——即上述兩條件）。**既有互斥規則不變**：標 `depends` 的 item 不標 `[P]`——fan-out 的 prep 段以此判進循序段（見 `eval-flow` skill「Tier 2 [P] fan-out」；worktree 隔離下，依賴未落地的 item 進不了並行批）。
 
 **worktree fan-out 門檻（供下游主 flow 判斷）**：標 `[P]` 的 item，當**≥2 個且各自估計 ≥150 行**（以本檔 `~<行數>行` 欄的 ×2 校準值為準）時，主 flow 於 Tier 2 執行時各開 git worktree 並行（見 `eval-flow` skill「Tier 2 [P] fan-out」節）；不足此門檻則 `[P]` 退回主 worktree 循序執行。估計不準時保守處理——估不準即不 fan-out。
 
@@ -134,6 +147,8 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 - 把邊界 / 異常處理整包吞進 happy-path item，讓 diff 爆量
 - 標 `[P]` 但兩個 item 共用檔案或有資料依賴
 - 前置基礎（schema / 共用 client）沒抽出來，導致多個 item 重複定義
+- 寬幅重構硬拆縱切片——同一機械變更炸全庫時，每個縱切片都必然留紅燈，該走 expand–contract 序列而非 tracer-bullet
+- 無 expand 緩衝的一次性大爆炸替換——舊形式直接改掉、全庫呼叫端同一個 item 內硬遷，diff 爆量且 step 5 中途無綠可守
 - fixture 手寫、無 producer 行號依據（與 producer 漂移後消費路徑零覆蓋且全綠——此根因已四度現形，retro 散文擋不住）
 - fixture 存在測試實際不載入的副本（single source 破功——改了副本、測試仍讀舊值，對齊證明形同虛設）
 

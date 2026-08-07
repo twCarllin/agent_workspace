@@ -1,0 +1,29 @@
+{
+  "run_id": "2026-08-07-blocking-edges",
+  "created_at": "2026-08-07 12:05",
+  "framework_version": "2026.08.07.2",
+  "tier": 1,
+  "tier_rationale": "來源：mattpocock/skills to-tickets 的 blocking edges 與 expand–contract 移植。變更僅 task-decomposition skill 的 prose 與 VERSION 純文字，不動 hooks 可執行邏輯。需求無歧義、單一路徑、1 task／2 items（合併一個 sub_task 審查），判 Tier 1。設計調整留痕：原計畫「另加 blocked_by 欄與 [P] 並存」，讀檔後發現 Step 4 既有 `depends: <item id>` 欄已承載 blocked_by 語義，加同義新欄違反單一枚舉點（RETRO 2026-07-30）——改為升級 depends 的排程語義（frontier 規則），不新增欄位；eval-flow 經檢視無需同步（其 fan-out 門檻與 prep 段引用的就是 depends，frontier 屬拆分層指引）。",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "task-decomposition skill 兩處升級：(1) Step 4 補 frontier 排程規則——item 的可開工判準是「其 depends 全部完成」（frontier＝目前所有 depends 已滿足的 item 集合），不是編號順序；[P] 與 depends 的關係明確化：depends 描述圖的邊（誰擋誰），[P] 描述同批 frontier 內可同時派工（無檔案交集、無資料依賴），兩者並存不互替。(2) 新增「寬幅重構例外（expand–contract）」節——同一機械式變更炸全庫（改名、retype 共用符號）時不硬拆 tracer-bullet 縱切，改三段序列：expand（新形式並存於舊形式旁，不破壞任何呼叫端）→ migrate（呼叫端按爆炸半徑分批遷移，每批一個 item、depends expand，批批之間 step 5 check 保持綠）→ contract（無呼叫端殘留後刪舊形式，depends 全部 migrate 批）；並在反模式清單加兩條（寬幅重構硬拆縱切、一次性大爆炸替換無 expand 緩衝）。VERSION bump 2026.08.07.3。明確不做：不加 blocked_by 新欄位、不改 [P] 判準與 fan-out 門檻、不動 eval-flow。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-08-07 11:15 — 批次確認（於 run 2026-08-07-bug-diagnosis-skill 的 HITL 一併確認）：使用者選「三個 run 一次確認」，本 run 預告規模 1 task／2 items，實際 1 task／2 items（3.1 skill ~35行＋3.2 VERSION 1行，合併一個 sub_task 審查）在預告內；設計調整（不加 blocked_by 新欄，升級既有 depends）於變更回報中說明",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-08-07.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "baseline stable=0（乾淨進場）| check --strike-key item_1 → PASS | 全套 check --strike-key full_suite → PASS | unittest 171 tests OK | Tier 1 功能驗證：python 斷言實跑——互斥句在檔、「下方→上述」已修、expand–contract/frontier 齊備、eval-flow 零改動 | 審查兩輪：r1 出 1 🔴（frontier 句與 eval-flow:310 互斥規則矛盾）——主 flow 重裁：引文核實兩處 grep 全中屬實，裁決維持 eval-flow 承重模型（fan-out worktree 隔離前提），修正收斂 frontier 句為僅管循序取工＋明載互斥不變；r2 重審確認 🔴 消除、僅 1 🟡 措辭級（方向詞）走快速路徑套用後通過。review_reds 記首輪原始數 1。retro 已依 step 7 於 commit 前呼叫（🔴 輪觸發）。直寫知識前置留痕：grep RETRO 命中單一枚舉點／投放路徑並遵守——但未涵蓋跨文件語義消費端盤點，此缺口交 retro 提煉",
+  "review_reds": 1,
+  "verify_passed": true,
+  "verification_commands": [
+    {"command": "python3 .claude/hooks/test_baseline.py baseline --run-id 2026-08-07-blocking-edges", "exit_code": 0},
+    {"command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-08-07-blocking-edges --strike-key item_1", "exit_code": 0},
+    {"command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-08-07-blocking-edges --cmd \"python3 -m unittest discover -s tests\" --strike-key full_suite", "exit_code": 0},
+    {"command": "python3 -m unittest discover -s tests", "exit_code": 0},
+    {"command": "python3 -c \"<互斥句／方向詞／expand–contract／eval-flow 零改動 斷言驗證，見 local_test_evidence>\"", "exit_code": 0}
+  ]
+}
