@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-08-07-two-axis-review",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "6e6870fb517ef686acf4e6d528f08984e0aa3f8a",
+  "stable_failures": []
+}

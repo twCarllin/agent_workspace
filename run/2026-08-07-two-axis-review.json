@@ -1,0 +1,29 @@
+{
+  "run_id": "2026-08-07-two-axis-review",
+  "created_at": "2026-08-07 11:40",
+  "framework_version": "2026.08.07.1",
+  "tier": 1,
+  "tier_rationale": "來源：mattpocock/skills code-review 的雙軸分離原則與 Fowler smell 基準表移植。變更全部是 agent 定義與 skill 的 prose（報告結構敘述＋審查基準表），不動 hooks 任何可執行邏輯行（review_reds 由主 flow 手動轉錄，hook 不解析審查報告，故報告結構變更不觸及 gate 判定）。需求無歧義（DoD：報告總結分軸統計、品質節含 smell 基準層、eval-flow step 3 同步指向）、單一路徑、1 task／2 items，判 Tier 1。",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "把 mattpocock code-review 的兩個可移植件落進 code-reviewer agent 定義：(1) 雙軸分離原則——完成度節（Spec 軸：做了該做的嗎）與品質節（Standards 軸：做的方式對嗎）已存在，補上分離紀律：總結改為分軸統計（各軸問題數＋各軸最重問題），明載不跨軸合併排名、不挑單一 winner（防一軸遮蔽另一軸：合規但做錯事、做對事但違慣例，兩種失敗都要被看見）。(2) Fowler smell 基準層——12 個 code smell（每條格式「是什麼→怎麼修」）作為品質節可維護性範疇的固定基準，三規則：全部判斷級（只標 🟡 不標 🔴）、repo 已文件化的慣例優先於基準（衝突時壓掉 smell）、工具鏈已強制者略過。基準表唯一枚舉點在 code-reviewer.md。同步 eval-flow skill 循環 step 3 的審查敘述（一行指向式，不重列 smell 表），並 bump VERSION 2026.08.07.2。明確不做：不拆成兩個平行 reviewer subagent（本框架單 reviewer 雙節已足，拆分是 token 稅）、不動 eval_gates.py／review_reds 語義、不改完成度節與五維遙測既有規則。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-08-07 11:15 — 批次確認（於 run 2026-08-07-bug-diagnosis-skill 的 HITL 一併確認）：使用者選「三個 run 一次確認」，本 run 依預告規模 1 task／2 items 執行，屆時不再停；實際計畫 2.1（~55行）＋2.2（~6行）在預告規模內",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-08-07.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "baseline stable=0（乾淨進場）| check --strike-key item_1 → PASS | 全套 check --strike-key full_suite → PASS | unittest 171 tests OK（純 prose 變更零觸動符合預期）| Tier 1 功能驗證：python 斷言實跑——12 條 smell 全數在檔、雙軸句與短式界定齊備 | st1 DoD 5/5、st2 DoD 4/4 由 code-reviewer 對 diff 核實；st1 1 🟡（通過即短與分軸模板零問題情境未調和）經引文核實（L101/L128/L93 grep 全中）後走 🟡-only 快速路徑，主 flow 套用措辭級界定句後即通過輪，處置記 review-st1-r1 落檔（收尾清除）| review_reds 記首輪原始 🔴 數＝0（🟡 不計入）| 直寫捷徑知識前置留痕：單一枚舉點（smell 表僅列 code-reviewer.md、eval-flow 指向式）、投放路徑（基準放 reviewer 自身定義檔，載入天然成立）",
+  "review_reds": 0,
+  "verify_passed": true,
+  "verification_commands": [
+    {"command": "python3 .claude/hooks/test_baseline.py baseline --run-id 2026-08-07-two-axis-review", "exit_code": 0},
+    {"command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-08-07-two-axis-review --strike-key item_1", "exit_code": 0},
+    {"command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-08-07-two-axis-review --cmd \"python3 -m unittest discover -s tests\" --strike-key full_suite", "exit_code": 0},
+    {"command": "python3 -m unittest discover -s tests", "exit_code": 0},
+    {"command": "python3 -c \"<12 smell 在檔＋雙軸句＋短式界定 斷言驗證，見 local_test_evidence>\"", "exit_code": 0}
+  ]
+}
