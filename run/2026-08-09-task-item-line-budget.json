@@ -1,0 +1,40 @@
+{
+  "run_id": "2026-08-09-task-item-line-budget",
+  "created_at": "2026-08-09 12:00",
+  "framework_version": "2026.08.07.4",
+  "tier": 1,
+  "tier_rationale": "純 prose（skill／agent 定義／CLAUDE.md 條文），無可執行邏輯行、不觸及高風險面本體；單一使用路徑（拆分產出的行數紀律）、DoD 一句可講清；3 檔合計約 45 行 ≤2 tasks。數據依據：跨 9 專案 2,123 item 量測（p90=10 行、>12 行者 6%、抽查全屬實作內容誤入 DoD），詳對話 2026-08-09。",
+  "phase": "decomposed",
+  "spec_path": null,
+  "spec_inline": "task-decomposer 產出的 Tier 2 task 檔過度冗長（實例 task/2026-07-25.md 平均逾 10 行/item、DoD 內嵌替換全文與實作腳本、header 重述 Spec/usage/impact 內容）。修法：①task-decomposition skill 輸出格式節加 item 行數預算（每 item 含 DoD＋契約表 ≤12 行；DoD ≤5 條、每條一行可驗斷言；禁止內嵌要寫進目標檔的替換全文／程式碼片段——精確措辭住 Spec（Tier 2）或 spec_inline 補註（Tier 1）；標明校準值、實測後可調）②明訂自足性語義：自足＝讀 task 檔＋其引用的 spec/usage/impact 檔即可接手，情境/風險/慣例一律指向式引用（id、節名）不重述內容 ③反模式節加 2 條 reject：DoD 內嵌整段替換文字／程式碼、task 檔重述 Spec/usage/impact 已有內容 ④task-decomposer.md 自檢加機械檢查：超過 12 行的 item 視同實作細節誤入 DoD、重拆瘦身；Clarity 節自足性句同步新語義 ⑤CLAUDE.md 產出物自足性條補半句：引用其他 run 產出檔不算依賴對話。數字 12 與 5 為校準值（12＝既有契約表上限 5 rows＋DoD 5＋描述＋情境的算術和；5＝實例合規 DoD 壓縮後殘量 3–6 的上緣）。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-08-09 12:05 — 確認 1 task／1 item（三檔 prose 合併，~45 行）計畫，主 flow 直寫捷徑",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-08-09.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "test_baseline.py baseline: stable 0；check（test_command=python3 -m unittest discover -s tests）: PASS 無新增穩定失敗 exit=0。純 prose 變更（3 檔 +8/-2），無 code 行為面；DoD grep 斷言 (a)-(e) 主 flow 直驗全命中（≤12 行兩檔命中、指向式引用 3 命中、反模式 +2 條於 :157-158）。",
+  "verification_commands": [
+    {
+      "command": "python3 .claude/hooks/test_baseline.py baseline --run-id 2026-08-09-task-item-line-budget",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-08-09-task-item-line-budget --strike-key sub_task_1",
+      "exit_code": 0
+    },
+    {
+      "command": "grep -rn '≤ **12 行**|> **12 行**' skills/task-decomposition/SKILL.md .claude/agents/task-decomposer.md",
+      "exit_code": 0
+    },
+    {
+      "command": "grep -rc '指向式引用' skills/task-decomposition/SKILL.md CLAUDE.md",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true
+}

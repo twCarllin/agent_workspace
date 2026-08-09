@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-08-09-task-item-line-budget",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "9f11b003301e4ce72a6550eec235809736efdfc6",
+  "stable_failures": []
+}
