@@ -47,7 +47,7 @@ else
   echo "[3/6] Skipped: $SRC_HOOKS not found"
 fi
 
-# 4. hooks 設定 -> parent/.claude/settings.json（無則複製，有則合併 PreToolUse）
+# 4. hooks 設定 -> parent/.claude/settings.json（無則複製，有則合併 PreToolUse／SessionStart）
 SRC_SETTINGS="$SCRIPT_DIR/.claude/settings.json"
 DST_SETTINGS="$PARENT_DIR/.claude/settings.json"
 if [ -f "$SRC_SETTINGS" ]; then
@@ -60,12 +60,13 @@ import json, sys
 src_path, dst_path = sys.argv[1], sys.argv[2]
 with open(src_path) as f: src = json.load(f)
 with open(dst_path) as f: dst = json.load(f)
-entries = dst.setdefault("hooks", {}).setdefault("PreToolUse", [])
 added = 0
-for entry in src["hooks"]["PreToolUse"]:
-    if entry not in entries:
-        entries.append(entry)
-        added += 1
+for event, src_entries in src.get("hooks", {}).items():
+    entries = dst.setdefault("hooks", {}).setdefault(event, [])
+    for entry in src_entries:
+        if entry not in entries:
+            entries.append(entry)
+            added += 1
 if added:
     with open(dst_path, "w") as f:
         json.dump(dst, f, indent=2, ensure_ascii=False)
@@ -86,6 +87,7 @@ if [ -d "$SRC_SKILLS" ]; then
   for skill_path in "$SRC_SKILLS"/*/; do
     [ -d "$skill_path" ] || continue
     skill_name="$(basename "$skill_path")"
+    [ "$skill_name" = "_deprecated" ] && continue
     target="$USER_SKILLS_DIR/$skill_name"
     mkdir -p "$target"
     cp -Rf "$skill_path"/. "$target/"

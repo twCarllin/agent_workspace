@@ -3,6 +3,7 @@
 執行：python3 -m unittest discover -s tests -v
 在暫存目錄操作真實檔案（helper 以 cwd 的 eval_state.json 為對象）。
 """
+import io
 import json
 import os
 import sys
@@ -13,6 +14,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".claude" / "hooks"))
 import eval_state  # noqa: E402
+import eval_gates  # noqa: E402
 
 
 def run_cli(*argv):
@@ -213,6 +215,118 @@ class EvalStateHelperTest(unittest.TestCase):
         run_cli("add-verification", "1", "--command", "pytest -q", "--exit-code", "0")
         vc = self.read_state()["sub_tasks"][0]["verification_commands"]
         self.assertEqual(vc, [{"command": "pytest -q", "exit_code": 0}])
+
+
+# --- 2a：events.jsonl append（旁路記錄，不得影響主命令 exit code）---
+
+class EventAppendTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+
+    def tearDown(self):
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    def read_state(self):
+        with open("eval_state.json", encoding="utf-8") as f:
+            return json.load(f)
+
+    def read_events(self, run_id):
+        with open(os.path.join("run", f"{run_id}.events.jsonl"), encoding="utf-8") as f:
+            return [json.loads(line) for line in f if line.strip()]
+
+    def test_write_subcommand_appends_event(self):
+        run_cli("init", "--run-id", "r1")
+        events = self.read_events("r1")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["cmd"], "init")
+        self.assertIn("ts", events[0])
+        self.assertEqual(events[0]["args"]["run_id"], "r1")
+        self.assertNotIn("func", events[0]["args"])
+        self.assertNotIn("command", events[0]["args"])
+
+    def test_multiple_write_subcommands_append_in_order(self):
+        run_cli("init", "--run-id", "r2")
+        run_cli("add-subtask", "--id", "1", "--name", "demo")
+        run_cli("set-step", "1", "writing")
+        events = self.read_events("r2")
+        self.assertEqual([e["cmd"] for e in events], ["init", "add-subtask", "set-step"])
+
+    def test_list_files_does_not_append(self):
+        run_cli("init", "--run-id", "r3")
+        run_cli("add-subtask", "--id", "1", "--name", "demo")
+        run_cli("set-files", "1", "a.py")
+        before = len(self.read_events("r3"))
+        buf = io.StringIO()
+        with mock.patch.object(sys, "stdout", buf):
+            run_cli("list-files")
+        after = len(self.read_events("r3"))
+        self.assertEqual(before, after)  # 唯讀命令不 append
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root 略過檔案權限測試")
+    def test_events_dir_unwritable_main_command_still_succeeds(self):
+        """events 目錄不可寫（無法新建檔案）→ 主命令仍成功，僅 stderr warning（風險技術#1）。"""
+        with open("eval_state.json", "w", encoding="utf-8") as f:
+            json.dump({"run_id": "r4", "sub_tasks": []}, f)
+        os.makedirs("run", exist_ok=True)
+        os.chmod("run", 0o500)  # 可進入目錄、不可新建檔案
+        try:
+            stderr_buf = io.StringIO()
+            with mock.patch.object(sys, "stderr", stderr_buf):
+                run_cli("add-subtask", "--id", "1", "--name", "demo")
+        finally:
+            os.chmod("run", 0o700)
+        st = self.read_state()["sub_tasks"][0]
+        self.assertEqual(st["name"], "demo")  # 主命令成功寫入
+        self.assertIn("事件記錄寫入失敗", stderr_buf.getvalue())
+        self.assertFalse(os.path.exists(os.path.join("run", "r4.events.jsonl")))
+
+    def test_missing_run_id_skips_append_with_warning(self):
+        """eval_state.json 缺 run_id（如舊檔）→ 略過事件記錄，僅 warning，不影響主命令（D-err2）。"""
+        with open("eval_state.json", "w", encoding="utf-8") as f:
+            json.dump({"sub_tasks": []}, f)  # 無 run_id 鍵
+        stderr_buf = io.StringIO()
+        with mock.patch.object(sys, "stderr", stderr_buf):
+            run_cli("add-subtask", "--id", "1", "--name", "demo")
+        self.assertIn("run_id 缺失", stderr_buf.getvalue())
+        self.assertEqual(self.read_state()["sub_tasks"][0]["name"], "demo")  # 主命令仍成功
+        self.assertFalse(os.path.isdir("run"))  # 未產生任何 events 檔
+
+    def test_arg_value_over_200_chars_truncated(self):
+        run_cli("init", "--run-id", "r5")
+        run_cli("add-subtask", "--id", "1", "--name", "demo")
+        long_val = "x" * 250
+        run_cli("set-test", "1", "--passed", "--evidence", long_val)
+        events = self.read_events("r5")
+        self.assertEqual(events[-1]["args"]["evidence"], "x" * 200 + "…[truncated]")
+
+    def test_arg_value_exactly_200_chars_not_truncated(self):
+        """[邊界] 恰 200 字元（非 >200）不截斷——DoD 的門檻是「>200」，200 本身合法。"""
+        run_cli("init", "--run-id", "r7")
+        run_cli("add-subtask", "--id", "1", "--name", "demo")
+        exact_val = "y" * 200
+        run_cli("set-test", "1", "--passed", "--evidence", exact_val)
+        events = self.read_events("r7")
+        self.assertEqual(events[-1]["args"]["evidence"], exact_val)
+
+    def test_arg_value_with_special_characters_not_mangled(self):
+        """含特殊字元：中文／引號／emoji 的 arg 值原樣寫入 events.jsonl（json.dumps ensure_ascii=False）。"""
+        run_cli("init", "--run-id", "r8")
+        run_cli("add-subtask", "--id", "1", "--name", "demo")
+        special_val = '含「引號」與換行\n特殊字元 🎉'
+        run_cli("set-test", "1", "--passed", "--evidence", special_val)
+        events = self.read_events("r8")
+        self.assertEqual(events[-1]["args"]["evidence"], special_val)
+
+    def test_events_file_name_not_matched_by_manifest_re(self):
+        """新衍生檔命名前置檢查（retro 約束）：.events.jsonl 不可被誤判為 run manifest——
+        `.jsonl` 副檔名不匹配 `MANIFEST_RE` 的 `\\.json$` 錨定。"""
+        run_cli("init", "--run-id", "r6")
+        events_path = os.path.join("run", "r6.events.jsonl")
+        self.assertTrue(os.path.exists(events_path))
+        self.assertIsNone(eval_gates.MANIFEST_RE.match(events_path))
 
 
 if __name__ == "__main__":

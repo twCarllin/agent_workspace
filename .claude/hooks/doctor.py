@@ -5,20 +5,25 @@
   python3 .claude/hooks/doctor.py
 
 檢查：
-  1. hooks 檔案齊全（5 個 script ＋ VERSION）且 Python 檔可編譯
+  1. hooks 檔案齊全（6 個 script ＋ VERSION）且 Python 檔可編譯
   2. .claude/settings.json 的 PreToolUse 含 gate-check（防線真的接上）
   3. 核心 skill 已部署到 ~/.claude/skills/
   4. retro/RETRO.md 存在（seed 或累積）
   5. 殘留狀態：eval_state.json 存在 → 提示有 in_progress run（resume 或收尾）
 
 exit 0 = 全過；exit 1 = 有問題（逐條列出）。修法：重跑 agent_workspace 的 init.sh。
+
+用法：
+  python3 .claude/hooks/doctor.py            完整輸出（OK＋ISSUE 逐條，全過再印健檢通過）
+  python3 .claude/hooks/doctor.py --brief    僅輸出異常行；全綠時無任何輸出（供其他 hook 內嵌呼叫）
 """
+import argparse
 import json
 import os
 import py_compile
 import sys
 
-HOOKS = ["eval_gates.py", "test_baseline.py", "test_lint.py", "eval_state.py", "stats.py"]
+HOOKS = ["eval_gates.py", "test_baseline.py", "test_lint.py", "eval_state.py", "stats.py", "session_start.py"]
 CORE_SKILLS = ["eval-flow", "eval-flow-resume", "test-strategy", "task-decomposition"]
 
 
@@ -41,7 +46,7 @@ def check_skills_sync(repo_skills_dir, deploy_skills_dir):
         return ok, issues
 
     def list_skills(d):
-        return {n for n in os.listdir(d) if _non_dotfile(n) and os.path.isdir(os.path.join(d, n))}
+        return {n for n in os.listdir(d) if _non_dotfile(n) and n != "_deprecated" and os.path.isdir(os.path.join(d, n))}
 
     def dirs_equal(a, b):
         a_entries = {n for n in os.listdir(a) if _non_dotfile(n)}
@@ -86,7 +91,8 @@ def check_skills_sync(repo_skills_dir, deploy_skills_dir):
     return ok, issues
 
 
-def main():
+def run_checks():
+    """跑全部健檢項目，回傳 (ok, issues) 兩份字串 list（不印出）。"""
     hooks_dir = os.path.dirname(os.path.abspath(__file__))
     issues = []
     ok = []
@@ -148,14 +154,33 @@ def main():
         rid = state.get("run_id") if isinstance(state, dict) else "?"
         ok.append(f"⚠ eval_state.json 存在（run_id: {rid}）——有 in_progress 的 run，依 eval-flow-resume 續跑或收尾")
 
-    for line in ok:
-        print(f"[doctor] OK: {line}")
+    return ok, issues
+
+
+def report(ok, issues, brief=False):
+    """印出 ok/issues 兩份清單，回傳 exit code（0 全過、1 有問題）。
+    brief=True 時只印異常行；全綠時無任何輸出（供 SessionStart hook 內嵌呼叫的快路徑）。"""
+    if not brief:
+        for line in ok:
+            print(f"[doctor] OK: {line}")
     for line in issues:
         print(f"[doctor] ISSUE: {line}", file=sys.stderr)
     if issues:
-        print(f"[doctor] {len(issues)} 個問題——修法：重跑 agent_workspace 的 ./init.sh", file=sys.stderr)
-        sys.exit(1)
-    print("[doctor] 健檢通過")
+        if not brief:
+            print(f"[doctor] {len(issues)} 個問題——修法：重跑 agent_workspace 的 ./init.sh", file=sys.stderr)
+        return 1
+    if not brief:
+        print("[doctor] 健檢通過")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description="部署健檢")
+    parser.add_argument("--brief", action="store_true",
+                         help="僅輸出異常行；全綠時無任何輸出")
+    args = parser.parse_args()
+    ok, issues = run_checks()
+    sys.exit(report(ok, issues, brief=args.brief))
 
 
 if __name__ == "__main__":

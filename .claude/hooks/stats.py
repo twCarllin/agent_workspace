@@ -18,11 +18,14 @@
                    Tier 1 讀 manifest、Tier 2 讀各 sub_task。鍵不存在＝無記錄（不計入分母），
                    存在但空陣列＝有記錄但 0 條——兩者不可混為一談
   gate 命中        每條 gate 的觸發次數——從不觸發的 gate 是修剪候選
+  事件記錄         每 run 的 events.jsonl 事件數／首尾時距／set-step 重入次數（重試信號）；
+                   依 `ts` 欄位取極值、依 cmd+step 計數，不依賴檔內物理行序；無 events 檔顯示「無記錄」
 
 資料來源：run/*.json（manifest）、run/*.eval.json、run/*.test_baseline.json、
-run/gate_hits.log。欄位缺漏時顯示 n/a 並註明需要什麼資料，不猜。
+run/*.events.jsonl、run/gate_hits.log。欄位缺漏時顯示 n/a 並註明需要什麼資料，不猜。
 """
 import argparse
+import datetime
 import glob
 import json
 import os
@@ -41,6 +44,47 @@ def load(path):
         return None
 
 
+def _parse_events(path):
+    """讀 events.jsonl；檔不存在回 None（消費端「無記錄」判準），壞行寬容跳過。"""
+    if not os.path.exists(path):
+        return None
+    events = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return events
+
+
+def _events_summary(events):
+    """2c：事件數／首尾時距／set-step 重入。依 `ts` 取極值、依 (id, step) 計數，
+    不依賴檔內物理行序（usage 正確性假設 1）。"""
+    timestamps = []
+    for e in events:
+        ts = e.get("ts")
+        if not ts:
+            continue
+        try:
+            timestamps.append(datetime.datetime.fromisoformat(ts))
+        except ValueError:
+            continue
+    span_seconds = (max(timestamps) - min(timestamps)).total_seconds() if len(timestamps) >= 2 else None
+
+    step_hits = Counter()
+    for e in events:
+        if e.get("cmd") == "set-step":
+            args = e.get("args", {})
+            step_hits[(args.get("id"), args.get("step"))] += 1
+    reentry = sum(cnt - 1 for cnt in step_hits.values() if cnt >= 2)
+
+    return {"count": len(events), "span_seconds": span_seconds, "reentry": reentry}
+
+
 def collect(run_dir="run"):
     data = {
         "runs": [], "tiers": Counter(), "statuses": Counter(),
@@ -50,6 +94,7 @@ def collect(run_dir="run"):
         "baseline": [],  # (run_id, stable)
         "verif_runs": 0, "verif_cmds": 0,
         "gate_hits": Counter(), "gate_hit_lines": [],
+        "events": [],  # (run_id, summary dict | None)
     }
     for path in sorted(glob.glob(os.path.join(run_dir, "*.json"))):
         name = os.path.basename(path)
@@ -119,6 +164,11 @@ def collect(run_dir="run"):
                 (m["run_id"], len(base.get("stable_failures", [])))
             )
 
+        events = _parse_events(os.path.join(run_dir, f"{m['run_id']}.events.jsonl"))
+        data["events"].append(
+            (m["run_id"], _events_summary(events) if events is not None else None)
+        )
+
     log_path = os.path.join(run_dir, "gate_hits.log")
     if os.path.exists(log_path):
         with open(log_path, encoding="utf-8") as f:
@@ -178,6 +228,15 @@ def report(data):
     if data["baseline"]:
         trend = "、".join(f"{r}: stable {s}" for r, s in data["baseline"])
         out.append(f"baseline 欠帳走勢：{trend}")
+    if data["events"]:
+        parts = []
+        for run_id, info in data["events"]:
+            if info is None:
+                parts.append(f"{run_id}: 無記錄")
+            else:
+                span = f"{info['span_seconds']:.1f}s" if info["span_seconds"] is not None else "n/a"
+                parts.append(f"{run_id}: {info['count']} 事件／時距 {span}／重入 {info['reentry']}")
+        out.append(f"事件記錄：{'、'.join(parts)}")
     append_gate_hits(out, data)
     return "\n".join(out)
 

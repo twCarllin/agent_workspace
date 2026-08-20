@@ -21,6 +21,7 @@ archive 前驗證全部 sub_task passed 且測試欄位齊備（同 eval_gates �
 驗證不過即 exit 2 不落盤。exit 0 = 成功；exit 1 = 使用錯誤；exit 2 = 驗證不過。
 """
 import argparse
+import datetime
 import json
 import os
 import sys
@@ -54,6 +55,37 @@ def save(state, path=STATE_PATH):
         f.write("\n")
 
 
+EVENTS_ARG_TRUNCATE_LEN = 200
+
+
+def _truncate_value(v):
+    if isinstance(v, str) and len(v) > EVENTS_ARG_TRUNCATE_LEN:
+        return v[:EVENTS_ARG_TRUNCATE_LEN] + "…[truncated]"
+    if isinstance(v, list):
+        return [_truncate_value(x) for x in v]
+    return v
+
+
+def append_event(run_id, cmd_name, args):
+    """2a：寫入子命令成功後的事件留痕（旁路）。append 必須發生在 save() 成功之後，
+    失敗僅 stderr warning、不改主子命令的 exit code（風險技術#1：旁路不得變主路）。"""
+    if not run_id:
+        print(f"[eval-state] 警告：run_id 缺失，略過事件記錄（cmd={cmd_name}）", file=sys.stderr)
+        return
+    try:
+        event = {
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "cmd": cmd_name,
+            "args": {k: _truncate_value(v) for k, v in vars(args).items()
+                     if k not in ("func", "command")},
+        }
+        os.makedirs("run", exist_ok=True)
+        with open(os.path.join("run", f"{run_id}.events.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"[eval-state] 警告：事件記錄寫入失敗（{e}），不影響本次操作", file=sys.stderr)
+
+
 def find_subtask(state, sid):
     for st in state.get("sub_tasks", []):
         if st.get("id") == sid:
@@ -65,6 +97,7 @@ def cmd_init(args):
     if os.path.exists(STATE_PATH):
         fail(f"{STATE_PATH} 已存在：一個 worktree 同時只跑一個 run，先收尾或歸檔既有 run")
     save({"run_id": args.run_id, "sub_tasks": []})
+    append_event(args.run_id, "init", args)
     print(f"[eval-state] init: run_id={args.run_id}")
 
 
@@ -81,6 +114,7 @@ def cmd_add_subtask(args):
         "risk_analysis": None, "review_dimensions": None,
     })
     save(state)
+    append_event(state.get("run_id"), "add-subtask", args)
     print(f"[eval-state] add-subtask: {args.id}「{args.name}」")
 
 
@@ -88,6 +122,7 @@ def cmd_set_step(args):
     state = load()
     find_subtask(state, args.id)["step"] = args.step
     save(state)
+    append_event(state.get("run_id"), "set-step", args)
     print(f"[eval-state] sub_task {args.id} step -> {args.step}")
 
 
@@ -95,6 +130,7 @@ def cmd_set_files(args):
     state = load()
     find_subtask(state, args.id)["files"] = list(dict.fromkeys(args.files))
     save(state)
+    append_event(state.get("run_id"), "set-files", args)
     print(f"[eval-state] sub_task {args.id} files -> {len(args.files)} 個檔案")
 
 
@@ -111,6 +147,7 @@ def cmd_set_test(args):
         if args.evidence:
             st["local_test_evidence"] = args.evidence
     save(state)
+    append_event(state.get("run_id"), "set-test", args)
     print(f"[eval-state] sub_task {args.id} local_test_passed -> {st['local_test_passed']}")
 
 
@@ -121,6 +158,7 @@ def cmd_set_status(args):
     if args.warning:
         st["warning"] = True
     save(state)
+    append_event(state.get("run_id"), "set-status", args)
     print(f"[eval-state] sub_task {args.id} status -> {args.status}")
 
 
@@ -153,6 +191,7 @@ def cmd_set_review(args):
     if dims is not None:
         st["review_dimensions"] = dims
     save(state)
+    append_event(state.get("run_id"), "set-review", args)
     msg = f"[eval-state] sub_task {args.id} review_reds -> {args.reds}"
     if dims is not None:
         msg += f"，review_dimensions -> {dims}"
@@ -163,6 +202,7 @@ def cmd_set_verify(args):
     state = load()
     find_subtask(state, args.id)["verify_passed"] = True
     save(state)
+    append_event(state.get("run_id"), "set-verify", args)
     print(f"[eval-state] sub_task {args.id} verify_passed -> True")
 
 
@@ -178,6 +218,7 @@ def cmd_add_verification(args):
         {"command": args.command, "exit_code": args.exit_code}
     )
     save(state)
+    append_event(state.get("run_id"), "add-verification", args)
     print(f"[eval-state] sub_task {args.id} verification_commands "
           f"+1（共 {len(st['verification_commands'])} 筆）exit={args.exit_code}")
 
@@ -203,6 +244,7 @@ def cmd_archive(args):
     archive_path = f"run/{run_id}.eval.json"
     os.makedirs("run", exist_ok=True)
     save(state, archive_path)
+    append_event(run_id, "archive", args)
     os.remove(STATE_PATH)
     print(f"[eval-state] 已歸檔 {archive_path} 並清除 {STATE_PATH}（記得把 manifest 標 completed）")
 

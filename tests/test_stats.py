@@ -4,6 +4,7 @@
 """
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".claude" / "hooks"))
 import stats  # noqa: E402
+
+HOOKS_DIR = str(Path(__file__).resolve().parents[1] / ".claude" / "hooks")
 
 
 def write(path, obj):
@@ -229,6 +232,178 @@ class StatsCollectTest(unittest.TestCase):
         self.assertIn("共 5 條／2 個有記錄的 run", text)
         self.assertIn("平均 2.5 條", text)
         self.assertIn("無記錄：1 個 run", text)
+
+    # --- 1c：aborted 計入 status 分佈（Counter 無寫死枚舉，加斷言即可，不改碼）---
+
+    def test_aborted_status_counted_in_distribution(self):
+        write(os.path.join(self.run_dir, "ab.json"),
+              {"run_id": "ab", "tier": 1, "status": "aborted", "failed_reason": "使用者放棄"})
+        write(os.path.join(self.run_dir, "ok.json"),
+              {"run_id": "ok", "tier": 1, "status": "completed"})
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["statuses"]["aborted"], 1)
+        self.assertEqual(data["statuses"]["completed"], 1)
+        text = stats.report(data)
+        self.assertIn("aborted", text)
+
+    # --- 2c：events.jsonl 消費（事件數／時距／set-step 重入）---
+
+    def write_events(self, run_id, lines):
+        path = os.path.join(self.run_dir, f"{run_id}.events.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            for line in lines:
+                f.write(json.dumps(line) + "\n")
+
+    def test_run_with_events_reports_count_span_and_reentry(self):
+        write(os.path.join(self.run_dir, "ev.json"), {"run_id": "ev", "tier": 1, "status": "completed"})
+        self.write_events("ev", [
+            {"ts": "2026-08-20T10:00:00+00:00", "cmd": "init", "args": {"run_id": "ev"}},
+            {"ts": "2026-08-20T10:00:05+00:00", "cmd": "add-subtask", "args": {"id": 1, "name": "x"}},
+            {"ts": "2026-08-20T10:00:10+00:00", "cmd": "set-step", "args": {"id": 1, "step": "writing"}},
+            {"ts": "2026-08-20T10:05:10+00:00", "cmd": "set-step", "args": {"id": 1, "step": "writing"}},
+        ])
+        data = stats.collect(self.run_dir)
+        events = dict(data["events"])
+        self.assertEqual(events["ev"]["count"], 4)
+        self.assertEqual(events["ev"]["span_seconds"], 310.0)
+        self.assertEqual(events["ev"]["reentry"], 1)  # 同 sub_task 同 step 出現 2 次 → 重入計 1
+        text = stats.report(data)
+        self.assertIn("事件記錄", text)
+        self.assertIn("4 事件", text)
+
+    def test_run_without_events_file_shows_no_record(self):
+        write(os.path.join(self.run_dir, "noev.json"), {"run_id": "noev", "tier": 1, "status": "completed"})
+        data = stats.collect(self.run_dir)
+        events = dict(data["events"])
+        self.assertIsNone(events["noev"])
+        text = stats.report(data)
+        self.assertIn("noev: 無記錄", text)
+
+    def test_events_line_order_shuffled_does_not_change_span_or_reentry(self):
+        """[邊界] events 行序被打亂 → 時距/重入不變（依 ts＋cmd+step，不依賴物理行序）。"""
+        write(os.path.join(self.run_dir, "sh.json"), {"run_id": "sh", "tier": 1, "status": "completed"})
+        in_order = [
+            {"ts": "2026-08-20T10:00:00+00:00", "cmd": "set-step", "args": {"id": 1, "step": "writing"}},
+            {"ts": "2026-08-20T10:00:20+00:00", "cmd": "set-step", "args": {"id": 1, "step": "fixing"}},
+            {"ts": "2026-08-20T10:00:10+00:00", "cmd": "set-step", "args": {"id": 1, "step": "writing"}},
+        ]
+        shuffled = [in_order[1], in_order[2], in_order[0]]
+        self.write_events("sh", shuffled)
+        data = stats.collect(self.run_dir)
+        events = dict(data["events"])
+        self.assertEqual(events["sh"]["span_seconds"], 20.0)
+        self.assertEqual(events["sh"]["reentry"], 1)  # (1,"writing") 出現 2 次
+
+    def test_events_file_not_counted_as_run_manifest(self):
+        """retro 約束（新衍生檔命名前置檢查）：events.jsonl 的 basename 不匹配 stats.py 的
+        MANIFEST_RE（`.jsonl` 副檔名不匹配 `\\.json$`），不得被 run 計數誤判為 manifest。"""
+        write(os.path.join(self.run_dir, "cnt.json"), {"run_id": "cnt", "tier": 1, "status": "completed"})
+        self.write_events("cnt", [{"ts": "2026-08-20T10:00:00+00:00", "cmd": "init", "args": {}}])
+        data = stats.collect(self.run_dir)
+        self.assertEqual(sorted(data["runs"]), ["cnt"])  # events.jsonl 不算一個 run
+        self.assertIsNone(stats.MANIFEST_RE.match("cnt.events.jsonl"))
+
+    # events.jsonl 解析邊界覆蓋（retro：正常／含空白／含特殊字元／邊界各一條）
+
+    def write_raw_events(self, run_id, raw_text):
+        path = os.path.join(self.run_dir, f"{run_id}.events.jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(raw_text)
+
+    def test_events_file_skips_blank_lines_and_malformed_json(self):
+        """含空白／邊界：空白行與壞掉的 JSON 行寬容跳過，不 crash、不誤計數。"""
+        write(os.path.join(self.run_dir, "blank.json"), {"run_id": "blank", "tier": 1, "status": "completed"})
+        raw = (
+            '{"ts": "2026-08-20T10:00:00+00:00", "cmd": "init", "args": {}}\n'
+            "\n"
+            "   \n"
+            "{not valid json}\n"
+            '{"ts": "2026-08-20T10:00:05+00:00", "cmd": "set-step", "args": {"id": 1, "step": "writing"}}\n'
+        )
+        self.write_raw_events("blank", raw)
+        data = stats.collect(self.run_dir)
+        events = dict(data["events"])
+        self.assertEqual(events["blank"]["count"], 2)  # 空白行與壞行不計入
+        self.assertEqual(events["blank"]["span_seconds"], 5.0)
+
+    def test_events_args_with_special_characters_preserved(self):
+        """含特殊字元：中文、引號、換行字元的 arg 值原樣往返（json.dumps/loads 皆過 unicode escape）。"""
+        write(os.path.join(self.run_dir, "spec.json"), {"run_id": "spec", "tier": 1, "status": "completed"})
+        self.write_events("spec", [
+            {"ts": "2026-08-20T10:00:00+00:00", "cmd": "set-test",
+             "args": {"evidence": 'pytest -q -> 3 passed，含「引號」與換行\n特殊字元 🎉'}},
+        ])
+        data = stats.collect(self.run_dir)
+        events = dict(data["events"])
+        self.assertEqual(events["spec"]["count"], 1)
+        with open(os.path.join(self.run_dir, "spec.events.jsonl"), encoding="utf-8") as f:
+            raw_event = json.loads(f.readline())
+        self.assertIn("🎉", raw_event["args"]["evidence"])
+
+    def test_events_file_empty_reports_zero_count_and_no_span(self):
+        """邊界：events.jsonl 存在但 0 行（無事件）→ count=0、span_seconds=None，不 crash。"""
+        write(os.path.join(self.run_dir, "empty.json"), {"run_id": "empty", "tier": 1, "status": "completed"})
+        self.write_raw_events("empty", "")
+        data = stats.collect(self.run_dir)
+        events = dict(data["events"])
+        self.assertEqual(events["empty"]["count"], 0)
+        self.assertIsNone(events["empty"]["span_seconds"])
+        self.assertEqual(events["empty"]["reentry"], 0)
+
+
+# --- 2.4：整合測試（跨 item）——真實 eval_state.py 子命令序列 → events.jsonl → stats 消費 ---
+
+class EventsIntegrationTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+
+    def tearDown(self):
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    def run_eval_state(self, *argv):
+        subprocess.run(
+            [sys.executable, os.path.join(HOOKS_DIR, "eval_state.py"), *argv],
+            check=True, capture_output=True, text=True,
+        )
+
+    def test_real_subcommand_sequence_consumed_correctly(self):
+        run_id = "2026-08-20-int-test"
+        self.run_eval_state("init", "--run-id", run_id)
+        self.run_eval_state("add-subtask", "--id", "1", "--name", "demo")
+        self.run_eval_state("set-step", "1", "writing")
+        self.run_eval_state("set-step", "1", "writing")  # 重入：同 sub_task 同 step 第 2 次（重試信號）
+        self.run_eval_state("set-files", "1", "src/a.py")
+        self.run_eval_state("set-test", "1", "--passed", "--evidence", "pytest -> ok")
+        self.run_eval_state("set-review", "1", "0")
+        self.run_eval_state("set-verify", "1")
+        self.run_eval_state("set-status", "1", "passed")
+        self.run_eval_state("list-files")  # 唯讀，不應 append
+        self.run_eval_state("archive")
+
+        events_path = os.path.join("run", f"{run_id}.events.jsonl")
+        self.assertTrue(os.path.exists(events_path))
+        with open(events_path, encoding="utf-8") as f:
+            n_lines = sum(1 for line in f if line.strip())
+        # init／add-subtask／set-step×2／set-files／set-test／set-review／set-verify／set-status／archive = 10
+        self.assertEqual(n_lines, 10)
+
+        write(os.path.join("run", f"{run_id}.json"), {"run_id": run_id, "tier": 2, "status": "completed"})
+
+        data = stats.collect("run")
+        info = dict(data["events"])[run_id]
+        self.assertEqual(info["count"], 10)
+        self.assertEqual(info["reentry"], 1)
+        self.assertIsNotNone(info["span_seconds"])
+        self.assertGreaterEqual(info["span_seconds"], 0)
+
+        text = stats.report(data)
+        self.assertIn(f"{run_id}:", text)
+        self.assertIn("重入 1", text)
 
 
 if __name__ == "__main__":

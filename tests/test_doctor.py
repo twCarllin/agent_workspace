@@ -1,8 +1,11 @@
-"""doctor.py 的 check_skills_sync 測試。
+"""doctor.py 的 check_skills_sync 與 --brief（report）測試。
 
 執行：python3 -m unittest discover -s tests -v
 """
+import contextlib
+import io
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -100,6 +103,92 @@ class CheckSkillsSyncTest(unittest.TestCase):
             f.write("junk")
         ok, issues = doctor.check_skills_sync(self.repo, self.deploy)
         self.assertEqual(issues, [])
+
+    # --- 3c：_deprecated 排除（僅 repo 有 _deprecated，部署層沒有——不誤報 repo_only）---
+
+    def test_deprecated_dir_not_reported_as_repo_only(self):
+        """[邊界] repo 含 _deprecated、部署層不含（正常情境：已排除同步）→ 不報 repo_only。"""
+        make_skill(self.repo, "_deprecated", {"eval-scoring/SKILL.md": "old"})
+        make_skill(self.repo, "foo", {"SKILL.md": "content"})
+        make_skill(self.deploy, "foo", {"SKILL.md": "content"})
+        ok, issues = doctor.check_skills_sync(self.repo, self.deploy)
+        self.assertEqual(issues, [])
+
+    def test_deprecated_dir_not_counted_in_sync_total(self):
+        """健檢不計 _deprecated：兩邊都有時，同步計數只算非 _deprecated 的 skill 數。"""
+        make_skill(self.repo, "_deprecated", {"eval-scoring/SKILL.md": "old"})
+        make_skill(self.repo, "foo", {"SKILL.md": "content"})
+        make_skill(self.deploy, "_deprecated", {"eval-scoring/SKILL.md": "old"})
+        make_skill(self.deploy, "foo", {"SKILL.md": "content"})
+        ok, issues = doctor.check_skills_sync(self.repo, self.deploy)
+        self.assertEqual(issues, [])
+        ok_text = " ".join(ok)
+        self.assertIn("1", ok_text)  # 只計 foo，不含 _deprecated
+
+
+class DeprecatedSkillsIntegrationTest(unittest.TestCase):
+    """3.4：整合測試（跨 item）——真實 repo skills/_deprecated 目錄的排除行為端到端驗證。"""
+
+    def setUp(self):
+        self.repo_skills_dir = str(Path(__file__).resolve().parents[1] / "skills")
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_real_deprecated_dir_excluded_end_to_end(self):
+        """repo 真實含 skills/_deprecated/（5 個歸檔 skill）；部署層鏡射其餘 skill（模擬
+        init.sh 已排除 _deprecated 執行後的結果）→ doctor 不誤報 repo_only。"""
+        self.assertTrue(os.path.isdir(os.path.join(self.repo_skills_dir, "_deprecated")))
+        deploy_dir = os.path.join(self.tmp.name, "deploy_skills")
+        os.makedirs(deploy_dir)
+        for name in os.listdir(self.repo_skills_dir):
+            if name == "_deprecated" or name.startswith("."):
+                continue
+            src = os.path.join(self.repo_skills_dir, name)
+            if os.path.isdir(src):
+                shutil.copytree(src, os.path.join(deploy_dir, name))
+        ok, issues = doctor.check_skills_sync(self.repo_skills_dir, deploy_dir)
+        self.assertEqual(issues, [])
+
+
+class ReportBriefTest(unittest.TestCase):
+    """4.1：doctor.py `report()`（--brief 旗標的輸出格式邏輯）。"""
+
+    def _run(self, ok, issues, brief):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = doctor.report(ok, issues, brief=brief)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_brief_with_issues_prints_only_issue_lines(self):
+        """--brief 有異常 → 僅印異常行（無 OK、無「N 個問題」摘要）；exit code 維持既有非零約定。"""
+        code, out, err = self._run(["ok1"], ["bad1", "bad2"], brief=True)
+        self.assertEqual(out, "")
+        self.assertEqual(err, "[doctor] ISSUE: bad1\n[doctor] ISSUE: bad2\n")
+        self.assertEqual(code, 1)
+
+    def test_brief_all_clean_no_output(self):
+        """--brief 全綠 → 無任何輸出（stdout 與 stderr 皆空）。"""
+        code, out, err = self._run(["ok1", "ok2"], [], brief=True)
+        self.assertEqual(out, "")
+        self.assertEqual(err, "")
+        self.assertEqual(code, 0)
+
+    def test_default_mode_with_issues_unchanged(self):
+        """無 --brief（有異常）→ 行為不變：OK 行照印、ISSUE 行照印、附「N 個問題」摘要。"""
+        code, out, err = self._run(["ok1"], ["bad1"], brief=False)
+        self.assertEqual(out, "[doctor] OK: ok1\n")
+        self.assertIn("[doctor] ISSUE: bad1\n", err)
+        self.assertIn("1 個問題", err)
+        self.assertEqual(code, 1)
+
+    def test_default_mode_all_clean_unchanged(self):
+        """無 --brief（全綠）→ 行為不變：OK 行＋「健檢通過」，無 stderr 輸出。"""
+        code, out, err = self._run(["ok1"], [], brief=False)
+        self.assertEqual(out, "[doctor] OK: ok1\n[doctor] 健檢通過\n")
+        self.assertEqual(err, "")
+        self.assertEqual(code, 0)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-08-20-obs-hardening",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "3b69bac604a9434770f53b5e86573e07c7c1d2c3",
+  "stable_failures": []
+}

@@ -1,0 +1,125 @@
+{
+  "run_id": "2026-08-20-obs-hardening",
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "Task 1: 失敗／放棄 run 的留痕",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/hooks/eval_gates.py",
+        "skills/eval-flow/SKILL.md",
+        "skills/eval-flow-resume/SKILL.md",
+        "tests/test_eval_gates.py",
+        "tests/test_stats.py"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_baseline.py baseline: stable 0；check（test_command=python3 -m unittest discover -s tests）PASS 無新增穩定失敗 exit=0。審查 r1 🔴×1（窄例外先於防刪除 gate，git rm --cached 繞過）→ 修正（刪除檢查移前＋單元/端到端回歸各 1）→ r2 reviewer 隔離 repo 重放證實 block、111 tests 全綠。mutation self-check：mine seq 3/5/9 sabotage 紅、測試 hash 不變、復原綠。",
+      "verification_commands": [
+        {
+          "command": "python3 .claude/hooks/test_baseline.py baseline --run-id 2026-08-20-obs-hardening",
+          "exit_code": 0
+        },
+        {
+          "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-08-20-obs-hardening --strike-key sub_task_1",
+          "exit_code": 0
+        }
+      ],
+      "review_reds": 1,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Non-functional": 1
+      }
+    },
+    {
+      "id": 2,
+      "name": "Task 2: run 事件日誌",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/hooks/eval_state.py",
+        ".claude/hooks/stats.py",
+        ".gitignore",
+        "skills/eval-flow/SKILL.md",
+        "tests/test_eval_state.py",
+        "tests/test_stats.py"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_baseline.py check PASS 無新增穩定失敗 exit=0（test_command=python3 -m unittest discover -s tests，含 Task 2 新增 events 測試全套）。審查 r1 🔴×0／🟡×1（except 守備窄於契約）→ 一行修正 → r2 通過。mutation self-check：mine seq 18/20 sabotage 紅（重入計數／ts 極值）、hash 不變、還原綠。dogfood：本 run 的 events.jsonl 已由修改後 helper 實際產生。",
+      "verification_commands": [
+        {
+          "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-08-20-obs-hardening --strike-key sub_task_2",
+          "exit_code": 0
+        }
+      ],
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Non-functional": 1
+      }
+    },
+    {
+      "id": 3,
+      "name": "Task 3: 死觀測產物清理",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "init.sh",
+        ".claude/hooks/doctor.py",
+        "tests/test_doctor.py",
+        "scout/2026-07-25-tier2-p-worktree.md",
+        "subagents_record/2026-07-16.md",
+        "subagents_record/2026-07-17.md",
+        "tests/check_worktree_isolation.sh"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_baseline.py check PASS 無新增穩定失敗 exit=0（全套 221 tests 含刪檔後 collection）。審查 r1 首輪通過（🔴 0／🟡 0）；reviewer 獨立 sabotage 驗證反向斷言（移除 doctor 守備 3 FAIL→還原綠）；init.sh continue 寫法 set -euo pipefail 下實測安全；doctor 雙側排除確認清理窗口無誤報。mine seq 25 sabotage 紅／26 綠留痕。",
+      "verification_commands": [
+        {
+          "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-08-20-obs-hardening --strike-key sub_task_3",
+          "exit_code": 0
+        }
+      ],
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    },
+    {
+      "id": 4,
+      "name": "Task 4: SessionStart hook",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        ".claude/hooks/doctor.py",
+        ".claude/hooks/session_start.py",
+        ".claude/settings.json",
+        "init.sh",
+        ".claude/hooks/VERSION",
+        "tests/test_doctor.py",
+        "tests/test_session_start.py",
+        "tests/test_init_merge.py"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_baseline.py check PASS 無新增穩定失敗 exit=0（全套 236 tests 含新增 WorktreeCwdHonoredTest）。審查 r1 🔴×0／🟡×1（getcwd 未沿用 _resolve_root）→ 修正（chdir(_resolve_root(payload))＋真實 worktree 測試）→ r2 通過。subprocess 替代驗證：假 payload 直跑輸出殘留提示＋doctor 異常行、壞 payload 靜默 exit 0（settings 接線待下次 session 端到端驗，風險部署#1 留痕）。mine seq 29/31/33 sabotage 紅、hash 不變、還原綠。",
+      "verification_commands": [
+        {
+          "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-08-20-obs-hardening --strike-key sub_task_4",
+          "exit_code": 0
+        }
+      ],
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": {
+        "Non-functional": 1
+      }
+    }
+  ]
+}

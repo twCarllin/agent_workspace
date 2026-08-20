@@ -707,5 +707,360 @@ class RunHookWorktreeRootTest(unittest.TestCase):
         self.assertEqual(rc, 2)
 
 
+class AbortedConsumptionTest(unittest.TestCase):
+    """1a 契約：aborted／failed 皆為「非 in_progress」，四消費點中可離開 git 直接單元測的兩點。
+    （另兩點 stats.py Counter、eval-flow-resume SKILL.md 文件面分別見 test_stats.py 與人工核對。）"""
+
+    def setUp(self):
+        import os
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        os.makedirs("run")
+
+    def tearDown(self):
+        import os
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    def _write(self, name, obj):
+        import json
+        with open(f"run/{name}", "w", encoding="utf-8") as f:
+            json.dump(obj, f)
+
+    # check_other_runs：aborted 不擋新 run
+    def test_check_other_runs_ignores_aborted(self):  # testlint: allow — 斷言的是「不拋例外」
+        self._write("other.json", {"run_id": "other", "status": "aborted"})
+        eval_gates.check_other_runs("current")  # must not raise
+
+    # 邊界：failed 與 aborted 同待遇
+    def test_check_other_runs_ignores_failed(self):  # testlint: allow — 斷言的是「不拋例外」
+        self._write("other.json", {"run_id": "other", "status": "failed"})
+        eval_gates.check_other_runs("current")  # must not raise
+
+    # check_other_runs 仍正確擋 in_progress（回歸，防止改壞判定式）
+    def test_check_other_runs_still_blocks_in_progress(self):
+        self._write("other.json", {"run_id": "other", "status": "in_progress"})
+        with self.assertRaises(SystemExit):
+            eval_gates.check_other_runs("current")
+
+    # _find_unique_tier1_inprogress：只有 aborted 的 tier1 manifest → 找不到（回 None）
+    def test_find_unique_tier1_ignores_aborted(self):
+        self._write("a.json", {"run_id": "a", "tier": 1, "status": "aborted"})
+        self.assertIsNone(eval_gates._find_unique_tier1_inprogress())
+
+    # 邊界：只有 failed 的 tier1 manifest → 同樣找不到
+    def test_find_unique_tier1_ignores_failed(self):
+        self._write("a.json", {"run_id": "a", "tier": 1, "status": "failed"})
+        self.assertIsNone(eval_gates._find_unique_tier1_inprogress())
+
+    # aborted 與真正 in_progress 的 tier1 manifest 共存 → 仍能唯一定位到 in_progress 那個
+    def test_find_unique_tier1_finds_inprogress_alongside_aborted(self):
+        self._write("aborted-run.json", {"run_id": "aborted-run", "tier": 1, "status": "aborted"})
+        self._write("live-run.json", {"run_id": "live-run", "tier": 1, "status": "in_progress"})
+        found = eval_gates._find_unique_tier1_inprogress()
+        self.assertIsNotNone(found)
+        self.assertEqual(found[1]["run_id"], "live-run")
+
+
+class ManifestDeletionGateTest(unittest.TestCase):
+    """1b 契約：check_manifest_deletion 正反向測試（真實 git repo，覆蓋正常/含空白/含特殊字元/
+    rename 邊界，依規則消費 git 輸出前查規格選 -z + NUL split 的安全解析）。"""
+
+    def setUp(self):
+        import os
+        import subprocess
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        subprocess.run(["git", "init", "-q"], check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "t@t.com"], check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "T"], check=True, capture_output=True)
+
+    def tearDown(self):
+        import os
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    def _commit_file(self, path, content):
+        import os
+        import subprocess
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        subprocess.run(["git", "add", path], check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], check=True, capture_output=True)
+
+    # 正常路徑：刪除 manifest → block
+    def test_deleting_manifest_blocks(self):
+        import subprocess
+        self._commit_file("run/2026-08-20-x.json", '{"run_id": "x"}')
+        subprocess.run(["git", "rm", "-q", "run/2026-08-20-x.json"], check=True, capture_output=True)
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_manifest_deletion()
+        self.assertEqual(ctx.exception.code, 2)
+
+    # 含空白路徑
+    def test_deleting_manifest_with_space_blocks(self):
+        import subprocess
+        path = "run/2026-08-20 with space.json"
+        self._commit_file(path, '{"run_id": "x"}')
+        subprocess.run(["git", "rm", "-q", path], check=True, capture_output=True)
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_manifest_deletion()
+        self.assertEqual(ctx.exception.code, 2)
+
+    # 含特殊字元路徑
+    def test_deleting_manifest_with_special_chars_blocks(self):
+        import subprocess
+        path = "run/2026-08-20-a&b-特殊.json"
+        self._commit_file(path, '{"run_id": "x"}')
+        subprocess.run(["git", "rm", "-q", path], check=True, capture_output=True)
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_manifest_deletion()
+        self.assertEqual(ctx.exception.code, 2)
+
+    # rename 邊界：manifest 改名等同讓原路徑消失，須視同刪除（--no-renames 使其被拆解為刪＋加）
+    def test_renaming_manifest_blocks(self):
+        import subprocess
+        self._commit_file("run/2026-08-20-old.json", '{"run_id": "old"}')
+        subprocess.run(
+            ["git", "mv", "run/2026-08-20-old.json", "run/2026-08-20-new.json"],
+            check=True, capture_output=True,
+        )
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_manifest_deletion()
+        self.assertEqual(ctx.exception.code, 2)
+
+    # 歸檔檔刪除 → 放行（B-edge1）
+    def test_deleting_eval_archive_passes(self):  # testlint: allow — 斷言的是「不拋例外」
+        import subprocess
+        self._commit_file("run/2026-08-20-x.eval.json", '{"run_id": "x"}')
+        subprocess.run(["git", "rm", "-q", "run/2026-08-20-x.eval.json"], check=True, capture_output=True)
+        eval_gates.check_manifest_deletion()  # must not raise
+
+    # baseline 檔刪除 → 放行（B-edge1）
+    def test_deleting_test_baseline_passes(self):  # testlint: allow — 斷言的是「不拋例外」
+        import subprocess
+        self._commit_file("run/2026-08-20-x.test_baseline.json", '{"run_id": "x"}')
+        subprocess.run(["git", "rm", "-q", "run/2026-08-20-x.test_baseline.json"], check=True, capture_output=True)
+        eval_gates.check_manifest_deletion()  # must not raise
+
+    # 邊界：manifest 被修改（非刪除）→ 本 gate 不觸發
+    def test_modifying_manifest_not_deleting_passes(self):  # testlint: allow — 斷言的是「不拋例外」
+        import subprocess
+        self._commit_file("run/2026-08-20-x.json", '{"run_id": "x", "status": "in_progress"}')
+        with open("run/2026-08-20-x.json", "w", encoding="utf-8") as f:
+            f.write('{"run_id": "x", "status": "completed"}')
+        subprocess.run(["git", "add", "run/2026-08-20-x.json"], check=True, capture_output=True)
+        eval_gates.check_manifest_deletion()  # must not raise
+
+    # 刪除非 manifest 的一般檔案 → 放行
+    def test_deleting_non_manifest_file_passes(self):  # testlint: allow — 斷言的是「不拋例外」
+        import subprocess
+        self._commit_file("README_temp.md", "hello")
+        subprocess.run(["git", "rm", "-q", "README_temp.md"], check=True, capture_output=True)
+        eval_gates.check_manifest_deletion()  # must not raise
+
+    # 回歸（2026-08-20 code-review 🔴）：`git rm --cached` 只移除索引、保留工作區檔案——
+    # 判定必須看 git 索引狀態（--diff-filter=D），不能被「檔案仍在磁碟上」誤導成未刪除
+    def test_git_rm_cached_manifest_still_blocks_even_if_worktree_file_kept(self):
+        import os
+        import subprocess
+        self._commit_file("run/2026-08-20-x.json", '{"run_id": "x", "status": "aborted", "failed_reason": "放棄"}')
+        subprocess.run(["git", "rm", "-q", "--cached", "run/2026-08-20-x.json"],
+                        check=True, capture_output=True)
+        # 工作區檔案仍存在（--cached 只動索引）
+        self.assertTrue(os.path.exists("run/2026-08-20-x.json"))
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_manifest_deletion()
+        self.assertEqual(ctx.exception.code, 2)
+
+
+class NarrowExceptionGateTest(unittest.TestCase):
+    """1d 契約：check_abort_failed_narrow_exception 正反向測試（純函式，僅需檔案存在，不需 git）。"""
+
+    def setUp(self):
+        import os
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        os.makedirs("run")
+
+    def tearDown(self):
+        import os
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    def _write(self, name, obj):
+        import json
+        with open(f"run/{name}", "w", encoding="utf-8") as f:
+            json.dump(obj, f)
+
+    # 恰一 manifest＋status=aborted＋failed_reason 非空 → True
+    def test_aborted_with_reason_true(self):
+        self._write("x.json", {"run_id": "x", "status": "aborted", "failed_reason": "使用者放棄"})
+        self.assertTrue(eval_gates.check_abort_failed_narrow_exception({"run/x.json"}))
+
+    # 恰一 manifest＋status=failed＋failed_reason 非空 → True
+    def test_failed_with_reason_true(self):
+        self._write("x.json", {"run_id": "x", "status": "failed", "failed_reason": "卡在 step 3"})
+        self.assertTrue(eval_gates.check_abort_failed_narrow_exception({"run/x.json"}))
+
+    # 混入其他檔 → False（落回原判定）
+    def test_mixed_other_file_false(self):
+        self._write("x.json", {"run_id": "x", "status": "aborted", "failed_reason": "放棄"})
+        staged = {"run/x.json", "README.md"}
+        self.assertFalse(eval_gates.check_abort_failed_narrow_exception(staged))
+
+    # status=completed → False（非窄例外，走原路）
+    def test_status_completed_false(self):
+        self._write("x.json", {"run_id": "x", "status": "completed"})
+        self.assertFalse(eval_gates.check_abort_failed_narrow_exception({"run/x.json"}))
+
+    # 邊界：failed_reason 為空字串 → False（1a「必填」機械強制點）
+    def test_empty_failed_reason_false(self):
+        self._write("x.json", {"run_id": "x", "status": "aborted", "failed_reason": ""})
+        self.assertFalse(eval_gates.check_abort_failed_narrow_exception({"run/x.json"}))
+
+    # failed_reason 為 None → False
+    def test_none_failed_reason_false(self):
+        self._write("x.json", {"run_id": "x", "status": "aborted", "failed_reason": None})
+        self.assertFalse(eval_gates.check_abort_failed_narrow_exception({"run/x.json"}))
+
+    # 恰一檔但非 manifest（如歸檔檔）→ False
+    def test_non_manifest_single_file_false(self):
+        self._write("x.eval.json", {"run_id": "x", "status": "aborted", "failed_reason": "放棄"})
+        self.assertFalse(eval_gates.check_abort_failed_narrow_exception({"run/x.eval.json"}))
+
+    # staged 空集合 → False
+    def test_empty_staged_false(self):
+        self.assertFalse(eval_gates.check_abort_failed_narrow_exception(set()))
+
+    # manifest 不存在（如被刪除）→ False（落回防刪除 gate 判定，不誤放行）
+    def test_manifest_file_missing_false(self):
+        self.assertFalse(eval_gates.check_abort_failed_narrow_exception({"run/missing.json"}))
+
+
+class IntegrationHookGatesTest(unittest.TestCase):
+    """1.4 整合測試：subprocess 跑真實 `eval_gates.py --hook`（仿 RunHookWorktreeRootTest 樣板），
+    涵蓋情境 B／N／N-err1，並驗防刪除 gate 與窄例外 gate 共存不誤動既有正常收尾判定。"""
+
+    def setUp(self):
+        import os
+        import subprocess
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = self.tmp.name
+        subprocess.run(["git", "init", "-q", self.repo], check=True, capture_output=True)
+        subprocess.run(["git", "-C", self.repo, "config", "user.email", "t@t.com"],
+                        check=True, capture_output=True)
+        subprocess.run(["git", "-C", self.repo, "config", "user.name", "T"],
+                        check=True, capture_output=True)
+        os.makedirs(os.path.join(self.repo, "run"))
+        self.eval_gates_py = str(
+            Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "eval_gates.py"
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _git(self, *args):
+        import subprocess
+        subprocess.run(["git", "-C", self.repo, *args], check=True, capture_output=True)
+
+    def _write(self, rel_path, obj):
+        import json
+        import os
+        path = os.path.join(self.repo, rel_path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(obj, f)
+
+    def _run_hook(self):
+        import json
+        import os
+        import subprocess
+        payload = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m x"},
+            "cwd": self.repo,
+        }
+        env = {**os.environ, "CLAUDE_PROJECT_DIR": self.repo}
+        return subprocess.run(
+            [sys.executable, self.eval_gates_py, "--hook"],
+            input=json.dumps(payload),
+            env=env,
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+        )
+
+    # 情境 B：staged 含 manifest 刪除 → block（exit 2）
+    def test_scenario_b_deleting_staged_manifest_blocks(self):
+        self._write("run/2026-08-20-b.json", {"run_id": "b", "status": "completed"})
+        self._git("add", "run/2026-08-20-b.json")
+        self._git("commit", "-q", "-m", "init")
+        self._git("rm", "-q", "run/2026-08-20-b.json")
+        result = self._run_hook()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("被刪除", result.stderr)
+
+    # 情境 N：窄例外三條件全滿足 → 放行（exit 0），即使 eval_state.json 仍存在也被豁免
+    def test_scenario_n_narrow_exception_passes_with_eval_state_present(self):
+        import json
+        import os
+        self._write("run/2026-08-20-n.json", {
+            "run_id": "n", "status": "aborted", "failed_reason": "使用者決定不做了",
+        })
+        self._git("add", "run/2026-08-20-n.json")
+        with open(os.path.join(self.repo, "eval_state.json"), "w", encoding="utf-8") as f:
+            json.dump({"run_id": "n"}, f)
+        result = self._run_hook()
+        self.assertEqual(result.returncode, 0)
+
+    # 情境 N-err1：混入其他檔 → 落回原判定（block）
+    def test_scenario_n_err1_mixed_files_blocks(self):
+        self._write("run/2026-08-20-n2.json", {
+            "run_id": "n2", "status": "aborted", "failed_reason": "放棄",
+        })
+        self._write("README_temp.md", "hello")  # 內容不必是合法 JSON，_write 只是共用的寫檔 helper
+        self._git("add", "run/2026-08-20-n2.json", "README_temp.md")
+        result = self._run_hook()
+        self.assertEqual(result.returncode, 2)
+
+    # 共存驗證：正常完成的 Tier 1 manifest commit（既有判定）不被新 gate 誤攔
+    def test_normal_tier1_completed_commit_not_blocked_by_new_gates(self):
+        self._write("run/2026-08-20-t1.json", {
+            "run_id": "t1", "tier": 1, "status": "completed", "spec_inline": "s",
+            "local_test_passed": True, "local_test_evidence": "pytest -> 1 passed",
+            "review_reds": 0, "verify_passed": True,
+        })
+        self._git("add", "run/2026-08-20-t1.json")
+        result = self._run_hook()
+        self.assertEqual(result.returncode, 0)
+
+    # 回歸（2026-08-20 code-review 🔴）：`git rm --cached` 保留工作區檔案內容為
+    # status=aborted＋failed_reason 非空（窄例外三條件全中的內容）。修正前：1d 窄例外
+    # 先於 1b 防刪除 gate 判定，load_json_quiet 讀到工作區殘留內容誤判「非刪除」而放行
+    # （exit 0）；修正後：防刪除 gate 先看 git 索引狀態，仍須 block（exit 2）。
+    def test_git_rm_cached_aborted_manifest_still_blocked_end_to_end(self):
+        import os
+        self._write("run/2026-08-20-rc.json", {
+            "run_id": "rc", "status": "aborted", "failed_reason": "使用者決定不做了",
+        })
+        self._git("add", "run/2026-08-20-rc.json")
+        self._git("commit", "-q", "-m", "init")
+        self._git("rm", "-q", "--cached", "run/2026-08-20-rc.json")
+        # 工作區檔案仍在，且內容仍是窄例外三條件全中的內容
+        self.assertTrue(os.path.exists(os.path.join(self.repo, "run/2026-08-20-rc.json")))
+        result = self._run_hook()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("被刪除", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -182,7 +182,9 @@ def load_json_quiet(path):
 
 
 def check_other_runs(current_run_id):
-    """欠帳 gate ＋ 單一 run gate：掃本工作區的其他 manifest。"""
+    """欠帳 gate ＋ 單一 run gate：掃本工作區的其他 manifest。
+    僅 status == "in_progress" 視為佔用；"aborted"（使用者/主 flow 決定放棄）與
+    "failed"（流程內判定失敗）皆非 in_progress，不擋新 run（1a 消費點一）。"""
     for path in sorted(glob.glob("run/*.json")):
         if not MANIFEST_RE.match(path):
             continue
@@ -201,6 +203,62 @@ def check_other_runs(current_run_id):
                 f"一個 worktree 同時只允許一個 run。先收尾／封存該 run，"
                 f"要並行請開 git worktree，中斷續跑依 eval-flow-resume skill"
             )
+
+
+def _git_diff_cached_paths(*extra_args):
+    """`git diff --cached --name-only -z [extra_args]` 取得 staged 檔案路徑清單。
+
+    依規格用 `-z`：輸出以 NUL 分隔、不對含空白／特殊字元的路徑做 C-quote 逃逸，
+    避免以空白 split 或字串拼接誤判檔名邊界（見 git-diff(1) --name-only／-z 說明）。
+    失敗（非 git repo 等）回傳 None，由呼叫端自行決定 fail-open。
+    """
+    try:
+        out = subprocess.run(
+            ["git", "diff", "--cached", "--name-only", "-z", *extra_args],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return [p for p in out.split("\0") if p]
+
+
+def check_manifest_deletion():
+    """1b 防刪除 gate：staged 變更中出現 manifest（`MANIFEST_RE` 匹配）的刪除 → 擋 commit。
+    以 `--diff-filter=D` 精確取得刪除清單（而非用一般 staged 清單猜測狀態）；
+    加 `--no-renames`：git 預設會把「刪舊檔＋加新檔」偵測為 rename 並只回報新路徑，
+    使舊 manifest 路徑不會出現在 `--diff-filter=D` 結果中（實測驗證）——manifest 改名
+    等同讓原 run_id 的紀錄從其路徑消失，須視同刪除攔截，不留 rename 繞過本 gate 的縫。
+    歸檔檔／baseline 檔不受 `MANIFEST_RE` 匹配，本 gate 不觸及（單一判定點鐵律）。
+    非 git repo 等情況 fail-open（不擋）。"""
+    deleted = _git_diff_cached_paths("--no-renames", "--diff-filter=D")
+    if deleted is None:
+        return
+    for path in deleted:
+        if MANIFEST_RE.match(path):
+            block(
+                f"{path} 被刪除：manifest 是冷溯源檔，永不可刪除。"
+                f"這個 run 若要放棄，改標記 status: \"aborted\" 並填寫 failed_reason，不要刪檔\n"
+                f"→ 補救：`git restore --staged {path}`（取消刪除的暫存），再視需要標 aborted"
+            )
+
+
+def check_abort_failed_narrow_exception(staged):
+    """1d 窄例外：staged 檔案集合恰為一個 manifest（`MANIFEST_RE` 匹配）、
+    其 `status` 為 `aborted` 或 `failed`、且 `failed_reason` 非空
+    → 回傳 True（呼叫端據此放行整個 commit gate，豁免 gate 1 的 eval_state.json 攔截）。
+    任一條件不成立 → 回傳 False，落回原判定（呼叫端照常往下跑其餘 gate）。"""
+    if len(staged) != 1:
+        return False
+    (path,) = staged
+    if not MANIFEST_RE.match(path):
+        return False
+    m = load_json_quiet(path)
+    if not isinstance(m, dict):
+        return False
+    if m.get("status") not in ("aborted", "failed"):
+        return False
+    reason = m.get("failed_reason")
+    return isinstance(reason, str) and bool(reason.strip())
 
 
 def is_test_file(path):
@@ -230,7 +288,9 @@ def check_staged_test_lint(staged):
 def _find_unique_tier1_inprogress():
     """掃 run/ 找唯一一個 tier==1 且 status==in_progress 的 manifest。
     回傳 (manifest_path, manifest_dict) 或 None（找不到或多個）。
-    須重用 MANIFEST_RE（單一判定點，硬約束）。"""
+    須重用 MANIFEST_RE（單一判定點，硬約束）。
+    status=="aborted" 或 "failed" 的 tier-1 manifest 不符合 in_progress 判定，
+    不會被選為當前 run（1a 消費點四）。"""
     found = []
     for path in sorted(glob.glob("run/*.json")):
         if not MANIFEST_RE.match(path):
@@ -374,6 +434,24 @@ def run_hook():
     if not GIT_COMMIT_RE.search(command):
         sys.exit(0)
 
+    staged_list = _git_diff_cached_paths()
+    if staged_list is None:
+        sys.exit(0)  # 非 git repo 等情況，不擋
+    staged = set(staged_list)
+
+    # 1b 防刪除 gate：不變量優先，永遠先擋刪除。必須在 1d 窄例外之前執行——
+    # `git rm --cached` 會保留工作區檔案內容，若窄例外先跑，load_json_quiet 會讀到
+    # 工作區殘留的 aborted/failed 內容而誤判「非刪除」放行，讓 manifest 從版控消失
+    # 卻繞過本 gate（2026-08-20 code-review 🔴，已修正：刪除判定看 git 索引狀態，
+    # 不看工作區檔案是否存在，故必須先於任何依賴檔案內容讀取的判定）
+    check_manifest_deletion()
+
+    # 1d 窄例外：staged 恰一個 manifest 且 status∈{aborted,failed} 且 failed_reason 非空
+    # → 放行整個 commit gate（豁免下方歸檔 gate 的 eval_state.json 存在攔截；
+    # 不豁免上方防刪除 gate——窄例外只可能對「非刪除」的 staged manifest 生效）
+    if check_abort_failed_narrow_exception(staged):
+        sys.exit(0)
+
     if os.path.exists("eval_state.json"):
         block(
             "eval_state.json 仍存在。須先歸檔為 run/<run_id>.eval.json 並清除後才可 commit；"
@@ -381,15 +459,6 @@ def run_hook():
             "→ 補救：`python3 .claude/hooks/eval_state.py archive`（會驗四項憑據、寫出歸檔檔並刪除 eval_state.json），"
             "再把 manifest 標 status: completed 並 git add 歸檔檔"
         )
-
-    try:
-        out = subprocess.run(
-            ["git", "diff", "--cached", "--name-only"],
-            capture_output=True, text=True, check=True,
-        ).stdout
-    except (OSError, subprocess.CalledProcessError):
-        sys.exit(0)  # 非 git repo 等情況，不擋
-    staged = set(out.split())
 
     manifests = [p for p in sorted(staged) if MANIFEST_RE.match(p)]
     for path in manifests:

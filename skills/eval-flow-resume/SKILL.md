@@ -9,7 +9,7 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 
 ## Step 1：定位要恢復的 run
 
-1. 掃 `run/*.json`，列出所有 `status: "in_progress"` 的 manifest
+1. 掃 `run/*.json`，列出所有 `status: "in_progress"` 的 manifest（`"aborted"`／`"failed"` 皆非 `"in_progress"`，不列入——那是等使用者裁決的封存現場，見本檔末「恢復守則」）
 2. 同時檢查 `eval_state.json` 是否存在——存在時其 `run_id` 就是進行中的 run（與 manifest 互相印證；`run_id` 對不上任何 manifest → 回報異常，請使用者裁決）
 3. 找到多個 in_progress 的 run → 列給使用者選，不自行挑
 4. 一個都沒有 → 無可恢復，回報後結束
@@ -53,4 +53,4 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 - **hook gates 照常生效**：恢復不是繞過 gate 的理由，被擋就依 stderr 訊息補狀態
 - **寧可重跑一步，不可跳過一步**：`step` 只保證「走到了這一步」，不保證這一步完成；有疑義就從該步重做
 - 恢復後的第一件事：把你從檔案讀出的「run 現況摘要」（run_id、phase、各 sub_task 狀態、接下來要做什麼）回報使用者，再開始動作
-- `status: "failed"` 的 run 不自動恢復——那是等使用者裁決的封存現場；使用者明示續跑才依上表接手
+- `status: "failed"` 與 `status: "aborted"` 的 run 皆不自動恢復——那是等使用者裁決的封存現場（`aborted`＝主動放棄、`failed`＝流程內判定失敗，兩者待遇相同）；使用者明示續跑才依上表接手
