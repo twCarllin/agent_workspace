@@ -1,0 +1,30 @@
+{
+  "run_id": "2026-09-05-model-policy-devlog",
+  "created_at": "2026-09-05 21:20",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "兩項 agentflow 借鑑落地：(A) model 政策表＋一致性測試——新增文件與測試、eval-flow skill 一行指向更新，全屬 prose 與新增測試，不動任何可執行 gate 邏輯；(B) devlog.py 唯讀敘事 render——新增獨立 script（比照 stats.py），只讀 run/ 產物、不寫狀態、不動 init.sh（hooks 目錄整批複製自動涵蓋）、不動 settings。DoD 一句話講得清、單一路徑、不觸及高風險面本體；預估 1 task／2 items 各 ≤300 行 → Tier 1",
+  "phase": "decomposed",
+  "spec_path": null,
+  "spec_inline": "參照 agentflow 兩個借鑑：(A) 把散在各 agent frontmatter 的 model 指派收攏成一張政策表 MODEL_POLICY.md（agent→model→指派理由，含 writer/reviewer 異族互審約束），新增 tests/test_model_policy.py 斷言每個 agent frontmatter 的 model 與表一致＋writer 與 reviewer model 家族相異，並把 eval-flow skill「Model 指派原則」的 single-source 句改指政策表；(B) 新增 .claude/hooks/devlog.py 唯讀 render script（比照 stats.py 定位），輸入 run_id、從 run/<run_id>.json＋run/<run_id>.eval.json＋run/<run_id>.events.jsonl 組出單檔人可讀 markdown 敘事（run 概要→前置軌跡→各 sub_task 審查/測試/憑據→收尾）輸出 stdout，欄位缺漏顯示 n/a 不猜；附 tests/test_devlog.py。不新增手寫狀態檔、不新增 gate、不改流程規則。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-05 21:22 — 使用者確認 1 task／2 items 計畫（政策表放 repo 根不部署、devlog 為唯讀算出視圖非手寫狀態；1.1 主 flow 直寫、1.2 派 code-writer）",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-05.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "test_baseline.py baseline: stable 0；check --cmd 'python3 -m unittest discover -s tests' --strike-key full_suite: PASS 無新增穩定失敗。item 1.1: unittest test_model_policy(4)+test_docs_consistency(5) OK。item 1.2: unittest tests.test_devlog 5 tests OK；端到端實跑三路——render 真實 Tier 2 run（2026-08-20-obs-hardening）四節齊 exit 0、無參數清單模式列出 run/ 全部 run_id、不存在 run_id → stderr 提示 exit 1。審查 st1.1 r1 通過（🔴0🟡0，1🟢死碼已除）；st1.2 三輪收斂 r1:2🟡（--dir 清單失效＋零覆蓋）→r2:1🟡（斷言恆真）→r3: 🔴0🟡0，writer sabotage 鑑別力驗證 FAIL→PASS 留痕",
+  "verification_commands": [
+    {"command": "python3 -m unittest tests.test_model_policy tests.test_docs_consistency", "exit_code": 0},
+    {"command": "python3 -m unittest tests.test_devlog", "exit_code": 0},
+    {"command": "python3 .claude/hooks/test_baseline.py check --cmd 'python3 -m unittest discover -s tests' --strike-key full_suite --run-id 2026-09-05-model-policy-devlog", "exit_code": 0},
+    {"command": "python3 .claude/hooks/devlog.py 2026-08-20-obs-hardening", "exit_code": 0},
+    {"command": "python3 .claude/hooks/devlog.py", "exit_code": 0},
+    {"command": "python3 .claude/hooks/devlog.py no-such-run", "exit_code": 1}
+  ],
+  "review_reds": 0,
+  "verify_passed": true
+}

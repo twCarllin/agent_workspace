@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-05-model-policy-devlog",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "64c1a135a34de6637ba606ad3ce6be9ad2ff94bd",
+  "stable_failures": []
+}

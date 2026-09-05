@@ -98,7 +98,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 
 ## Model 指派原則
 
-- Model 由各 agent 定義檔的 frontmatter `model` 欄指定（single source of truth），本文件不重複列表
+- Model 政策（agent→model 對照與指派理由）住 repo 根 `MODEL_POLICY.md`（單一枚舉點）；各 agent 定義檔 frontmatter 的 `model` 欄是執行端載體，`tests/test_model_policy.py` 強制兩者一致——改 model 時表與 frontmatter 同 diff 改齊，本文件不重複列表
 - 指派準則：**推理／判斷密集的規劃與審查（拆解、情境盤點、審查）→ 強 model；機械式、量大的執行 → 快 model**。規劃階段一次判斷錯，整條 flow 重跑的成本遠高於強 model 的單價
 - 例外：前置 1 風險分析是 skill、由主 flow 執行，無 frontmatter 可指定，沿用主 session model
 
