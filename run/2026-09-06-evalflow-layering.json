@@ -1,0 +1,45 @@
+{
+  "run_id": "2026-09-06-evalflow-layering",
+  "created_at": "2026-09-06 01:37",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "eval-flow 分層（agentflow references 模式）＋TODO 清理：搬移為逐字 cut-paste 機械操作（切分方案已經使用者確認，歧義消）、單一路徑、不觸高風險面本體（全 prose＋docs 測試 glob 更新，eval_gates.py 零變更）；1 task／4 items，各 item diff 以搬移雙計仍 ≤300 → Tier 1",
+  "phase": "decomposed",
+  "spec_path": null,
+  "spec_inline": "eval-flow SKILL.md（365 行）分層為核心＋按觸發載入的 references（agfnow/agentflow 的 Load rules only when triggered 模式，使用者指定參考）：核心留每 run 必讀骨幹（Tier 2 前置 0-3、循環、Tier 1 精簡路徑、Model／Subagent 原則、憑據紀律、resume 指向）~160 行；格式節（manifest／eval_state／events 格式＋操作規則欄位語義，111 行）搬 skills/eval-flow/references/formats.md（SKILL.md 留 3 行操作紀律＋指向句）；稀有路徑（Tier B／Hotfix／單一 run 併發／[P] fan-out，86 行）搬 references/rare-paths.md；gate 清單（18 行）搬 references/gates.md。搬移一律逐字 cut-paste 不改寫語義（字面瘦身待數據沉澱後跟修剪一起做）。SKILL.md 以觸發句明列載入時機（判 Tier B／宣告 Hotfix／[P]≥150 行 fan-out／被 gate 擋須查全貌／init 填欄或 resume 對賬時）。配套：tests/test_docs_consistency.py 的 MD_FILES 擴掃 skills/*/references/*.md，GateListConsistencyTest 與 HelperSubcommandDocsTest 指向新位置；三個新 reference 檔頭掛同一句 R-NNN 編輯守衛。另 TODO.md 清理：已完成節（#1-5、#7-10、#13）壓成一行索引（標題＋完成日＋一句結論），進行中節（#6、#11、#12、#14、#15）保留全文。行為不變驗證：全套測試綠。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-06 01:37 — 使用者確認分層方案（核心~160＋formats/rare-paths/gates 三 reference、逐字搬移不改寫、測試 glob 擴掃、TODO 已完成節壓索引）",
+  "hitl_rulings": 1,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-06.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "test_baseline.py baseline: stable 0；check full_suite: PASS 無新增穩定失敗（264 tests，含 MD_FILES 擴掃 references 後的全部一致性測試）。搬移完整性主 flow 全量機械驗證：HEAD 被搬三段逐行比對目的檔聯集，真遺失 0 行（唯一差異＝宣稱的合法改址句，diff 逐字核實）；SKILL.md 365→175 行；R-999 sabotage 證明掃描面已擴至 references。TODO.md 131→64 行。審查軌跡：st2.1-2.3 checker 直過（14/14 憑據）；st2.4 checker r1 升級④抓到主 flow 直寫 scope 偏移（Game day 標 ✅ 違反保留 DoD）→ 回滾＋機械 diff 證 #15 與 HEAD 逐行等同 → r2 直過。DoD 補表一筆：行數門檻 ≥80→≥60（互斥論證留痕）",
+  "verification_commands": [
+    {
+      "command": "python3 -m unittest discover -s tests",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --cmd 'python3 -m unittest discover -s tests' --strike-key full_suite --run-id 2026-09-06-evalflow-layering",
+      "exit_code": 0
+    },
+    {
+      "command": "全量搬移驗證 python 腳本（HEAD 被搬節逐行 ∈ 目的檔聯集）",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/doctor.py",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true,
+  "subagent_usage": {
+    "prep": 0,
+    "loop": 263430
+  }
+}

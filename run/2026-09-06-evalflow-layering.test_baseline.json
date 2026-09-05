@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-06-evalflow-layering",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "38ef23daa1ddee218288895d44708280547c0432",
+  "stable_failures": []
+}

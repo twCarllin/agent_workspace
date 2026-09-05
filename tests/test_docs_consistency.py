@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MD_FILES = (
     list((ROOT / "skills").glob("*/SKILL.md"))
+    + list((ROOT / "skills").glob("*/references/*.md"))
     + list((ROOT / ".claude" / "agents").glob("*.md"))
     + [ROOT / "CLAUDE.md", ROOT / "README.md"]
 )
@@ -78,7 +79,7 @@ class HelperSubcommandDocsTest(unittest.TestCase):
 class GateListConsistencyTest(unittest.TestCase):
     def test_gate_numbering_ranges_match_list(self):
         """README 與 eval-flow skill 宣稱的 gate 區間（gate 1–N）要等於實際列出的條數。"""
-        for md in [ROOT / "README.md", ROOT / "skills" / "eval-flow" / "SKILL.md"]:
+        for md in [ROOT / "README.md", ROOT / "skills" / "eval-flow" / "references" / "gates.md"]:
             text = read(md)
             m = re.search(r"gate 1–(\d+)）.*?（gate (\d+)–(\d+)）", text)
             if not m:
