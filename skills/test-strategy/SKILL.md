@@ -7,6 +7,8 @@ description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無
 
 > 核心原則：**測試是 pipeline 的護欄，不是路障**——gate 擋的是「你新弄壞的東西」，不是「專案裡所有壞掉的東西」。gate 條件不是「全綠」，而是「**無新增穩定失敗**」。
 > 判定一律由 script `.claude/hooks/test_baseline.py` 執行（baseline 比對、重跑確認可重現都是確定性邏輯，**不留給模型憑感覺判**）；本文件規範何時跑、結果怎麼處置。
+>
+> 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
 
 ## Baseline（run 的測試基準，第一次 step 5 前建立）
 

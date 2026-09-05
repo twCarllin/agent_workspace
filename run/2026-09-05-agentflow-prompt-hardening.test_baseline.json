@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-05-agentflow-prompt-hardening",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "e8017acc30263392a222e611fd89bbcddae833fe",
+  "stable_failures": []
+}

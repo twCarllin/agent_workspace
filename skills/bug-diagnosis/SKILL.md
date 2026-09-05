@@ -7,6 +7,8 @@ description: Bug 診斷紀律：從回授迴圈建立到根因定位與收尾清
 
 收件人：**主 flow** 或執行診斷的 agent（具 Bash／Read／Edit 權限）。各 Phase 不可跳過，除非明文寫出理由。
 
+本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
+
 判級規則與 BUGLOG append 格式見 CLAUDE.md「工作型態前判」節，本 skill 只管診斷方法。
 
 ---

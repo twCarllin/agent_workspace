@@ -54,7 +54,7 @@ class SkillReferencesTest(unittest.TestCase):
             if not m:
                 continue
             for name in re.split(r"[,\s]+", m.group(1).strip()):
-                if name:
+                if name:  # testlint: allow — 空欄位跳過是刻意（split 尾端空字串），非藏斷言
                     self.assertIn(
                         name, skill_dirs,
                         f"{md.name} frontmatter 引用了不存在的 skill：{name}",
@@ -91,6 +91,37 @@ class GateListConsistencyTest(unittest.TestCase):
             self.assertEqual(
                 max(numbers), sub_end,
                 f"{md.name} 宣稱 gate 到 {sub_end}，實際清單最大編號 {max(numbers)}",
+            )
+
+
+class RetroIdReferencesTest(unittest.TestCase):
+    def test_retro_ids_have_no_duplicates(self):
+        text = read(ROOT / "retro" / "RETRO.md")
+        ids = re.findall(r"^- (R-\d{3}) ", text, re.M)
+        self.assertEqual(
+            len(ids), len(set(ids)),
+            f"retro/RETRO.md 的 R-NNN ID 有重號：{ids}",
+        )
+
+    def test_all_referenced_retro_ids_exist(self):
+        retro_text = read(ROOT / "retro" / "RETRO.md")
+        defined_ids = set(re.findall(r"^- (R-\d{3}) ", retro_text, re.M))
+        pattern = re.compile(r"[（(](R-\d{3})[）)]")
+        for md in MD_FILES:
+            for ref_id in pattern.findall(read(md)):
+                self.assertIn(
+                    ref_id, defined_ids,
+                    f"{md.relative_to(ROOT)} 引用了不存在的 RETRO ID：{ref_id}",
+                )
+
+
+class EnvelopeSpecTest(unittest.TestCase):
+    def test_all_agents_have_envelope_spec(self):
+        """每個 agent 定義都須掛報告信封規範（終行 Self-check），防新增 agent 漏掛。"""
+        for md in (ROOT / ".claude" / "agents").glob("*.md"):
+            self.assertIn(
+                "Self-check:", read(md),
+                f"{md.name} 缺報告信封規範（無 Self-check: 關鍵句）",
             )
 
 

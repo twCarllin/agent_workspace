@@ -6,6 +6,8 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
 # Parallel Run（多個 Tier 1 需求並行）
 
 > 觸發條件：**同時有 ≥2 個互不相依的 Tier 1 需求**。條件不滿足就不開 worktree——單一 Tier 1 走原本 eval-flow、Tier 0 一律序列直接做。**一批上限 2 個 run**：每多一支，後合者的「同步 main→重測→全套」稅多收一輪，且卡住的 run 都排隊等使用者裁決。並行省的是 wall-clock，不省 token（每 run 約多 10–20% 編排開銷，使用者已知情接受）。
+>
+> 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
 
 ## 前置（全部在主 session 完成，spawn 前）
 

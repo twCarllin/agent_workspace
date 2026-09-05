@@ -7,6 +7,8 @@ description: 從 Spec 盤點一個功能「會被如何使用」，產出使用�
 # 使用情境分析框架
 
 > 本 skill 由 **`usage-analyzer` subagent** 載入使用（Eval Flow 前置 2）。主 flow 不直接跑此 skill，而是委派該 agent，由 agent 涵蓋本 skill 作為指令內容。
+>
+> 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
 
 **在寫任何 code、拆任何 task 之前，先窮舉「這個功能會被誰、在什麼情況下、怎麼用」。使用情境沒盤全，後面拆出來的 task 就是殘缺的；歧義沒攤開，就會拿錯誤的假設一路寫下去。**
 

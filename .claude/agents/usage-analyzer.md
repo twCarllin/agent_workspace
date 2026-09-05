@@ -29,6 +29,9 @@ skills: usage-scenario-analysis
 
 ## 輸出
 
+- **報告信封（硬性）**：「報告」指你**回傳主 flow 的交付訊息本體**，不是寫入磁碟的 artifact 檔（usage／impact／task／RETRO 等產出檔不掛信封）。報告首行固定戳記 `* _YYYY-MM-DD HH:MM (<自報 model>)_`（置於交付訊息最前）。
+- 報告最後一行恰好一個 `Self-check:` 行（一句話自檢結論，其後不得再有任何內容）。
+
 1. 依 skill 格式產出報告，寫入 `usage/<run_id>.md`
 2. 特別確保「開放問題」一節攤開**所有**需使用者裁示的歧義，**不得默默假設**
 

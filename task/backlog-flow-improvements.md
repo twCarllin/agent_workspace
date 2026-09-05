@@ -24,3 +24,6 @@ review-checklist skill＋code-reviewer 定義：reviewer 可對 production code 
 
 ---
 （編號沿原 todo；#4 resume 對賬、#8 測試預算已完成，不列。）
+
+## 8. Minimality 獨立驗收軸（agentflow 借鑑 E，2026-09-05 記）
+Tier 2 Spec 加 `## Minimal design` 節（每個新增概念寫可觀察的需要＋被否決的更小替代），reviewer 品質節將 Minimality 與 Conformance 分開判定。來源：agentflow spec.md／acceptance.md 的三軸驗收（Outcome/Minimality/Conformance）。**前提：TODO #15 規則凍結解除（5 個真實 run 的 stats 數據後）才動**——這是新增審查稅，須先有數據證明 Speculative Generality 類 🟡 的漏網率值得加軸。

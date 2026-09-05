@@ -6,6 +6,8 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 # Eval Flow 中斷恢復程序
 
 > 原則：**恢復只讀檔案狀態，不讀對話記憶**。所有判斷以 `run/<run_id>.json`（manifest）、`eval_state.json`、staging area 為準。若檔案狀態與你對這個 run 的任何印象衝突，以檔案為準。
+>
+> 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
 
 ## Step 1：定位要恢復的 run
 

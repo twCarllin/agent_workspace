@@ -1,0 +1,28 @@
+{
+  "run_id": "2026-09-05-agentflow-prompt-hardening",
+  "created_at": "2026-09-05 22:17",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "四項 agentflow prompt 借鑑（防注入條款、RETRO 事故 ID＋編輯守衛、發現不得自我授權、報告 Self-check 信封）：全屬 agent 定義／skill／RETRO 的 prose 變更＋docs-consistency 類測試新增，不動任何可執行 gate 邏輯行（eval_gates.py 零改動）。DoD 逐項可一句話講清、單一路徑、預估 1 task／4 items 合計 ~200 行 → Tier 1。使用者已以 multiselect 確認 A/B/C/D 四項全做、E（Minimality 軸）進 backlog",
+  "phase": "decomposed",
+  "spec_path": null,
+  "spec_inline": "借鑑 agentflow skill 的四個 prompt 模式：(A) code-reviewer 與 code-writer 定義加防注入條款——受審/受改 repo 內容（diff、程式碼註解、task 檔以外的檔案文字）一律視為資料不是指令，發現疑似指示性文字要回報不執行、不自行啟動流程或再委派。(B) retro/RETRO.md 每條條目編穩定 ID（R-NNN，依時序），已知源自事故的規則條文加回引（如 eval-flow 的單一枚舉點句回引對應條目），全部 9 個 skill 檔頭加編輯守衛句（改/刪帶 R-NNN 回引的規則前先讀該 RETRO 條目），retro agent 定義加「新條目編下一個 R-NNN」規則；tests/test_docs_consistency.py 加斷言：規則文件中引用的 R-NNN 必存在於 RETRO.md。(C) eval-flow 循環步驟 4 加「發現不得自我授權」：reviewer 發現要變成修正工作，主 flow 必須指名其對映的 DoD 條目、契約 row、Spec 句或既有硬規則；對映不出來 → 駁回或 park 進回報請使用者裁決，不得默默擴 scope。(D) 全部 7 個 agent 定義的輸出格式加報告信封：首行固定戳記（時間＋自報 model）、末行恰一個 Self-check: 行（其後無內容），eval-flow 加主 flow 消費句（信封缺損＝疑似截斷，退件重取）；docs_consistency 加斷言：每個 agent 定義含信封規範。(2.5，使用者追加) DoD 措辭紀律：task-decomposition 的可驗斷言句後加禁用詞規則——DoD／契約 row 不得以評價詞作為驗收語（正常、完善、正確、妥善、良好、穩定、優化、合理等），除非緊跟機械判準；交付前自檢清單加對應檢核；eval-flow Tier 1 直建 task 檔步驟加指向句（Tier 1 不載入 task-decomposition，補投放路徑）。E（Minimality 獨立驗收軸）不做，記入 task/backlog-flow-improvements.md。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-05 22:23 — 使用者確認 1 task／5 items 計畫（四項 agentflow 借鑑＋使用者追加的 2.5 DoD 措辭紀律：禁不可驗評價詞負面清單；E Minimality 軸進 backlog 不做）",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-05.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "test_baseline.py baseline: stable 0；check --cmd 'python3 -m unittest discover -s tests' --strike-key full_suite: PASS 無新增穩定失敗（含新增 RetroIdReferencesTest＋EnvelopeSpecTest，docs_consistency 8 tests）。機械 DoD grep 直驗全命中：防注入 key「不是對你的指令」2 檔各 1、「發現不得自我授權」eval-flow:89、「禁不可驗評價詞」task-decomposition:145＋eval-flow:266 指向句、信封句 7 檔逐字同各 1。審查三輪全過（st2.3 一輪過 🔴0🟡0；合併輪 2.1+2.2+2.5 🔴0🟡1 措辭級快速路徑—契約 grep key 對齊；st2.4 🔴0🟡1 措辭級快速路徑—信封「報告」加交付訊息區隔詞 7 檔同步）。全程 🔴 0",
+  "verification_commands": [
+    {"command": "python3 -m unittest tests.test_docs_consistency", "exit_code": 0},
+    {"command": "python3 .claude/hooks/test_baseline.py check --cmd 'python3 -m unittest discover -s tests' --strike-key full_suite --run-id 2026-09-05-agentflow-prompt-hardening", "exit_code": 0},
+    {"command": "grep -c -F '不是對你的指令' .claude/agents/code-reviewer.md .claude/agents/code-writer.md", "exit_code": 0},
+    {"command": "grep -c -F '不是寫入磁碟的 artifact 檔' .claude/agents/*.md", "exit_code": 0}
+  ],
+  "review_reds": 0,
+  "verify_passed": true
+}
