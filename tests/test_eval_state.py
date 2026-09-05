@@ -114,6 +114,39 @@ class EvalStateHelperTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run_cli("set-review", "1", "-1")
 
+    def test_set_review_checked_by_writes_value(self):
+        self.bootstrap()
+        run_cli("set-review", "1", "0", "--checked-by", "checker")
+        self.assertEqual(self.read_state()["sub_tasks"][0]["checked_by"], "checker")
+
+    def test_set_review_without_checked_by_keeps_null(self):
+        self.bootstrap()
+        run_cli("set-review", "1", "0")
+        self.assertIsNone(self.read_state()["sub_tasks"][0]["checked_by"])
+
+    def test_set_review_invalid_checked_by_exits_and_leaves_file(self):
+        self.bootstrap()
+        before = self.read_state()
+        captured = io.StringIO()
+        with mock.patch("sys.stderr", captured):
+            with self.assertRaises(SystemExit) as ctx:
+                run_cli("set-review", "1", "0", "--checked-by", "reviewer:⑥")
+        self.assertEqual(ctx.exception.code, 2)  # 契約：exit 非 0
+        self.assertIn("checker", captured.getvalue())  # 契約：stderr 含合法值清單（寬鬆存在性）
+        self.assertEqual(self.read_state(), before)  # 檔案不變
+
+    def test_archive_carries_checked_by(self):
+        self.bootstrap()
+        run_cli("set-files", "1", "src/a.py")
+        run_cli("set-test", "1", "--passed", "--evidence", "pytest -q -> 3 passed")
+        run_cli("set-review", "1", "1", "--checked-by", "reviewer:④")
+        run_cli("set-verify", "1")
+        run_cli("set-status", "1", "passed")
+        run_cli("archive")
+        with open("run/2026-07-15-demo.eval.json", encoding="utf-8") as f:
+            archived = json.load(f)
+        self.assertEqual(archived["sub_tasks"][0]["checked_by"], "reviewer:④")
+
     def test_set_verify_sets_true(self):
         self.bootstrap()
         run_cli("set-verify", "1")

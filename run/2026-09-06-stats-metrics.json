@@ -1,0 +1,45 @@
+{
+  "run_id": "2026-09-06-stats-metrics",
+  "created_at": "2026-09-06 00:30",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "stats 三指標＋留痕欄位：DoD 明確（三個指標各有明確資料源與缺值語義、tests 綠、文件同步）、單一路徑、不觸高風險面本體（stats.py／eval_state.py 為遙測與 helper，非 gate 判定式；eval_gates.py 零變更）；預估 1 task／3 items 各 ≤300 行 → Tier 1。本 run 為 checker 新制首戰（step 3 預設派 task-verifier）",
+  "phase": "decomposed",
+  "spec_path": null,
+  "spec_inline": "架構 review 結論第 3 項落地：修剪審查的前置量測。(1) eval_state.py set-review 加選填 --checked-by（值：checker｜reviewer:①-⑤｜reviewer:manual），寫入 sub_task 的 checked_by 欄（預設 null＝未記錄），隨 archive 進 eval.json——解決 checker 升級率無冷資料可算的缺口（review 落檔收尾即清）。(2) stats.py 加三指標：a. HITL 裁示數——讀 manifest 選填欄 hitl_rulings（int，主 flow 於 HITL 確認當下填），輸出分佈與平均，缺欄＝無記錄不計分母（背景：現行 HITL 打回率 0% 但 2026-09-05-checker-default 實測 11 條裁示含推翻設計兩次——打回率量錯維度，裁示數才是人閘門價值信號，修剪 HITL 前必須先有此數據）；b. checker 升級率——讀 eval.json sub_tasks 的 checked_by 欄，輸出 checker 直過/升級（含理由代碼分佈）/舊 run 無記錄三類；c. 前置/循環成本比——讀 manifest 選填欄 subagent_usage（{\"prep\": tokens, \"loop\": tokens}，主 flow 收尾時依 Agent 工具回執填），輸出比值，缺欄＝無記錄。(3) eval-flow skill 同步三處記錄慣例（set-review 帶 --checked-by 為硬性步驟、HITL 當下填 hitl_rulings、收尾填 subagent_usage）。全部新欄位選填、舊 run 不回填、缺值顯示無記錄不猜（沿 stats.py 既有原則）。附帶：工作樹既有一筆已核可的 Tier 0 未 commit 變更（eval-flow step 7 retro 定案一行，使用者 2026-09-06 已同意），隨本 run 收尾一併 commit。",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-06 00:36 — 使用者確認 1 task／3 items 計畫＋三個資料源設計（checked_by 入 sub_task 欄、hitl_rulings int、subagent_usage dict）＋game day 同場執行＋Tier 0 併收尾",
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-06.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "test_baseline.py baseline: stable 0；check --cmd 'python3 -m unittest discover -s tests' --strike-key full_suite: PASS 無新增穩定失敗（252 tests 含新增 16 條）。dogfood：stats.py 實跑三新指標——HITL 裁示數讀到本 run hitl_rulings=3（分佈{3:1}）、升級率/成本比正確顯示無記錄不 crash。審查軌跡（checker 新制首戰）：st1.1 checker r1 升級④（抓到主 flow 直寫漏做 A2 自檢）→ 升級輪 reviewer 1🟡（非法值測試欠 exit code＋stderr 斷言）→ 修正＋補 sabotage 自檢（FAIL2→還原36OK→零殘留）→ r2 過；st1.2 checker 直過（writer 已附 sabotage 證據）；st1.3 checker 直過。game day 同場完成：乾淨 agent 純靠檔案還原現場、正確消費 checked_by 尾註（1.1 不重審）、發現新制縫隙（writer 報告不落檔、中斷即遺失）。已知限制：Tier 1 無 eval.json，升級率指標僅覆蓋 Tier 2 冷資料",
+  "verification_commands": [
+    {
+      "command": "python3 -m unittest tests.test_eval_state tests.test_docs_consistency",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 -m unittest tests.test_eval_state tests.test_stats",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --cmd 'python3 -m unittest discover -s tests' --strike-key full_suite --run-id 2026-09-06-stats-metrics",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/stats.py",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true,
+  "hitl_rulings": 3,
+  "subagent_usage": {
+    "prep": 0,
+    "loop": 307321
+  }
+}

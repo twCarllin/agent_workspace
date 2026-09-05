@@ -20,6 +20,15 @@
   gate 命中        每條 gate 的觸發次數——從不觸發的 gate 是修剪候選
   事件記錄         每 run 的 events.jsonl 事件數／首尾時距／set-step 重入次數（重試信號）；
                    依 `ts` 欄位取極值、依 cmd+step 計數，不依賴檔內物理行序；無 events 檔顯示「無記錄」
+  HITL 裁示數      人閘門的價值信號是不是裁示數而非打回率（現行打回率量錯維度）；
+                   讀 manifest 選填欄 hitl_rulings（int），輸出分佈＋平均；
+                   缺欄的 run 計「無記錄」不入分母
+  checker 升級率   修剪審查後 checker 是否真的擋住問題、升級頻率多高；
+                   讀 eval.json sub_tasks 的 checked_by 欄（checker／reviewer:碼／null）；
+                   null 或缺鍵＝無記錄不入分母；未知值原樣歸「其他」桶顯示，不驗證
+  前置/循環成本比  前置流程（Spec／風險／影響）相對執行循環的 token 成本結構；
+                   讀 manifest 選填欄 subagent_usage（{"prep","loop"}）；
+                   缺欄的 run 計「無記錄」
 
 資料來源：run/*.json（manifest）、run/*.eval.json、run/*.test_baseline.json、
 run/*.events.jsonl、run/gate_hits.log。欄位缺漏時顯示 n/a 並註明需要什麼資料，不猜。
@@ -95,6 +104,10 @@ def collect(run_dir="run"):
         "verif_runs": 0, "verif_cmds": 0,
         "gate_hits": Counter(), "gate_hit_lines": [],
         "events": [],  # (run_id, summary dict | None)
+        "hitl_rulings": [], "hitl_rulings_missing": 0,
+        "checked_by_direct": 0, "checked_by_escalated": 0,
+        "checked_by_dist": Counter(), "checked_by_none": 0,
+        "subagent_usage": [], "subagent_usage_missing": 0,  # (run_id, prep, loop)
     }
     for path in sorted(glob.glob(os.path.join(run_dir, "*.json"))):
         name = os.path.basename(path)
@@ -111,6 +124,24 @@ def collect(run_dir="run"):
         if m.get("hitl_confirmed_at"):
             data["hitl_confirmed"] += 1
         data["hitl_rejections"] += int(m.get("hitl_rejections") or 0)
+
+        # hitl_rulings：選填 int。鍵不存在或型別不符＝無記錄不計分母（沿既有寬容讀法原則）
+        rulings = m.get("hitl_rulings")
+        if isinstance(rulings, int) and not isinstance(rulings, bool):
+            data["hitl_rulings"].append(rulings)
+        else:
+            data["hitl_rulings_missing"] += 1
+
+        # subagent_usage：選填 {"prep": int, "loop": int}。缺鍵／非 dict／欄位非 int 一律寬容跳過
+        usage = m.get("subagent_usage")
+        if (
+            isinstance(usage, dict)
+            and isinstance(usage.get("prep"), int) and not isinstance(usage.get("prep"), bool)
+            and isinstance(usage.get("loop"), int) and not isinstance(usage.get("loop"), bool)
+        ):
+            data["subagent_usage"].append((m["run_id"], usage["prep"], usage["loop"]))
+        else:
+            data["subagent_usage_missing"] += 1
 
         # verification_commands：Tier 1 記在 manifest、Tier 2 記在各 sub_task（下方 archive 迴圈併計）。
         # 鍵不存在＝該 run 無記錄（不計入平均分母）；存在但為空陣列＝有記錄但 0 條
@@ -140,6 +171,17 @@ def collect(run_dir="run"):
                 if isinstance(sub_vc, list):
                     verif_recorded = True
                     verif_cmds += len(sub_vc)
+                # checker 升級率：checked_by 欄。null／缺鍵＝無記錄；"checker"＝直過；
+                # 其餘任何值（reviewer:碼 或未知值，不驗證）＝升級，計入分佈
+                checked_by = st.get("checked_by")
+                if checked_by == "checker":
+                    data["checked_by_direct"] += 1
+                elif checked_by:
+                    data["checked_by_escalated"] += 1
+                    data["checked_by_dist"][checked_by] += 1
+                else:
+                    data["checked_by_none"] += 1
+
                 review_dims = st.get("review_dimensions")
                 if isinstance(review_dims, dict):
                     for dim, cnt in review_dims.items():
@@ -187,6 +229,47 @@ def pct(n, d):
     return f"{100 * n / d:.0f}%（{n}/{d}）" if d else "n/a（無資料）"
 
 
+def append_hitl_rulings(out, data):
+    if data["hitl_rulings"]:
+        dist = Counter(data["hitl_rulings"])
+        avg = sum(data["hitl_rulings"]) / len(data["hitl_rulings"])
+        out.append(
+            f"HITL 裁示數：分佈 {dict(sorted(dist.items()))}　平均 {avg:.1f}"
+            f"　無記錄：{data['hitl_rulings_missing']} 個 run"
+        )
+    else:
+        out.append("HITL 裁示數：無記錄（需要 hitl_rulings）")
+
+
+def append_checker_escalation(out, data):
+    direct = data["checked_by_direct"]
+    escalated = data["checked_by_escalated"]
+    total = direct + escalated
+    if total:
+        dist = dict(data["checked_by_dist"].most_common())
+        out.append(
+            f"checker 升級率：{pct(escalated, total)}"
+            f"（直過 {direct}／升級 {escalated}；reviewer 分佈 {dist}）"
+            f"　無記錄：{data['checked_by_none']} 個 sub_task"
+        )
+    else:
+        out.append("checker 升級率：無記錄（需要 checked_by）")
+
+
+def append_subagent_usage(out, data):
+    if data["subagent_usage"]:
+        parts = [f"{run_id}: prep {prep}／loop {loop}" for run_id, prep, loop in data["subagent_usage"]]
+        total_prep = sum(prep for _, prep, _ in data["subagent_usage"])
+        total_loop = sum(loop for _, _, loop in data["subagent_usage"])
+        ratio = f"{total_prep / total_loop:.2f}" if total_loop else "n/a"
+        out.append(
+            f"前置/循環成本比：{'、'.join(parts)}　合計比值 prep:loop = {ratio}"
+            f"　無記錄：{data['subagent_usage_missing']} 個 run"
+        )
+    else:
+        out.append("前置/循環成本比：無記錄（需要 subagent_usage）")
+
+
 def append_gate_hits(out, data):
     if data["gate_hits"]:
         out.append("gate 命中（從不觸發的 gate 是修剪候選）：")
@@ -211,7 +294,9 @@ def report(data):
         f"HITL 打回率：{pct(data['hitl_rejections'], hitl_total)}"
         + ("　⚠ 趨近 0% 的人閘門是蓋章，候選降級" if hitl_total and not data["hitl_rejections"] else "")
     )
+    append_hitl_rulings(out, data)
     out.append(f"rework 率（首輪即有 🔴）：{pct(data['rework'], data['sub_tasks'])}")
+    append_checker_escalation(out, data)
     if data["scores"]:
         out.append(f"quality_score（legacy）：平均 {sum(data['scores']) / len(data['scores']):.1f}（{len(data['scores'])} rounds）")
     if data["dim_counter"]:
@@ -228,6 +313,7 @@ def report(data):
     if data["baseline"]:
         trend = "、".join(f"{r}: stable {s}" for r, s in data["baseline"])
         out.append(f"baseline 欠帳走勢：{trend}")
+    append_subagent_usage(out, data)
     if data["events"]:
         parts = []
         for run_id, info in data["events"]:

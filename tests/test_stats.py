@@ -352,6 +352,164 @@ class StatsCollectTest(unittest.TestCase):
         self.assertIsNone(events["empty"]["span_seconds"])
         self.assertEqual(events["empty"]["reentry"], 0)
 
+    # --- a. HITL 裁示數 ---
+
+    def test_hitl_rulings_reported_with_distribution_and_average(self):
+        write(os.path.join(self.run_dir, "hr1.json"),
+              {"run_id": "hr1", "tier": 1, "status": "completed", "hitl_rulings": 3})
+        write(os.path.join(self.run_dir, "hr2.json"),
+              {"run_id": "hr2", "tier": 1, "status": "completed", "hitl_rulings": 1})
+        data = stats.collect(self.run_dir)
+        self.assertEqual(sorted(data["hitl_rulings"]), [1, 3])
+        self.assertEqual(data["hitl_rulings_missing"], 0)
+        text = stats.report(data)
+        self.assertIn("HITL 裁示數", text)
+        self.assertIn("平均 2.0", text)
+
+    def test_hitl_rulings_missing_key_shows_no_record(self):
+        write(os.path.join(self.run_dir, "old.json"), {"run_id": "old", "tier": 1, "status": "completed"})
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["hitl_rulings"], [])
+        self.assertEqual(data["hitl_rulings_missing"], 1)
+        text = stats.report(data)
+        self.assertIn("HITL 裁示數：無記錄（需要 hitl_rulings）", text)
+
+    def test_hitl_rulings_mixed_new_and_old_runs(self):
+        write(os.path.join(self.run_dir, "new.json"),
+              {"run_id": "new", "tier": 1, "status": "completed", "hitl_rulings": 5})
+        write(os.path.join(self.run_dir, "old.json"), {"run_id": "old", "tier": 1, "status": "completed"})
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["hitl_rulings"], [5])
+        self.assertEqual(data["hitl_rulings_missing"], 1)
+        text = stats.report(data)
+        self.assertIn("平均 5.0", text)
+        self.assertIn("無記錄：1 個 run", text)
+
+    # --- b. checker 升級率 ---
+
+    def test_checker_escalation_rate_with_reviewer_distribution(self):
+        write(os.path.join(self.run_dir, "ck.json"), {"run_id": "ck", "tier": 1, "status": "completed"})
+        write(os.path.join(self.run_dir, "ck.eval.json"), {
+            "run_id": "ck", "sub_tasks": [
+                {"id": 1, "checked_by": "checker"},
+                {"id": 2, "checked_by": "checker"},
+                {"id": 3, "checked_by": "reviewer:①"},
+            ],
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["checked_by_direct"], 2)
+        self.assertEqual(data["checked_by_escalated"], 1)
+        self.assertEqual(data["checked_by_dist"]["reviewer:①"], 1)
+        text = stats.report(data)
+        self.assertIn("checker 升級率：33%（1/3）", text)  # 2 直過 1 升級 → 33%
+
+    def test_checker_escalation_null_checked_by_is_no_record(self):
+        write(os.path.join(self.run_dir, "old.json"), {"run_id": "old", "tier": 1, "status": "completed"})
+        write(os.path.join(self.run_dir, "old.eval.json"), {
+            "run_id": "old", "sub_tasks": [
+                {"id": 1, "checked_by": None},
+                {"id": 2},  # 缺鍵
+            ],
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["checked_by_direct"], 0)
+        self.assertEqual(data["checked_by_escalated"], 0)
+        self.assertEqual(data["checked_by_none"], 2)
+        text = stats.report(data)
+        self.assertIn("checker 升級率：無記錄（需要 checked_by）", text)
+
+    def test_checker_escalation_mixed_recorded_and_unrecorded_sub_tasks(self):
+        write(os.path.join(self.run_dir, "mix.json"), {"run_id": "mix", "tier": 2, "status": "completed"})
+        write(os.path.join(self.run_dir, "mix.eval.json"), {
+            "run_id": "mix", "sub_tasks": [
+                {"id": 1, "checked_by": "checker"},
+                {"id": 2, "checked_by": None},  # 舊 sub_task 無記錄，不計分母
+            ],
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["checked_by_direct"], 1)
+        self.assertEqual(data["checked_by_none"], 1)
+        text = stats.report(data)
+        self.assertIn("checker 升級率：0%（0/1）", text)
+
+    def test_checker_escalation_unknown_value_falls_into_dist_without_validation(self):
+        """R-007：stats 不重列合法值清單，未知值原樣歸「其他」桶（升級側）計數顯示，不驗證。"""
+        write(os.path.join(self.run_dir, "unk.json"), {"run_id": "unk", "tier": 1, "status": "completed"})
+        write(os.path.join(self.run_dir, "unk.eval.json"), {
+            "run_id": "unk", "sub_tasks": [
+                {"id": 1, "checked_by": "some_未知值"},
+            ],
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["checked_by_escalated"], 1)
+        self.assertEqual(data["checked_by_dist"]["some_未知值"], 1)
+
+    # --- c. 前置/循環成本比 ---
+
+    def test_subagent_usage_reported_per_run_and_ratio(self):
+        write(os.path.join(self.run_dir, "su.json"), {
+            "run_id": "su", "tier": 2, "status": "completed",
+            "subagent_usage": {"prep": 100, "loop": 400},
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["subagent_usage"], [("su", 100, 400)])
+        text = stats.report(data)
+        self.assertIn("前置/循環成本比", text)
+        self.assertIn("su: prep 100／loop 400", text)
+        self.assertIn("prep:loop = 0.25", text)
+
+    def test_subagent_usage_missing_key_shows_no_record(self):
+        write(os.path.join(self.run_dir, "old.json"), {"run_id": "old", "tier": 1, "status": "completed"})
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["subagent_usage"], [])
+        self.assertEqual(data["subagent_usage_missing"], 1)
+        text = stats.report(data)
+        self.assertIn("前置/循環成本比：無記錄（需要 subagent_usage）", text)
+
+    def test_subagent_usage_mixed_new_and_old_runs(self):
+        write(os.path.join(self.run_dir, "new.json"), {
+            "run_id": "new", "tier": 1, "status": "completed",
+            "subagent_usage": {"prep": 50, "loop": 50},
+        })
+        write(os.path.join(self.run_dir, "old.json"), {"run_id": "old", "tier": 1, "status": "completed"})
+        data = stats.collect(self.run_dir)
+        self.assertEqual(len(data["subagent_usage"]), 1)
+        self.assertEqual(data["subagent_usage_missing"], 1)
+        text = stats.report(data)
+        self.assertIn("無記錄：1 個 run", text)
+
+    def test_subagent_usage_malformed_shapes_skipped_without_crash(self):
+        """壞形狀：缺鍵、值非 dict、prep/loop 非 int——寬容跳過，不 crash。"""
+        write(os.path.join(self.run_dir, "bad1.json"),
+              {"run_id": "bad1", "tier": 1, "status": "completed", "subagent_usage": "not_a_dict"})
+        write(os.path.join(self.run_dir, "bad2.json"), {
+            "run_id": "bad2", "tier": 1, "status": "completed",
+            "subagent_usage": {"prep": "100", "loop": 400},
+        })
+        write(os.path.join(self.run_dir, "bad3.json"), {
+            "run_id": "bad3", "tier": 1, "status": "completed",
+            "subagent_usage": {"prep": 100},  # 缺 loop
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["subagent_usage"], [])
+        self.assertEqual(data["subagent_usage_missing"], 3)
+        text = stats.report(data)  # 不 crash
+        self.assertIn("前置/循環成本比：無記錄", text)
+
+    # --- [邊界] 全部舊 run 無任何新欄 → 三節顯示無記錄、exit 0 不 crash ---
+
+    def test_all_legacy_runs_show_no_record_for_all_three_new_metrics(self):
+        write(os.path.join(self.run_dir, "legacy1.json"), {"run_id": "legacy1", "tier": 1, "status": "completed"})
+        write(os.path.join(self.run_dir, "legacy2.json"), {"run_id": "legacy2", "tier": 2, "status": "completed"})
+        write(os.path.join(self.run_dir, "legacy2.eval.json"), {
+            "run_id": "legacy2", "sub_tasks": [{"id": 1, "review_reds": 0}],
+        })
+        data = stats.collect(self.run_dir)
+        text = stats.report(data)
+        self.assertIn("HITL 裁示數：無記錄（需要 hitl_rulings）", text)
+        self.assertIn("checker 升級率：無記錄（需要 checked_by）", text)
+        self.assertIn("前置/循環成本比：無記錄（需要 subagent_usage）", text)
+
 
 # --- 2.4：整合測試（跨 item）——真實 eval_state.py 子命令序列 → events.jsonl → stats 消費 ---
 

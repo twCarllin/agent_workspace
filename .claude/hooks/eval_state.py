@@ -111,7 +111,7 @@ def cmd_add_subtask(args):
         "local_test_passed": False, "local_test_evidence": None,
         "verification_commands": [],
         "review_reds": None, "verify_passed": False,
-        "risk_analysis": None, "review_dimensions": None,
+        "risk_analysis": None, "review_dimensions": None, "checked_by": None,
     })
     save(state)
     append_event(state.get("run_id"), "add-subtask", args)
@@ -163,6 +163,8 @@ def cmd_set_status(args):
 
 
 VALID_DIMENSIONS = {"Clarity", "Completeness", "Testability", "Non-functional", "Technical_constraints"}
+# 審定者留痕（checker 化，2026-09-06）：checker＝checker 輪直過；reviewer:①-⑤＝升級輪（碼見 eval-flow step 3）；reviewer:manual＝手動觸發
+VALID_CHECKED_BY = {"checker", "reviewer:①", "reviewer:②", "reviewer:③", "reviewer:④", "reviewer:⑤", "reviewer:manual"}
 
 
 def cmd_set_review(args):
@@ -185,16 +187,26 @@ def cmd_set_review(args):
                 )
             if not isinstance(v, int) or isinstance(v, bool) or v < 0:
                 fail(f"--dimensions 維度「{k}」的值必須為非負整數（收到 {v!r}）", code=2)
+    if args.checked_by is not None and args.checked_by not in VALID_CHECKED_BY:
+        fail(
+            f"--checked-by 含非法值「{args.checked_by}」；"
+            f"合法值：{', '.join(sorted(VALID_CHECKED_BY))}",
+            code=2,
+        )
     state = load()
     st = find_subtask(state, args.id)
     st["review_reds"] = args.reds
     if dims is not None:
         st["review_dimensions"] = dims
+    if args.checked_by is not None:
+        st["checked_by"] = args.checked_by
     save(state)
     append_event(state.get("run_id"), "set-review", args)
     msg = f"[eval-state] sub_task {args.id} review_reds -> {args.reds}"
     if dims is not None:
         msg += f"，review_dimensions -> {dims}"
+    if args.checked_by is not None:
+        msg += f"，checked_by -> {args.checked_by}"
     print(msg)
 
 
@@ -291,6 +303,8 @@ def main():
     p.add_argument("reds", type=int)
     p.add_argument("--dimensions", default=None,
                    help="維度→問題數 JSON，如 '{\"Clarity\":1}'")
+    p.add_argument("--checked-by", dest="checked_by", default=None,
+                   help="審定者留痕：checker｜reviewer:①-⑤｜reviewer:manual")
     p.set_defaults(func=cmd_set_review)
 
     p = sub.add_parser("set-verify")
