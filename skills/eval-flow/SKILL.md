@@ -72,10 +72,12 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
    - **測試管轄註記**：派工 prompt 附一句「測試自驗只准跑 `python3 .claude/hooks/test_baseline.py mine --strike-key sub_task_<id>`，依你定義中的測試管轄規則」（writer 層 mine 模式細節住 test-strategy skill，不重述；`[P]` item 在 fan-out（各開 worktree）或循序退回下 mine 模式均適用——隔離樹或逐個執行時未提交變更範圍可正確推導，不再需要「指定測試檔清單」舊 workaround）
    - **契約前置與仲裁句（硬性）**：派工 prompt 必須把本 item 的**行為契約表原文**（task 檔的 `契約:` 行，含邊界 row）貼進硬約束區作為仲裁基準——不是叫 writer 自己翻 task 檔（與知識前置同一教訓），並附一句：「測試紅時先仲裁再動手，對到契約表 row 判哪邊錯；**契約表沒答案 → 帶失敗交付是正確行為，硬湊綠燈才是違規**」。無契約表的 item（Tier 1 無表 fallback）此句改指 DoD。writer 以「表沒答案」帶失敗交付時，**主 flow 裁決**：讀 Spec／usage 報告判該行為的預期，把裁決結果補進契約表（表可增補、single source 不變）再回派；Spec 本身有洞才走升級逃生門問使用者
    - **交付稽核（writer 交付時，兩個對照）**：①工作報告的「仲裁記錄」——紅過的測試每條都要有仲裁行，判「測試超出契約」者核對 row 引文與 task 檔原文一致（對不上＝假仲裁，退件）；②`run/<run_id>.mine_log.json`——mine 執行次數異常多、測試檔 hash 在失敗未清的情況下反覆變動、失敗集合遊走＝「改測試湊綠」的機器指紋，退件重派並要求逐條補仲裁依據。正常交付（次數合理、記錄對得上）瞄一眼即過，不展開
-2. 將變更檔案 `git add` 進 staging area（確保 code-reviewer 可透過 `git diff --cached` 讀取）。**派 code-reviewer 時，prompt 硬性指示改用 `git diff --cached -- <files>`**，`<files>`＝**當前 sub_task 的 `files`**（主 flow 讀 `eval_state.json` 該 sub_task 的 `files` 欄帶入；收斂到當前 sub_task 涉及檔，避免跨 sub_task staging 累積污染）。**注意**：`eval_state.py list-files` 是全 sub_task 聯集，不是單一 sub_task 來源、不可用於此。此收斂為退回主 worktree 循序時的污染修法（與 fan-out 無關、底層必需）。
-3. 呼叫 `code-reviewer`（唯讀、讀 staged diff），其審查報告**強制兩節、缺一退件**：①**完成度節**——對照 task 檔該 item 的 DoD 與子任務逐條核對，**明列 diff 中缺席的項目**（scope 偏移一併檢）；②**品質節**——既有五大範疇審查（做的東西會怎麼壞）。兩節即雙軸（完成度＝Spec 軸、品質＝Standards 軸）：報告總結分軸統計、不跨軸合併排名；品質節含 Fowler smell 基準層（判斷級 🟡、repo 慣例優先、工具已強制者略過），12 條基準表住 code-reviewer 定義（唯一枚舉點，此處不重列）。機械可驗的 DoD（grep／指令斷言）由主 flow 直驗留痕、不佔 agent。`step` 欄位記 `reviewing`（`verifying` 保留供舊 run resume 相容，新路徑不再使用）
-   - **task-verifier 已自動迴圈退役（2026-07-25）**：兩個長 run 實測 0 個獨有發現、1 次誤報、佔 1/3 token，完成度檢查併入 reviewer 完成度節。agent 定義保留供手動觸發。**回退條件**：「漏做的 DoD 逃過完成度節、進了 commit」寫入 BUGLOG 且命中第 2 次 → 恢復獨立 verifier 每輪派遣
-   - **審查報告 write-ahead（硬性步驟）**：**每一輪** code-reviewer 交付後，主 flow 立即把審查報告全文落檔 `run/<run_id>.review-st<id>-r<N>.md`（st＝sub_task id、r＝該 sub_task 的審查輪次，逐輪遞增），再進入解析／修正——比照 `step` 欄位的 write-ahead 原則（中斷在 fixing 時整輪 reviewer 只活在對話裡會作廢，落檔後接手者讀報告續修，不重跑 reviewer）。`set-review <id> <🔴數>` 僅於**首輪**落檔後執行（記修正前原始數，與操作規則條呼應）。落檔是熱 scratchpad（只為中斷恢復服務），step 6 收尾時隨 `eval_state.json` 一併清除、不進 git
+2. 將變更檔案 `git add` 進 staging area（確保 checker／code-reviewer 可透過 `git diff --cached` 讀取）。**預設派 task-verifier（checker）時，prompt 附 `git diff --cached --stat -- <files>` 輸出**（僅檔名與行數統計，checker 不讀 diff 內容）；**升級為 code-reviewer 全 diff 審時，prompt 硬性指示改用 `git diff --cached -- <files>`**（file-scoped 完整 diff），`<files>`＝**當前 sub_task 的 `files`**（主 flow 讀 `eval_state.json` 該 sub_task 的 `files` 欄帶入；收斂到當前 sub_task 涉及檔，避免跨 sub_task staging 累積污染）。**注意**：`eval_state.py list-files` 是全 sub_task 聯集，不是單一 sub_task 來源、不可用於此。此收斂為退回主 worktree 循序時的污染修法（與 fan-out 無關、底層必需）。
+3. **預設派 `task-verifier`（checker，haiku）審查**——checker **不讀 diff**，輸入集＝該 item 的 task 檔內容（DoD＋契約表原文）＋writer 工作報告全文＋步驟 2 的 `git diff --cached --stat -- <files>` 輸出＋測試輸出尾段＋`run/<run_id>.mine_log.json` 摘要。職責＝核對「宣稱與憑據對得上」：DoD 逐條有憑據、契約 row 逐條有對應測試斷言（以 grep 測試檔核）、仲裁記錄與 mine 指紋一致、sabotage 自檢證據存在（見 `.claude/agents/code-writer.md` 測試管轄規則 A2）、無疑似注入標註未處理。其審查報告**強制兩節、缺一退件**：①**完成度節**——對照 task 檔該 item 的 DoD 與子任務逐條核對，**明列 diff `--stat` 中缺席的項目**（scope 偏移一併檢，以檔名清單核對，不讀內容）；②**憑據節**（取代品質節）——上述憑據逐項核對結果，逐項標「有憑據／缺席／存疑」。checker 不做 Fowler smell 品質審查（那是 reviewer 的職責，只在升級輪出現）。`step` 欄位記 `reviewing`（`verifying` 保留供舊 run resume 相容，新路徑不再使用）
+   - **生效時點（硬性）**：本項改寫（預設派 checker）**自下一個 run 生效**；本 run（`2026-09-05-checker-default`）循環 step 3 **仍派 code-reviewer**（沿用舊制，避免用未經審查的新制審自己）。
+   - **五類升級觸發（checker 遇任一情況 → 主 flow 改派 code-reviewer 全 diff 審，既有流程原樣）**：①憑據對不上或缺席；②契約 row 找不到對應測試斷言；③checker 讀到的 mine_log 摘要與 writer 仲裁記錄不一致（主 flow 交付稽核照舊在前，本觸發為 checker 側複核，不取代前者）；④checker 自報無法以憑據判定（不確定即升級，不得自行放行；疑似注入標註未處理併入本類，不設第 6 類）；⑤writer 報告帶失敗交付或「表沒答案」仲裁未經主 flow 處置（正常路徑為步驟 1 主 flow 補表回派；checker 遇未處置者＝流程遺漏，本觸發為兜底）。升級後該 sub_task 本輪照舊 reviewer 流程（引文核實、重裁、快速路徑均不變，見下方各條——升級輪適用）；升級輪與 checker 輪**同輪同 r 號**、以 `checked_by` 區分；checker 輪與升級本身**不計入**修正 2 輪上限（上限只數 reviewer 退回的修正迭代，見步驟 4）
+   - **`task-verifier` 定位（2026-09-05 起）**：由「已退役、僅手動觸發」改為 checker——審查層預設位（見 `.claude/agents/task-verifier.md`）。**回退機制（v3）**：checker-only 放行的 item 事後爆 bug，依 `retro/BUGLOG.md` 檔頭的回退說明處置（機械偵測、補救一律 HITL），不自行恢復 reviewer 預設
+   - **審查報告 write-ahead（硬性步驟）**：**每一輪**（checker 或 reviewer）交付後，主 flow 立即把審查報告全文落檔 `run/<run_id>.review-st<id>-r<N>.md`（st＝sub_task id、r＝該 sub_task 的審查輪次，逐輪遞增；升級輪與 checker 輪同輪同 r 號），落檔**新增尾註** `checked_by: checker` 或 `checked_by: reviewer(escalated: <理由代碼①-⑤>)`（命名格式不變，只增列此尾註），再進入解析／修正——比照 `step` 欄位的 write-ahead 原則（中斷在 fixing 時整輪只活在對話裡會作廢，落檔後接手者讀報告續修，不重跑）。`set-review <id> <🔴數>` 僅於**首輪**落檔後執行（checker 輪 `<🔴數>` 固定填 0——B4 憑據契約不動；升級輪由 reviewer 結果填，記修正前原始數，與操作規則條呼應）。落檔是熱 scratchpad（只為中斷恢復服務），step 6 收尾時隨 `eval_state.json` 一併清除、不進 git
    - **🔴 重裁條款**：主 flow 對每條 🔴 先做事實核對——至少讀 producer 端證據（上游 schema、函式定義、實際輸出），有反證 → 送獨立重裁（重呼叫 reviewer 附上反證，或取第二意見），**不可未經查證直接派 writer 照修**（reviewer 可能只讀消費面就下錯誤斷言，照修會把正確的 code 改壞）
    - **引文核實（重裁不限 🔴）**：任何發現（含 🟡）只要引用具體 code 片段／行號，主 flow 套用修正前必須對照 staged 原碼核實：`git show :<檔案> | grep -n -F '<引文片段>'`（引文跨多行或含特殊字元時，取最具識別性的**單行**片段）。生產端已有對應要求（`code-reviewer.md` 工作守則規定 reviewer 寫行號前須以同類指令現查），本條是消費端補網，兩端並存、不互相取代。處置**依 grep 輸出二分，不留臨場裁量**（留裁量正是本條實測被繞過三次的原因——發現實質為真時主 flow 傾向自行放行）：
      - **grep 無輸出（引文文字在檔中不存在）→ 直接駁回該條**（記入審查落檔的「主 flow 處置」行），不進 fixing（實測：reviewer 讀大 diff 會混淆記憶，引用不存在的寫法判 🟡；照修等於為幻覺改 code）
@@ -83,11 +85,13 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
      - **機械退件門檻**：同一份審查報告需行號修正 **≥3 條** → 整份報告視為未經核對，**退回 reviewer 重審**（重審 prompt 明列漏核對的條目），該輪不計入修正迭代上限
      - 基於錯誤前提（如誤認 commit 狀態）的發現同樣駁回並留痕
 4. 審查結果的處置：
-   - **零 🔴 且完成度節無缺席項** → 主 flow 執行 set-verify，進 step 5
-   - **有 🔴 或完成度節列出缺席項** → 走 fixing 迴圈（審查報告落檔、重裁條款、set-review 均不變）；修正後重跑步驟 3
-   - **🟡-only 快速路徑（省一輪審查稅）**：零 🔴、完成度節無缺席、僅 🟡，且 🟡 全屬主 flow 可直接套用的**措辭級**修正（修錯字、對齊術語、補澄清性說明——不改邏輯、不改介面、不動 code 行為；**判斷有疑義時一律歸邏輯級**，省稅是優化、正確性是底線）→ 主 flow 套用修正後**不重跑**，該輪即為通過輪、照常 set-verify。任一 🟡 涉及邏輯／行為／介面改動 → 不適用，照常回步驟 3。套用了哪些 🟡 記入審查落檔的「主 flow 處置」行（留痕供稽核）。措辭級不動 code 行為，完成度結論對套用後 diff 仍成立（與 🔴 作廢輪的差異：🔴 的修正可能改 code 行為故禁止沿用，措辭級不改故放行）
+   - **checker 通過**（完成度節無缺席、憑據節逐項有憑據）→ 主 flow 執行 set-verify，進 step 5
+   - **checker 觸發任一升級①-⑤** → 改派 code-reviewer 全 diff 審（見步驟 3 五類升級觸發），本輪落檔補記 `checked_by: reviewer(escalated: <理由代碼>)`；reviewer 交付後依下列兩條處置
+   - **升級輪（reviewer）零 🔴 且完成度節無缺席項** → 主 flow 執行 set-verify，進 step 5
+   - **升級輪（reviewer）有 🔴 或完成度節列出缺席項** → 走 fixing 迴圈（審查報告落檔、重裁條款、set-review 均不變）；修正後重跑步驟 3（升級輪，直接派 reviewer，不退回 checker）
+   - **🟡-only 快速路徑（省一輪審查稅，僅升級輪適用，裁示 #7）**：checker 輪無 🟡 分級——憑據對不上即升級，不適用本路徑。升級輪內，零 🔴、完成度節無缺席、僅 🟡，且 🟡 全屬主 flow 可直接套用的**措辭級**修正（修錯字、對齊術語、補澄清性說明——不改邏輯、不改介面、不動 code 行為；**判斷有疑義時一律歸邏輯級**，省稅是優化、正確性是底線）→ 主 flow 套用修正後**不重跑**，該輪即為通過輪、照常 set-verify。任一 🟡 涉及邏輯／行為／介面改動 → 不適用，照常回步驟 3（升級輪）。套用了哪些 🟡 記入審查落檔的「主 flow 處置」行（留痕供稽核）。措辭級不動 code 行為，完成度結論對套用後 diff 仍成立（與 🔴 作廢輪的差異：🔴 的修正可能改 code 行為故禁止沿用，措辭級不改故放行）
    - **發現不得自我授權（scope 防線）**：任何發現（含 🟡 建議）要進 fixing，主 flow 必須先指名其**對映依據**——本 item 的 DoD 條目、契約 row、Spec／spec_inline 句、或既有硬規則（CLAUDE.md／skill 條文）之一，記入審查落檔的「主 flow 處置」行；對映不出來的發現不得變成修正工作——處置為駁回（留痕）或 park 進收尾回報請使用者裁決。與步驟 3 的引文核實並存不互代：引文核實防幻覺發現（引的 code 不存在），本條防真發現擴 scope（發現為真但無人要求）
-   - **修正迭代上限**：同一 sub_task 修正 2 輪後 reviewer 仍有 🔴 → 將該 sub_task 的 `status` 設為 `"failed"`、`warning: true`，回報使用者（不自行繼續修）
+   - **修正迭代上限（僅數升級輪，裁示 #9）**：同一 sub_task 的**升級輪**修正 2 輪後 reviewer 仍有 🔴 → 將該 sub_task 的 `status` 設為 `"failed"`、`warning: true`，回報使用者（不自行繼續修）；checker 輪與升級動作本身不計入此上限
 5. **本地測試驗證（硬性 gate，對應 CLAUDE.md「部署規則」）**：依 **test-strategy** skill 執行。gate 條件＝**無新增穩定失敗**（以 `.claude/hooks/test_baseline.py check` 的判定為準；baseline 於第一次 step 5 前建立單次快照既有失敗，非確定性失敗由 script 於新失敗時重跑一次確認可重現）
    - **Tier 2：新行為必須有自動化測試**（單元測試隨各實作 item 的 DoD、整合測試 item 由前置 3 分拆時建立，見 task-decomposition skill）；**Tier 1**：自動化測試或實際運行功能驗證皆可
    - 通過 → `local_test_passed: true`、`local_test_evidence` 填 script 輸出摘要（hook 於 commit 時檢查兩欄皆已填）
@@ -98,6 +102,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 7. **有條件** 呼叫 `retro` subagent：
    - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro
    - code-reviewer 無 🔴 → **不呼叫 retro**（reviewer 一次過即無回顧價值）
+   - **邊角待確認（checker 化後，park）**：checker 通過輪無 🔴／🟡 分級概念，本條件是否僅掛升級輪（reviewer 判定）尚未在 Spec 明列——不自行定義，交主 flow 收尾時問使用者裁決
 
 ## Model 指派原則
 
@@ -107,7 +112,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 
 ## Subagent 呼叫原則（省 token）
 
-- **code-reviewer**（含手動觸發的 task-verifier）需要讀取程式碼變更時，**必須在 prompt 中指示使用 `git diff --cached -- <files>`**（Bash 工具，`<files>`＝當前 sub_task 的 `files` 欄），不要用 Read 逐檔讀取完整檔案。`git diff` 只回傳變更部分，token 消耗遠低於讀整檔；file-scoped 指令另可避免跨 sub_task staging 累積污染（見循環 step 2）。
+- **code-reviewer**（升級輪呼叫）需要讀取程式碼變更時，**必須在 prompt 中指示使用 `git diff --cached -- <files>`**（Bash 工具，`<files>`＝當前 sub_task 的 `files` 欄），不要用 Read 逐檔讀取完整檔案。`git diff` 只回傳變更部分，token 消耗遠低於讀整檔；file-scoped 指令另可避免跨 sub_task staging 累積污染（見循環 step 2）。**task-verifier（checker，預設輪呼叫）不讀 diff、不適用本條**——輸入集見循環 step 3，只附 `--stat` 輸出。
 - **auto-mode 定義**：指使用者在本次 session 中**明確表示**開啟（例如「開 auto-mode」「全自動跑」）。未明示一律視為關閉，不可自行推斷。
 - **auto-mode 開啟時**：這 2 個 agent 可以放背景執行（`run_in_background: true`），Bash 會自動批准。
 - **非 auto-mode 時**：這 2 個 agent 必須用前景執行，讓使用者能批准 Bash 權限。不可放背景執行（背景 agent 無法彈出權限確認，會導致 Bash 被拒絕）。
@@ -227,11 +232,11 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、mine 指紋
 - **使用情境分析完成後 / 分拆 task 完成後**：`usage_report_path` 與 `task_file` 分別由 `usage-analyzer`、`task-decomposer` 於各自步驟回寫（時機與條件見 agent 定義）。前者為 `null` 時不可進入分拆 task
 - **風險分析完成後**：將 6 大面向結果填入對應 sub_task 的 `risk_analysis`，若有 🔴 設 `blocking: true`，必須修正 Spec 後重新分析
 - **循環進度記錄（write-ahead，中斷恢復的關鍵）**：每個循環步驟**開始前**先把該 sub_task 的 `step` 寫入 `eval_state.json`（`writing`→`reviewing`（並發 review＋verify 階段）→`fixing`（有 🔴 時）→`testing`→`done`；`verifying`／`scoring` 為舊版 run 的相容值，新路徑不寫入），步驟完成後再更新為下一步。code-writer 交付後立刻把本 sub_task 涉及的檔案清單寫入 `files`（修正時同步增補）——staged 變更與 sub_task 的對應關係只准活在這裡，不准只活在對話裡
-- **首輪 code-reviewer 審查結果出來後（step 3）**：執行 `python3 .claude/hooks/eval_state.py set-review <id> <🔴數> [--dimensions '<json>']`——`<🔴數>` 記首輪 code-reviewer 的 🔴 原始數（修正前，有無 🔴 皆須執行）；`--dimensions` 為 reviewer 報告末尾的維度統計（維度→問題數，五維詞彙：Clarity／Completeness／Testability／Non-functional／Technical_constraints），有 🔴／🟡 時必填，供 stats.py 維度分佈遙測——commit gate 必填 `<🔴數>`，缺一擋歸檔
-- **reviewer 完成度節通過且該輪零 🔴（step 4 放行、真正進 step 5 的輪次）**：執行 `python3 .claude/hooks/eval_state.py set-verify <id>`，將 `verify_passed` 設為 `true`——commit gate 必填，缺一擋歸檔。**語義（2026-07-25 起）**：`verify_passed` 記的是「reviewer 審查報告的完成度節通過（DoD 無缺席、scope 無偏移）」，不再對應獨立 task-verifier agent；hook gate 判定不變。有 🔴 的輪次**不得** set-verify（該輪修正可能改 code 行為）；與 `set-review` 記首輪原始數不同，`set-verify` 記的是**最終通過輪**
+- **首輪審查結果出來後（step 3，checker 或升級輪 reviewer）**：執行 `python3 .claude/hooks/eval_state.py set-review <id> <🔴數> [--dimensions '<json>']`——`<🔴數>` 記首輪的 🔴 原始數（修正前，有無 🔴 皆須執行；**checker 輪固定填 0**，B4 憑據契約不動）；`--dimensions` 為升級輪 reviewer 報告末尾的維度統計（維度→問題數，五維詞彙：Clarity／Completeness／Testability／Non-functional／Technical_constraints），有 🔴／🟡 時必填，供 stats.py 維度分佈遙測（checker 輪無此節、免填）——commit gate 必填 `<🔴數>`，缺一擋歸檔
+- **checker 通過或升級輪 reviewer 完成度節通過且該輪零 🔴（step 4 放行、真正進 step 5 的輪次）**：執行 `python3 .claude/hooks/eval_state.py set-verify <id>`，將 `verify_passed` 設為 `true`——commit gate 必填，缺一擋歸檔。**語義（2026-09-05 起）**：`verify_passed` 記的是「checker 憑據節通過、或升級輪 reviewer 完成度節通過（DoD 無缺席、scope 無偏移）」；hook gate 判定不變。有 🔴 的輪次**不得** set-verify（該輪修正可能改 code 行為）；與 `set-review` 記首輪原始數不同，`set-verify` 記的是**最終通過輪**
 - **本地測試通過後（step 5）**：將該 sub_task 的 `local_test_passed` 設為 `true`、`local_test_evidence` 填入驗證證據（指令＋結果摘要；Tier 2 若更新過既有測試，一併註明 Spec／task 依據）。預設 `false`／`null`；hook 於 commit 時檢查歸檔檔中所有 sub_task 兩欄皆已填
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`
-- **同一 sub_task 修正 2 輪後 reviewer 仍有 🔴**：`status` 設為 `"failed"`，`warning` 設為 `true`，回報使用者（詳見循環 step 4 修正迭代上限）
+- **同一 sub_task 修正 2 輪後 reviewer 仍有 🔴**：`status` 設為 `"failed"`，`warning` 設為 `true`，回報使用者（詳見循環 step 4 修正迭代上限；checker 輪與升級本身不計入此 2 輪，裁示 #9）
 - **全部完成且通過**：**先歸檔為 `run/<run_id>.eval.json`**（保留評分歷史與扣分原因）、清除 `eval_state.json`、manifest `status` 設為 `"completed"`，**再** commit（歸檔檔與 manifest 同批進 git；順序由 hook 強制——`eval_state.json` 尚存在時 commit 會被擋）
 - **有任一 failed**：manifest 的 `status` 設為 `"failed"`，並在 manifest 的 `failed_reason` 寫一句話死因（哪個 sub_task、卡在哪步、為什麼），回報使用者
   - **失敗收尾**：staging area 保持原狀（已通過 sub_task 的變更留在 staged），**不自行 unstage、不部分 commit、不清除 `eval_state.json`**，由使用者裁決後續（續跑、部分 commit 或放棄）。此時 hook 會擋下 Claude 端的任何 `git commit`（`eval_state.json` 尚存在），屬預期行為；使用者要部分 commit 可在自己的終端執行（hook 只攔 Claude 的 Bash 工具）
@@ -267,7 +272,7 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、mine 指紋
 2. **直接建 task 檔**：免呼叫 `task-decomposer` subagent，但上限不變——**≤2 tasks、合計 ≤8 items（硬）、各 item 目標 ≤300 行（軟）；每 task 仍 ≤5 items**（單 task 審查可讀性上限不因放寬而破）。超過 2 tasks／合計超 8 items、或出現遠超 300 行且拆不進去的工作 → 觸發升級逃生門（回 Tier 2）。**功能移除類需求**：既有測試的分流依 task-decomposition skill 的「功能移除的測試三分法」（主題＝被刪行為→隨功能刪；主題是存活行為→只拔斷言行；無關→不動），主 flow 建 task 檔時完成分類。**DoD 措辭**：主 flow 直建 task 檔的 DoD 與契約 row 同守 task-decomposition 的可驗斷言與「禁不可驗評價詞」規則（清單住該 skill，此處不重列）——Tier 1 不載入該 skill，此指向句即投放路徑
    - **小 prose item 合併（省審查稅）**：純 prose（文件／agent 定義／skill，無 code）、單檔 ≤30 行、語義同源（同一個設計決策的多處投放）的 items，**合併為一個 sub_task 一輪審**——審查稅從 N 輪降 1 輪。約束：合併後單輪 diff 仍須 reviewer 一次讀完可審（總量失控就拆回）；含 code 的 item 不併入 prose 合併
 3. **輕量 HITL**：寫 code 前，把「N tasks／M items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。確認後將 manifest 的 `phase` 設為 `"decomposed"`（hook 憑此放行 code-writer）、`hitl_confirmed_at` 記「時間＋確認範圍一句話」，才進循環
-4. **主 flow 直寫捷徑（可選）**：Tier 1 且單 item 預估 ≤100 行 → 主 flow 可直接寫 code、不 spawn `code-writer`（省一次全新 agent 重建 context 的稅）。守則：「寫的人 ≠ 審的人」防線不變（`code-reviewer` 照常獨立審 staged diff）；知識前置（三源，見循環 step 1）改由主 flow 自查並在回報留痕；超過 ≤100 行或跨多檔複雜 item 仍派 `code-writer`；hook 對 code-writer 的 phase gate 不受影響（直寫路徑不經該 gate，phase 仍須 decomposed 才動工——由輕量 HITL 保證）
+4. **主 flow 直寫捷徑（可選）**：Tier 1 且單 item 預估 ≤100 行 → 主 flow 可直接寫 code、不 spawn `code-writer`（省一次全新 agent 重建 context 的稅）。守則：「寫的人 ≠ 審的人」防線不變（審的人預設為 `task-verifier`（checker），照常獨立審；升級走循環 step 3 五類觸發同一套規則，改派 `code-reviewer`）；知識前置（三源，見循環 step 1）改由主 flow 自查並在回報留痕；超過 ≤100 行或跨多檔複雜 item 仍派 `code-writer`；hook 對 code-writer 的 phase gate 不受影響（直寫路徑不經該 gate，phase 仍須 decomposed 才動工——由輕量 HITL 保證）
 5. **共用循環**：進入上方循環的步驟 1–7（code-writer → review（含完成度節）→ 本地測試 → commit）。收尾**不歸檔**（無 `eval_state.json`）：manifest 填入四欄憑據（`local_test_passed: true`、`local_test_evidence`、`review_reds`、`verify_passed: true`）並標 `status: "completed"`，直接 `git add` **依 step 6 子項②的清單，減去 eval 歸檔檔與 usage 報告**（Tier 1 無此二者）並 commit（message 附 `Run-Id: <run_id>` trailer）。**收尾要 add 哪些檔以 step 6 子項②為單一枚舉點**，本處與 fan-out 節皆指向它、不各自重列（實測：各自重列必漂移——2026-07-30（R-007）一次修正只改到 step 6，Tier 1 與 fan-out 兩處同義敘述當場漏改）。不執行 eval_state.py 的 archive 操作、不清除任何 scratchpad（本就沒建）
    - sub_task 的 `risk_analysis` 可簡記為 `"router 已篩（Tier 1）"`，不需逐面向填
    - step 5 可用實際運行功能驗證取代自動化測試（不強制建測試），但 `local_test_evidence` 照填——證據要求不分 tier
@@ -310,7 +315,7 @@ Tier 2 run 內符合門檻的 `[P]` item 各開 git worktree 並行執行，取�
 
 ### 門檻與退回
 
-fan-out 僅在「**`[P]` item ≥2 且各自預估 ≥150 行**（以 task-decomposer 的 `~<行數>行` 欄位 ×2 校準估計為準）」時啟動。估計不準即不 fan-out（保守偏循序）。不滿足門檻 → 該批 `[P]` item 退回主 worktree **循序**執行（不開 worktree），派 code-reviewer 時改用循環 step 2 的 file-scoped diff 收斂（引用循環 step 2 的規則，不在此重述）。含「有意行為變更需更新既有測試」的 item 不可進 fan-out 批，改留循序段——理由與 `parallel-run` skill 相同：既有測試只增不改是 merge gate 的裁判前提，破掉它等於裁判換人、全套綠燈失去安全保證。
+fan-out 僅在「**`[P]` item ≥2 且各自預估 ≥150 行**（以 task-decomposer 的 `~<行數>行` 欄位 ×2 校準估計為準）」時啟動。估計不準即不 fan-out（保守偏循序）。不滿足門檻 → 該批 `[P]` item 退回主 worktree **循序**執行（不開 worktree），步驟 3 預設仍派 checker、升級改派 code-reviewer 時用循環 step 2 的 file-scoped diff 收斂（引用循環 step 2 的規則，不在此重述）。含「有意行為變更需更新既有測試」的 item 不可進 fan-out 批，改留循序段——理由與 `parallel-run` skill 相同：既有測試只增不改是 merge gate 的裁判前提，破掉它等於裁判換人、全套綠燈失去安全保證。
 
 ### 三段式執行協定
 

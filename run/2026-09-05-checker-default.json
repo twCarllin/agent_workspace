@@ -1,0 +1,19 @@
+{
+  "run_id": "2026-09-05-checker-default",
+  "created_at": "2026-09-05 23:13",
+  "framework_version": "2026.08.20.1",
+  "tier": 2,
+  "tier_rationale": "偏大＋設計歧義觸發：4 大變更塊（checker 化循環結構、#15 治理 v2、三條上游補償規則、回退條款）跨 6+ 檔，checker 定義與升級路徑有設計歧義需 usage 盤點收斂。不觸高風險面本體（經查證 eval_gates.py:51-56 AGENT_MIN_PHASE 不含 task-verifier/code-reviewer，hook 零變更；全 run 為 prose＋agent 定義變更）。使用者已明示裁決：全部 checker 不分 tier、僅升級路徑、三上游規則同 run 先行。",
+  "phase": "completed",
+  "spec_path": "spec/2026-09-05-checker-default.md",
+  "spec_inline": null,
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-05 23:55 — 確認 usage 報告（14 情境；11 條裁示：#1 注入併④、#2 resume 納入範圍、#3 同輪同 r 號、#4 Tier1 沿用落檔命名、#5 mine 稽核分工、#6 表沒答案⑤為兜底、#7 快速路徑限升級輪、#8 回退 v3 偵測機械＋補救一律 HITL、#9 checker 輪不計修正上限、#10 截斷存疑即升級、#11 A→B 解除硬依賴）",
+  "hitl_rejections": 0,
+  "risk_report_path": "risk/2026-09-05-checker-default.md",
+  "usage_report_path": "usage/2026-09-05-checker-default.md",
+  "impact_report_path": "impact/2026-09-05-checker-default.md",
+  "task_file": "task/2026-09-05.md",
+  "status": "completed",
+  "failed_reason": null
+}

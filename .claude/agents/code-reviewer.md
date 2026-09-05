@@ -1,7 +1,8 @@
 ---
 name: code-reviewer
 description: |
-  專業程式碼審查員。當需要審查 PR、commit、函數或模組的程式碼品質時呼叫。
+  升級路徑專用審查員＋高風險手動觸發（2026-09-05 起 eval-flow 循環 step 3 預設改派 task-verifier(checker)；
+  本 agent 於 checker 五類升級觸發之一成立時被派用，或供高風險變更手動觸發全 diff 審查）。
   負責檢查：安全漏洞、效能問題、邏輯錯誤、可維護性、符合最佳實踐。
   不修改任何檔案，僅輸出結構化審查報告。
 tools: Read, Grep, Glob, Bash

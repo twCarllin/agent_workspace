@@ -5,12 +5,12 @@
 
 | agent | model | 指派理由 |
 |---|---|---|
-| code-reviewer | claude-opus-4-8 | 審查＝判斷密集 → 強 model；與 writer 異族（去相關化） |
+| code-reviewer | claude-opus-4-8 | 升級路徑專用（checker 五類觸發之一成立時派用）＋高風險手動觸發，審查＝判斷密集 → 強 model；與 writer 異族（去相關化） |
 | code-writer | claude-sonnet-5 | 近 Opus 級 coding；維持與 reviewer（opus）的異族互審 |
 | impact-analyzer | claude-opus-4-8 | 影響面盤點＝跨模組推理密集 → 強 model |
 | retro | claude-sonnet-4-6 | 歸因提煉為中等推理量，不需最強檔 |
 | task-decomposer | claude-opus-4-8 | 拆解＝規劃判斷密集，拆錯整條 flow 重跑 → 強 model |
-| task-verifier | claude-haiku-4-5-20251001 | DoD 逐條對照＝機械式 → 快 model；假通過率為回退依據 |
+| task-verifier | claude-haiku-4-5-20251001 | checker（審查層預設位，2026-09-05 起）——憑據逐條核對＝機械式 → 快 model；假放行率為回退依據（v3 回退機制見 retro/BUGLOG.md） |
 | usage-analyzer | claude-opus-4-8 | 情境盤點＝判斷密集 → 強 model |
 
 ## 約束

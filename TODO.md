@@ -119,8 +119,11 @@ RETRO.md 是 per-project，但實測的 🔴 全是通用類別（外部回應�
 
 ## 15. 治理規則（給維護者自己的，機制化防流程無限長大）
 
-- [ ] **規則凍結**：在累積下 5 個真實 run 的 stats 數據前，不新增流程規則（measurement 先於 rules；本節之後的投資應是「跑 run」不是「改 flow」）
+- [x] **規則凍結（已廢止）**：在累積下 5 個真實 run 的 stats 數據前，不新增流程規則（measurement 先於 rules；本節之後的投資應是「跑 run」不是「改 flow」）——已到期並廢止（2026-09-05，33 completed run ≥ 5，見 stats.py 輸出），由以下證據閘取代
 - [ ] **eval-scorer 存廢審計**：5 個 run 後看 stats 的「scorer 獨立貢獻」——趨近 0% 則砍掉 scorer 層（全系統最大單筆成本削減候選），reviewer 結論直接驅動重跑
+- [ ] **出生證制**：新流程規則須引用證據——BUGLOG／RETRO 條目（recurring 或 severe one-off）或使用者明示決策；單發 observation 留證據層不成規則（BUGLOG 兩層制從 bug 擴及所有規則來源，含 reviewer/checker catch）
+- [ ] **Minimality 逐筆**：新規則附「被否決的更小替代」一句；同一規則家族第 2 次被修 → 重開設計而非就地補丁
+- [ ] **修剪啟動**：stats 已點名的兩批進第一次修剪審查（細節見下方「修剪審查」條，不重列）——HITL 打回率 0%（0/33）的人閘門（降級候選；註記：33 run 幾乎全為框架自我改進 domain，外部專案未驗證，修剪保守）、從未命中的 gate
 - [ ] **Game day**：故意在 step 5 中途 kill 一個 run，換乾淨 session 純照 eval-flow-resume skill 恢復——沒演練過的恢復程序等於不存在。順便驗重開路徑與升級逃生門
 - [ ] **修剪審查**：每 5 個 run 看一次 gate_hits——從不觸發的 gate、打回率 0% 的 HITL、沒被 retro 前置引用過的約束條目，逐一裁決降級或刪除
 - [ ] **實測選題多樣化**：下幾個 run 刻意換 domain（前端／infra／資料處理），驗證規則泛化（現有 17 條改動全來自同一 agent 同一 domain 的 n=2）

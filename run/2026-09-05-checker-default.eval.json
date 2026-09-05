@@ -1,0 +1,77 @@
+{
+  "run_id": "2026-09-05-checker-default",
+  "sub_tasks": [
+    {
+      "id": 1,
+      "name": "Task A: 上游補償三規則（A1 組合row/A3 多處投放/A2 sabotage 自檢）",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/task-decomposition/SKILL.md",
+        ".claude/agents/code-writer.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_baseline.py check --cmd 'unittest tests.test_docs_consistency tests.test_model_policy'（related：本 sub_task 全 prose，可測面為文件一致性）--strike-key sub_task_1: PASS 無新增穩定失敗。機械契約 grep 直驗：組合 row×2、語義碰撞×2（:41 規則＋:161 反模式）、（R-006）×1、sabotage（code-writer.md:48）×1、邊界句保留——全命中。審查 r1 完成度 1 缺席（A.2 反模式條）→ 修補 → r2 缺席 0、🔴0🟡0 通過",
+      "verification_commands": [
+        {
+          "command": "python3 .claude/hooks/test_baseline.py check --cmd 'python3 -m unittest tests.test_docs_consistency tests.test_model_policy' --strike-key sub_task_1",
+          "exit_code": 0
+        }
+      ],
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    },
+    {
+      "id": 2,
+      "name": "Task B: checker-by-default（step3 checker 化/task-verifier 改造/reviewer 定位/resume/回退 v3）",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "skills/eval-flow/SKILL.md",
+        ".claude/agents/task-verifier.md",
+        ".claude/agents/code-reviewer.md",
+        "MODEL_POLICY.md",
+        "skills/eval-flow-resume/SKILL.md",
+        "retro/BUGLOG.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_baseline.py check --cmd 'unittest tests.test_docs_consistency tests.test_model_policy'（related：本 sub_task 全 prose，可測面為文件一致性——EnvelopeSpecTest 護信封、test_model_policy 護 model 欄）--strike-key sub_task_2: PASS 無新增穩定失敗。機械契約直驗：eval-flow grep 'checker'×18（原 0 淨新增）、'escalated' :80/:89、三鎖定點純 context、resume 'checked_by' :43-45、BUGLOG 'checker-passed' :7、code-reviewer '升級路徑' :4、task-verifier '已退役' 零命中。審查 r1 完成度 0 缺席＋1 🟡（升級碼②/④跨檔分歧＋重列）→ 修正（統一歸④＋單一枚舉點化）→ r2 缺席 0、🔴0🟡0 通過。park 1 項：retro 觸發在 checker 通過輪的語義（收尾交使用者）",
+      "verification_commands": [
+        {
+          "command": "python3 .claude/hooks/test_baseline.py check --cmd 'python3 -m unittest tests.test_docs_consistency tests.test_model_policy' --strike-key sub_task_2",
+          "exit_code": 0
+        }
+      ],
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    },
+    {
+      "id": 3,
+      "name": "Task C: 治理 v2（TODO §15 出生證制）",
+      "status": "passed",
+      "step": "done",
+      "files": [
+        "TODO.md"
+      ],
+      "warning": false,
+      "local_test_passed": true,
+      "local_test_evidence": "test_baseline.py check --cmd 'unittest tests.test_docs_consistency'（related：TODO.md 不在 MD_FILES，跑 docs 一致性確認零波及）--strike-key sub_task_3: PASS。機械契約直驗：grep '出生證' :124、'Minimality' :125、廢止語境 :122、三保留詞（Game day/收斂判準/選題多樣化）:127/:129/:130 全命中。審查 r1 一輪過（缺席 0、🔴0🟡0）",
+      "verification_commands": [
+        {
+          "command": "python3 .claude/hooks/test_baseline.py check --cmd 'python3 -m unittest tests.test_docs_consistency' --strike-key sub_task_3",
+          "exit_code": 0
+        }
+      ],
+      "review_reds": 0,
+      "verify_passed": true,
+      "risk_analysis": null,
+      "review_dimensions": null
+    }
+  ]
+}

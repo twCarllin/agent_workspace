@@ -4,6 +4,8 @@
 
 格式：`- YYYY-MM-DD［模組路徑］根因分類：根因一句`（已升級者尾註 `↑RETRO`）
 
+**選填尾註 `[checker-passed]`（回退機制 v3，2026-09-05 起）**：eval-flow 循環 step 3 由 `task-verifier`（checker）checker-only 放行的 item，事後爆 bug 且根因屬「reviewer 讀 diff 可攔」型時，本行加註 `[checker-passed]`（機械留痕，不影響既有格式）。append 時 grep 同根因分類＋`[checker-passed]` 尾註，**第 2 次命中 → 強制停下、產出裁決 packet 交使用者**：packet 含兩個 bug 的根因、checker 當輪審查落檔、四個選項附成本——(a) 上游規則提案（retro 產出＋出生證）(b) 新增升級觸發⑥（該類特徵命中即派 reviewer）(c) 恢復 reviewer 預設 (d) 接受風險。**agent 不可自行選任一補救**（比照 Hotfix「不可自行認定」原則），不設自動總開關，每次命中都過人。
+
 ---
 - 2026-07-22［.claude/hooks/test_baseline.py｜skills/test-strategy］架構限制：baseline 快照歸因有盲區（related 全 repo 掃超出 test_command 範圍、環境／日期漂移、參數化 ID 變動），既有失敗被 check 判為新失敗，模型自查歸因空轉燒 token 且結論不持久化、每個 sub_task 回鍋重查
 - 2026-07-28［.claude/hooks/eval_gates.py｜tests/check_worktree_isolation.sh］驗證盲點：`run_hook()` 以 `CLAUDE_PROJECT_DIR` 決定 gate 套用的工作區，但該變數釘死在 session 啟動目錄、不隨 git worktree 移動，導致 worktree 內的 run 誤用主工作區狀態（subagent gate 誤判、commit gate 讀空 index 而靜默失效）；既有的 `check_worktree_isolation.sh` 直接呼叫 `check_other_runs()` 繞過 `run_hook()` 的 root 解析，名為驗證 worktree 隔離卻對此 bug 零訊號、還給出 4/4 綠燈 ↑RETRO
