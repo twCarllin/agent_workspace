@@ -74,27 +74,9 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
     - 全套 baseline 是否已快照：`run/parallel-merge-*.test_baseline.json` 存在與否。
     - 單一 run 內部跑到哪，照常走 `eval-flow-resume`。重建後從對應的收尾步驟續跑。
 
-## 被 Tier 2 [P] fan-out 重用
+## 被 Tier 2 [P] fan-out 重用（單向指向）
 
-`eval-flow` skill 的「## Tier 2 [P] fan-out（worktree 並行）」節（`skills/eval-flow/SKILL.md`）重用本 skill 的以下機制——改任何一處時須對照另一端一併更新：
-
-**重用清單**
-
-- **worktree 開設方式**：fan-out 的 item agent 同樣以 `Agent` 的 `isolation: "worktree"` 啟動、branch 由 harness 指派、起手三步（含 `git merge main`）一致。**兩端都不再用 `git worktree add` 自建**（舊契約已於 2026-07-29 實測證明不可行）；父子關係與 run 溯源靠 commit trailer（`Run-Id:` / `Parent-Run-Id:`），不靠 branch 命名。
-- **背景 agent spawn**：同一訊息並發啟動全部 item agent 的模式，與本 skill 步驟 6 完全對應。
-- **rolling merge 收尾序列（步驟 7–10）**：eval-flow fan-out 節的「Rolling merge 段」直接引用本 skill 步驟 7–10，不另行重寫——「誰先完成先收」、「merge 序列逐支執行」、「merge gate 紅燈」、「任一 run failed 原地凍結」的機制與文字以本 skill 為單一來源。
-- **機械檢查①②（步驟 8 子項 1–2，即 8.1/8.2）**：測試完整性檢查（`git diff main...<branch> --name-status` 過濾測試路徑，出現 M/D 不 merge；`<branch>` 一律取自該 agent 回報的 harness 指派 branch，fan-out 亦同）與實際交集重驗（本支與其他未合支 changed-file 清單取交集，非空停下回報）。
-- **卡住／HITL 協定（步驟 11–13）**：item worktree 的背景 agent 遇到需使用者裁決的事，依本 skill 同名協定停下：落盤 `run/<子run_id>-blocked.md`、manifest 標 `status: "blocked"`、凍結不擋人、恢復雙路徑（SendMessage 回原 agent 或新 agent 讀卡點報告接手）。
-- **批次中斷恢復（步驟 14）**：fan-out 的主 session 死掉後，同樣用 `git worktree list`＋各 worktree manifest `status`＋main 的 `git log` 找 `Run-Id` trailer 機械重建批次狀態，不靠記憶。
-- **BUGLOG 不落盤規則**：各 item worktree 修到 bug 時，BUGLOG 條目寫進回報內容、不 append `retro/BUGLOG.md`；由主 session 於 merge 後統一 append 並做兩層制升級判定（沿本 skill 步驟 8 子項 5 及步驟 6 的卡點）。
-- **blocker 出在 main 既有 code 時禁止在 worktree 修**（本 skill 步驟 6 中「blocker 出在 main 既有 code 時禁止在 worktree 修」一條）：fan-out 的 item agent 同樣須停下，由主 session 在 main 上走 bugfix 流程，修完後各 item worktree `git merge main` 同步。
-
-**分岔點（fan-out 與本 skill「跨獨立 Tier 1 需求並行」的不同）**
-
-- **前置不同**：本 skill 的前置是「逐一判級＋批次 HITL」（步驟 1–3），每個 run 從零開始走 Tier 1 初始化；Tier 2 fan-out 的前置在父 run 的前置 0–3 已做完（風險分析、usage 報告、影響面盤點、task 拆分都屬父 run），item 迷你 run 直接帶 `phase: "decomposed"` 出發、無需重跑前置。
-- **身分不同**：本 skill 每個 worktree 是一個**獨立 Tier 1 need**（各自帶 `spec_inline`、彼此無父子關係）；Tier 2 fan-out 每個 worktree 是**父 run 的一個 `[P]` item 迷你 run**，子 manifest 含 `parent_run_id` 指回父 run、`spec_path` 指回父 Spec，commit trailer 附 `Parent-Run-Id: <父run_id>` 供全族溯源。
-- **「既有測試只增不改」前提沿用**：含「有意行為變更需更新既有測試」的 item **不進 fan-out 批**、改留循序段——理由與本 skill 步驟 6 的同名規則相同（既有測試只增不改是 merge gate 的裁判前提，破掉它等於裁判換人、全套綠燈失去安全保證）。
-- **進入門檻不同**：本 skill 進入條件是「≥2 個互不相依的 Tier 1 需求」；fan-out 進入條件是「`[P]` item ≥2 且各自預估 ≥150 行」。門檻不足的 fan-out 退回主 worktree 循序執行，無對應的本 skill 路徑。
+`skills/eval-flow/references/rare-paths.md` 的 fan-out 節重用本 skill 的機制：步驟 5（worktree 開設）、步驟 6（背景 agent 規則，含起手三步、既有測試只增不改、BUGLOG 不落盤、blocker 禁修）、步驟 7–10（rolling merge 收尾與機械檢查①②）、步驟 11–13（卡住／HITL 協定）、步驟 14（批次中斷恢復）。**本 skill 是這些機制的單一來源**；fan-out 與本 skill 的分岔點（前置歸父 run、item 迷你 run 身分與 `Parent-Run-Id` 溯源、`[P]` ≥2 且各 ≥150 行門檻）住 rare-paths fan-out 節，不在此重列（R-007）。
 
 ## 不變量
 

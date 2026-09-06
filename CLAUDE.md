@@ -49,10 +49,7 @@
   1. **診斷先行**（不需任何前置、不建檔）：重現 → 定位根因 → 產出三行診斷結論（根因、影響面、修法）。診斷的執行紀律（feedback loop 完成判準、假設可否證、插樁與清理）依 `bug-diagnosis` skill
   2. **診斷完成後才判 tier**：診斷結論作為 `spec_inline`，照常列理由碼；理由碼空 → Tier 0／1；非空且無法收斂為具名問題 → Tier 2（診斷結論擴寫成 Spec）
 - **Hotfix 緊急通道**：僅限**使用者明確宣告**緊急（線上事故／資損進行中），agent 不可自行認定。先止血、後補債，執行細節與欠帳規則見 `eval-flow` skill
-- **bugfix retro 兩層制**（不論走哪個 tier，含 Tier 0）：
-  - **證據層（一律寫，主 flow 直寫）**：修完後 append 一行到 `retro/BUGLOG.md`（`- YYYY-MM-DD［模組路徑］根因分類：根因一句`，分類用 root-cause-table 的分類表），不 spawn agent、不寫約束句——每個 bug 都是上游流程漏洞的證據，不累積等於白修。**worktree run 例外（parallel-run）**：worktree 內不 append，條目隨回報帶回、由主 session 於 merge 後統一 append（含 grep 升級判定），見 parallel-run skill
-  - **教訓層（重複才升級）**：append 前先 grep `retro/BUGLOG.md` 有無同模組或同根因分類的舊條目。**有命中**（同一漏洞第 2 次出現）→ 依 RETRO.md 條目格式（見 retro agent 定義）提煉一條約束句寫進 `retro/RETRO.md`，並在命中的 BUGLOG 條目尾註 `↑RETRO`；再次命中已註記的條目時，改為檢視既有 RETRO 條目是否需加嚴，不重複新增。升級判定是機械 grep，不是模型裁量——單發偶然 bug 留在證據層，RETRO.md 只收重複模式，保住條目對 writer prompt 的攔截力
-  - Eval Flow 循環內 reviewer 出 🔴 的 retro agent 呼叫規則不變（見 eval-flow skill），與本兩層制並行
+- **bugfix retro 兩層制**（不論走哪個 tier，含 Tier 0）：修完後依 `bug-diagnosis` skill「retro 兩層制」節執行——BUGLOG 每 bug 一律寫、同模組／同根因第 2 次命中升級 RETRO、worktree run 例外見 parallel-run；細則住該 skill（修 bug 時本來就載入），不在此重列
 
 ### 防濫用規則（避免 agent 為省 token 自我降級）
 
@@ -74,11 +71,7 @@
 
 ## Task Principle
 
-- 任務檔案放在 `task/` 資料夾，以日期命名：`task/YYYY-MM-DD.md`
-- 使用情境報告放在 `usage/` 資料夾，以 run_id 命名：`usage/<run_id>.md`（比照 task 的專屬資料夾慣例）
-- 風險分析報告放在 `risk/` 資料夾：`risk/<run_id>.md`（前置 1 產出即存檔）
-- 影響面報告放在 `impact/` 資料夾：`impact/<run_id>.md`（前置 2.5 產出即存檔）
-- run manifest 放在 `run/` 資料夾：`run/<run_id>.json`（冷溯源，隨 commit 進 git）
+- 產出物目錄慣例（`task/YYYY-MM-DD.md`、`usage/`／`risk/`／`impact/` 以 run_id 命名、`run/<run_id>.json` 冷溯源隨 commit 進 git）住 `eval-flow` skill 各前置節與 `references/formats.md`，不在此重列
 - **產出物自足性（換手的前提）**：Spec、usage 報告、task 檔、風險報告必須**不依賴對話上下文**即可讀懂——不得出現「如上所述」「依先前討論」等指涉對話的內容；task item 必須寫明確檔案路徑與 DoD。標準是：任何未參與對話的 AI／工程師讀檔即可接手。**引用其他 run 產出檔（spec／usage／impact 路徑＋節次）不算依賴對話**——應指向式引用、不重述內容
 - 每次新增或讀取任務時，使用**當天日期**的檔案（例如 `task/2026-04-18.md`）
 - 呼叫 subagent 完成任務（例外：Tier 1 小 item 的主 flow 直寫捷徑，見 eval-flow skill）

@@ -71,7 +71,7 @@ branch 名稱由 harness 指派（非 `feat/<父run_id>-item-<id>`），item age
 
 **③ Rolling merge 段**
 
-直接引用 `skills/parallel-run/SKILL.md` 的收尾序列（步驟 7–10），不重寫——避免兩處機制描述漂移。重用其：① 測試只增不改機械檢查（`git diff main...<branch>` 過濾測試路徑，出現 M／D 不 merge；`<branch>` 取自該 item agent 回報的 harness 指派 branch）② 實際交集重驗（本支與其他未合支的實際 changed-file 清單取交集，非空停下回報）③ 後合者先 `git merge main` 同步再重跑相關測試 ④ 全套 baseline gate（`git merge <branch>` 後跑全套，判準為相對 merge 前 main baseline 無新增失敗；批次層 baseline 快照須手動帶 `--cmd`）⑤ BUGLOG 帶回統一 append＋兩層制升級判定＋清理 worktree 與 branch（append 前 grep 舊條目判是否升級 RETRO；清理**可能因 harness 的 worktree lock 而失敗，失敗時不可強拆**，依 `parallel-run` 步驟 8.5 處置——未上鎖者照常移除，仍上鎖者列入回報交由使用者或 harness 回收）。誰先完成先收，不等全批。**本①-⑤為重點提示，完整子步驟以 `parallel-run` 步驟 8 之子項 1–5 為準、不由本清單替代。**
+直接引用 `skills/parallel-run/SKILL.md` 的收尾序列（步驟 7–10）執行，不重寫、不在此摘要——機械檢查①②、後合者同步、全套 baseline gate、BUGLOG 帶回與 worktree 清理的完整子步驟以該 skill 步驟 8 之子項 1–5 為準（R-007 單一來源）。誰先完成先收，不等全批。
 
 一族 commit 完成後，可用 `git log --grep "Parent-Run-Id: <父run_id>"` 反查全族。
 

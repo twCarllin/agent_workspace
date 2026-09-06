@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-06-doc-slimming",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "78358134e04cfab63aa89b6e1d6ca755e14b1366",
+  "stable_failures": []
+}

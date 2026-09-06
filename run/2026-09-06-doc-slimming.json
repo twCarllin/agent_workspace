@@ -1,0 +1,43 @@
+{
+  "run_id": "2026-09-06-doc-slimming",
+  "created_at": "2026-09-06 13:40",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "complexity_reasons 空集合：全 prose（skills／agents／CLAUDE.md），git 可復原、docs 一致性測試可驗、無外部副作用、不觸信任邊界／公開契約；瘦身清單 #1–#9 已由使用者逐項裁決（未決決策清空）；單一連貫變更（文件瘦身＋兩矛盾修正）。預估 active time 35 分 ≤120",
+  "estimated_active_minutes": 35,
+  "phase": "decomposed",
+  "spec_path": null,
+  "spec_inline": "文件瘦身 sweep（使用者裁決全做 #1–#9，2026-09-06；_deprecated 刪除不在範圍——test_doctor.py:142 整合測試斷言該目錄存在，屬獨立 run）。兩個真矛盾修正：(A) 四要素 vs 五要素——task-decomposition/SKILL.md:145 四要素（估計行數、影響檔案、DoD、對映情境）與 task-decomposer.md:34 五要素（含 [P] 標記）矛盾，裁決＝四要素為準（skill 是單一枚舉點；[P]／depends 標記依 Step 4 規則另判、非每 item 必有），decomposer 刪自列改指向；(B) eval-flow:78 死條款「生效時點：本 run 2026-09-05-checker-default 仍派 code-reviewer」——該 run 已 completed，刪除。瘦身九項：#1 retro.md 刪內嵌「根因分類參考」複本（分類表＋分析框架，與 root-cause-table skill 逐字兩份），frontmatter 加 skills: root-cause-table、內文留指向；#2 task-decomposer.md「拆分上限」節去重（硬上限／軟上限細節住 skill，agent 留 I/O 契約＋指向＋「每情境至少一 item」）；#3 CLAUDE.md「bugfix retro 兩層制」三子彈（證據層／教訓層／循環 retro 並行句）原文搬 bug-diagnosis skill 新節「retro 兩層制」（修 bug 時本來就載入該 skill），CLAUDE.md 壓成一行指向；bug-diagnosis:122「答案去向」句改指本 skill 新節；retro/BUGLOG.md 檔頭「規則見 CLAUDE.md」改指 bug-diagnosis；#4 eval-flow step 3 歷史過渡註壓縮——刪「生效時點」bullet（矛盾 B）、「task-verifier 定位」bullet 壓成只留回退機制 v3 句、step 7「checker 化後的適用範圍」去歷史框架保留語義；#5 CLAUDE.md Task Principle 五個產出物目錄 bullet 壓一行指向（各路徑住 eval-flow 前置各節與 formats.md），自足性原則、當天日期、subagent 呼叫、[x] 標記、拆分指向句保留；#6 parallel-run「被 Tier 2 fan-out 重用」節（重用清單＋分岔點，~21 行）壓成 ~4 行單向指向（本 skill 為機制單一來源、分岔點住 rare-paths——消「改任何一處須對照另一端」的 R-007 反模式）；rare-paths fan-out ③段刪「①-⑤重點提示」複本（--cmd 與 lock 細節已住 parallel-run 步驟 8.4／8.5），留 2-3 行引用句；#7 usage-scenario-analysis 刪整節範例（~37 行，與 task-decomposition 範例同題材兩份；decomposition 範例保留——含情境 id 接合示範且自足）；#8 兩 skill「反模式」節去重——刪與前文硬性規則逐字同義的重述條目（規則本體不動、不刪任何 R 標記規則），保留模式辨識型條目（湊數不內聚、無邊界整包、happy-path 吞邊界、[P] 共檔、前置未抽、縱切／大爆炸、重述報告、顆粒過粗細、Spec 複述）；#9 code-reviewer checklist 範疇 1（安全）範疇 2（效能）通用 bullet 各壓一行（opus 零資訊清單），範疇 3-5 與 Fowler 12 條不動。驗證：全套測試綠（docs 一致性測試涵蓋全部改動檔）；被搬段逐字存在於新位置（兩層制三子彈）；所有既有指標改址後 grep 無死引用",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-06 13:40 — 使用者裁決瘦身清單全做（原話「全做」，#1–#9 逐項內容見前輪回報與 spec_inline；1 task／4 items，合併審查一輪——v2 新制首用）",
+  "hitl_rulings": 1,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-06.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "baseline stable 0；check sub_task_6 與 full_suite 皆 PASS 無新增穩定失敗（全套 273 tests OK，docs 一致性測試涵蓋全部 11 個改動檔：R-NNN 引用、skill/hook 引用、agent frontmatter skills、信封 spec、gate 清單）。契約 row 15 條主 flow 逐條 grep 自驗＋checker 合併輪複核（實得值見審查輪輸入 2 自驗段）；兩層制三子彈逐字搬移以代表句 grep 驗證（'不累積等於白修'/'升級判定是機械 grep' 新位置命中、CLAUDE.md 零命中）。審查軌跡：st6.1–6.4 依 v2 合併審查併一輪（r1，checker 直過 10/10 DoD＋15/15 契約），v2 新制首用。一筆措辭仲裁留痕（CLAUDE.md 指向句依契約 row 改詞）。純 prose 無新增測試檔，mutation 不適用",
+  "verification_commands": [
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key sub_task_6 --run-id 2026-09-06-doc-slimming",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key full_suite --run-id 2026-09-06-doc-slimming",
+      "exit_code": 0
+    },
+    {
+      "command": "契約 row grep 自驗（四 item 十五 row 逐條，見 local_test_evidence）",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true,
+  "actual_active_minutes": 20,
+  "subagent_usage": {
+    "prep": 0,
+    "loop": 30773
+  }
+}

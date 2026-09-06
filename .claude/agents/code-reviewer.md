@@ -37,16 +37,10 @@ model: claude-opus-4-8  # 刻意與 code-writer（sonnet）不同 model：去相
 ## 程式碼審查 Checklist
 
 ### 1. 安全性 (Security)
-- SQL injection、XSS、CSRF 等常見漏洞
-- 敏感資料（API key、密碼）是否硬編碼
-- 輸入驗證與 sanitization
-- 認證與授權邏輯是否正確
+- 注入類（SQL injection／XSS／CSRF）、硬編碼機密、輸入驗證與 sanitization、認證授權邏輯
 
 ### 2. 效能 (Performance)
-- 不必要的迴圈巢狀或 N+1 查詢
-- 記憶體洩漏風險
-- 可以快取但沒有快取的重複計算
-- 不必要的同步阻塞操作
+- N+1／巢狀迴圈、記憶體洩漏、可快取未快取的重複計算、不必要的同步阻塞
 
 ### 3. 邏輯正確性 (Correctness)
 - 邊界條件（空值、空陣列、overflow）
