@@ -1,0 +1,39 @@
+{
+  "run_id": "2026-09-06-deprecated-cleanup",
+  "created_at": "2026-09-06 13:52",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "complexity_reasons 空集合：刪除已歸檔死 skill 目錄（2026-07-29 納版控供汰除可逆，git 歷史即可逆載體）＋一個以「真實目錄存在」為前提的 A 類整合測試；git 可復原、全套測試可驗、不觸信任邊界／公開契約；doctor.py／init.sh 排除邏輯不動（零可執行邏輯變更）。預估 active time 10 分",
+  "estimated_active_minutes": 10,
+  "phase": "decomposed",
+  "spec_path": null,
+  "spec_inline": "刪除 skills/_deprecated/ 五個歸檔 skill（eval-scoring、report-format、review-checklist、task-checklist、task-verify-checklist，合計 248 行；2026-07-29 為汰除可逆而納版控，現 git 歷史已是可逆載體，目錄留存只污染 grep）。功能移除測試三分法（主 flow 分類，2026-09-06）：A 類（隨刪）＝tests/test_doctor.py 的 DeprecatedSkillsIntegrationTest 整 class——主題即「真實 repo _deprecated 目錄的排除行為端到端驗證」（:142 斷言目錄存在），目錄作廢則測試前提作廢；B 類（不動）＝同檔 3c 兩個合成 fixture 測試（test_deprecated_dir_not_reported_as_repo_only、test_deprecated_dir_not_counted_in_sync_total）——主題是 doctor 排除邏輯本身，該邏輯保留；C 類＝其餘無關。排除邏輯（doctor.py:49、init.sh:90）與 test_agent_refs.py 的歷史註解均不動。空轉檢查：doctor 排除行為仍有 3c 兩測試覆蓋，無模組歸零。使用者裁決：2026-09-06「_deprecated 那個小 run 也做掉」（前次回報已載明含測試調整）",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-06 13:52 — 使用者原話「_deprecated 那個小 run 也做掉」（範圍＝目錄刪除＋test_doctor 整合測試調整，前輪回報已載明）；1 task／1 item",
+  "hitl_rulings": 1,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-06.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "baseline stable 0；check sub_task_7.1 與 full_suite 皆 PASS（全套 272 tests OK＝273−1，減少數恰為被刪 class 的唯一測試案）。契約 row 逐條：目錄不存在、DeprecatedSkillsIntegrationTest 零命中、3c 合成測試仍在（B 類不動）、doctor.py:49／init.sh:90 排除行原文仍在（sed 取行核對）。三分法留痕於 spec_inline；空轉檢查：排除行為仍有 B 類兩測試覆蓋。審查軌跡：st7.1 r1 checker 直過（3/3 DoD＋4/4 契約）。純刪除無新增測試，mutation 不適用",
+  "verification_commands": [
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key sub_task_7.1 --run-id 2026-09-06-deprecated-cleanup",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key full_suite --run-id 2026-09-06-deprecated-cleanup",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true,
+  "actual_active_minutes": 8,
+  "subagent_usage": {
+    "prep": 0,
+    "loop": 23215
+  }
+}

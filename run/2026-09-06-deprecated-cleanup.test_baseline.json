@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-06-deprecated-cleanup",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "49e951887d7d3e1b40d3816bd67c466f7c5496a9",
+  "stable_failures": []
+}

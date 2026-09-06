@@ -126,32 +126,6 @@ class CheckSkillsSyncTest(unittest.TestCase):
         self.assertIn("1", ok_text)  # 只計 foo，不含 _deprecated
 
 
-class DeprecatedSkillsIntegrationTest(unittest.TestCase):
-    """3.4：整合測試（跨 item）——真實 repo skills/_deprecated 目錄的排除行為端到端驗證。"""
-
-    def setUp(self):
-        self.repo_skills_dir = str(Path(__file__).resolve().parents[1] / "skills")
-        self.tmp = tempfile.TemporaryDirectory()
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def test_real_deprecated_dir_excluded_end_to_end(self):
-        """repo 真實含 skills/_deprecated/（5 個歸檔 skill）；部署層鏡射其餘 skill（模擬
-        init.sh 已排除 _deprecated 執行後的結果）→ doctor 不誤報 repo_only。"""
-        self.assertTrue(os.path.isdir(os.path.join(self.repo_skills_dir, "_deprecated")))
-        deploy_dir = os.path.join(self.tmp.name, "deploy_skills")
-        os.makedirs(deploy_dir)
-        for name in os.listdir(self.repo_skills_dir):
-            if name == "_deprecated" or name.startswith("."):
-                continue
-            src = os.path.join(self.repo_skills_dir, name)
-            if os.path.isdir(src):
-                shutil.copytree(src, os.path.join(deploy_dir, name))
-        ok, issues = doctor.check_skills_sync(self.repo_skills_dir, deploy_dir)
-        self.assertEqual(issues, [])
-
-
 class ReportBriefTest(unittest.TestCase):
     """4.1：doctor.py `report()`（--brief 旗標的輸出格式邏輯）。"""
 
