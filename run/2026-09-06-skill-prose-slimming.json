@@ -1,0 +1,55 @@
+{
+  "run_id": "2026-09-06-skill-prose-slimming",
+  "created_at": "2026-09-06 16:00",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "complexity_reasons 空集合（全 prose skill 文件變更：git 可復原、docs 一致性測試可驗、無外部副作用，不觸信任邊界／公開契約本體；做法方向已由使用者 2026-09-06 裁決「做 1~4」，其中本 run 對應第 2＋3 項；「規則控制力不變」為硬約束、有機械判準，無未決重大決策）；行數非判級軸（v2），預估 active time ~90 分 ≤120",
+  "estimated_active_minutes": 90,
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "skill 文件瘦身（借 agentflow prompt 慣例；比對報告見本日對話，結論自足於本欄）。三個治療，同一硬約束：①去重——eval-flow/SKILL.md『資料格式與操作規則』節與 references/formats.md 逐字重複的兩段（helper 子命令清單段、set-review 段）收斂到 formats.md 單一枚舉點，SKILL.md 改留控制力等價的指向句（守 R-007：全 repo 單一枚舉點，指向式引用不重列）；②敘事外移——skill 正文內嵌的實測失敗故事（『實測：…』型背景敘述，非判準本身）移出正文：既有 RETRO 條目已覆蓋者刪敘事、原位留（R-NNN）引用；無對應條目者在 retro/RETRO.md 依既有約束句式（背景一句＋約束一句、標籤含模組路徑）新增條目（R-011 起連號、append-only），原位補（R-NNN）引用。判準隨句的『實測數據』若本身是規則參數（如 ×2 校準倍率）則屬控制、不外移；③拆段——單一物理行 >400 字元的巨型條目拆為短段落／巢狀子清單（agentflow skill-editing-and-compression 慣例：每 2–4 句換段），措辭、指令原文、gate 條件逐字保留，只動排版與敘事。硬約束（三治療共用）：不刪規則、不弱化任何 gate 條件；hook 指令、欄位名、閾值數字逐字保留；既有（R-NNN）引用與標記數不減。範圍（9 檔＋RETRO）：skills/eval-flow/SKILL.md、references/{formats,gates,rare-paths}.md、skills/{test-strategy,task-decomposition,usage-scenario-analysis,parallel-run,bug-diagnosis}/SKILL.md、retro/RETRO.md（新條目）。現況量測（改前）：>400 字元行共 93、『實測』字樣 25 處。收尾：cp 同步部署層 ~/.claude/skills/ 對應檔並跑 doctor.py 須綠（部署層非 git 管轄，同步動作記回報不進 diff）",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-06 16:05 — 使用者確認 Run A 計畫（2 tasks／8 items，三治療＋硬約束照提案）與 Run B 計畫（1 task／3 items，搬移＋指向構成）；兩案均選建議選項、無修改",
+  "hitl_rulings": 0,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-06.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "純 prose 變更＋一處測試過時更新。gate：test_lint PASS（tests/test_docs_consistency.py）；fresh baseline stable 0；check sub_task_t8t9 PASS；full_suite PASS（272 tests，全套）。測試過時留痕：改 tests/test_docs_consistency.py 的 test_eval_state_subcommands_in_docs_exist——舊斷言（helper 子命令清單住 eval-flow/SKILL.md）因 item 8.1 去重收斂到 references/formats.md 而不再成立，依據＝spec_inline ①（R-007 單一枚舉點）；斷言強度不變（仍逐一驗子命令存在於 eval_state.py），僅改讀取檔。教訓（自稽核）：baseline 首建於編輯後、曾把本 run 造成的失敗誤收為欠帳（stable 1），主 flow 逐條核對失敗身分後以 --fresh 重建（stable 0）並修測試——baseline 應於進場時建立。契約 row 全數 grep／awk 自驗＋checker 三輪機械複核（見審查落檔）。mutation：不適用（prose）。部署層 rsync 同步六 skill，doctor 健檢通過",
+  "verification_commands": [
+    {
+      "command": "python3 .claude/hooks/test_lint.py tests/test_docs_consistency.py",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py baseline --fresh --run-id 2026-09-06-skill-prose-slimming",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key sub_task_t8t9 --run-id 2026-09-06-skill-prose-slimming",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key full_suite --run-id 2026-09-06-skill-prose-slimming",
+      "exit_code": 0
+    },
+    {
+      "command": "awk 'length($0)>400 && FNR>5' 九檔（frontmatter 除外）→ 全 0；契約 grep 逐條（見審查落檔三份）",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/doctor.py（部署層 rsync 後）",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true,
+  "actual_active_minutes": 55,
+  "subagent_usage": {
+    "prep": 0,
+    "loop": 243567
+  }
+}

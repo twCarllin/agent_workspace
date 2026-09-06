@@ -5,7 +5,9 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
 
 # Parallel Run（多個 Tier 1 需求並行）
 
-> 觸發條件：**同時有 ≥2 個互不相依的 Tier 1 需求**。條件不滿足就不開 worktree——單一 Tier 1 走原本 eval-flow、Tier 0 一律序列直接做。**一批上限 2 個 run**：每多一支，後合者的「同步 main→重測→全套」稅多收一輪，且卡住的 run 都排隊等使用者裁決。並行省的是 wall-clock，不省 token（每 run 約多 10–20% 編排開銷，使用者已知情接受）。
+> 觸發條件：**同時有 ≥2 個互不相依的 Tier 1 需求**。條件不滿足就不開 worktree——單一 Tier 1 走原本 eval-flow、Tier 0 一律序列直接做。
+>
+> **一批上限 2 個 run**：每多一支，後合者的「同步 main→重測→全套」稅多收一輪，且卡住的 run 都排隊等使用者裁決。並行省的是 wall-clock，不省 token（每 run 約多 10–20% 編排開銷，使用者已知情接受）。
 >
 > 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
 
@@ -29,19 +31,26 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
 
 5. **每需求 spawn 一個背景 agent，worktree 交由 harness 建立**：以 `Agent` 工具的 `isolation: "worktree"` 啟動，harness 會建 `.claude/worktrees/agent-<id>/` 並**在啟動時把該 agent 的工作目錄釘定在其中**。
    - **釘定是 gate 生效的前提，不是便利**：hook 依該次 tool call 的**實際 cwd** 解析所屬工作區（見 `.claude/hooks/eval_gates.py` 的 root 解析）。agent 若改用 `cd` 進 worktree，cwd 仍被判為主工作區 → gate 套用到錯的 repo → 檔案改在 worktree、憑據卻對主工作區判定，等同無 gate。
-   - **禁止改用「主 session 先 `git worktree add`，再叫 agent 自己進去」**：實測（2026-07-29）從 repo root 啟動的 subagent cwd 被釘死，`EnterWorktree` 明文拒絕從 repo root 做 path 切換（`switching is only available to sessions whose working directory is inside a worktree`），兩支 agent 皆於第一步即無法起跑。
+   - **禁止改用「主 session 先 `git worktree add`，再叫 agent 自己進去」**：實測（2026-07-29，R-005）從 repo root 啟動的 subagent cwd 被釘死，`EnterWorktree` 明文拒絕從 repo root 做 path 切換（`switching is only available to sessions whose working directory is inside a worktree`），兩支 agent 皆於第一步即無法起跑。
    - **branch 由 harness 指派**（`worktree-agent-<id>`），**不是** `feat/<run_id>`。agent 必須在最終回報附上自己的 branch 名稱，主 session 靠它做 merge；run↔commit 的溯源靠 commit message 的 `Run-Id:` trailer，不靠 branch 名。
    - **worktree 起點＝主線本地 HEAD**（本專案已於 `.claude/settings.json` 設 `worktree.baseRef: "head"`）：worktree 從當前 session 所在 branch 的本地 HEAD 切出，**含尚未 push 的 commit**。此值經配對對照實測坐實（`head` 看得到未 push 的 commit ∧ `fresh` 看不到）。
      - **失效情境**：設定未套用時（他人 clone 未取得、設定被改、harness 行為變動）會退回預設 `fresh`、從 `origin/<預設分支>` 切出而**靜默落後主線**——這正是步驟 6 起手第②步存在的理由，故該步不可移除。
-     - **潛在假設（目前恆成立，但值得知道）**：`head` 取的是「**當前 session 所在 branch** 的本地 HEAD」，隱含**主 session 位於 `main`**。若在 feature branch 上 spawn 並行批次，worktree 會繼承該 branch 的尖端、其未合併的工作會洩入並行 run；起手第②步的 `git merge main` 只是把 main **疊加**上去，不會取代那些工作。本 skill 流程中此假設恆成立（批次判級與 HITL 在主 session 完成，當時位於 `main`），但若日後允許從 feature branch 起批次，須重新檢視此處。
+     - **潛在假設（目前恆成立，但值得知道）**：`head` 取的是「**當前 session 所在 branch** 的本地 HEAD」，隱含**主 session 位於 `main`**。
+     - 若在 feature branch 上 spawn 並行批次，worktree 會繼承該 branch 的尖端、其未合併的工作會洩入並行 run；起手第②步的 `git merge main` 只是把 main **疊加**上去，不會取代那些工作。
+     - 本 skill 流程中上述假設恆成立（批次判級與 HITL 在主 session 完成，當時位於 `main`），但若日後允許從 feature branch 起批次，須重新檢視此處。
    - `run_id` 仍依 eval-flow 慣例 `YYYY-MM-DD-<slug>`，只是不再體現在 branch 名上。
 6. **同一訊息 spawn 全部背景 agent**（一 run 一 agent，並發啟動）。每個 agent 的指示必須包含：
-   - **起手三步（順序不可換，任一步不符即停下回報）**：①`pwd && git branch --show-current && git log --oneline -1`——確認位於 `.claude/worktrees/` 底下並記下 branch 名稱 ②**`git merge main`**——確認與主線同步。本專案已設 `worktree.baseRef: "head"`（`.claude/settings.json`），harness worktree 直接從當前本地 HEAD 切出，故此步在正常情況下是 **no-op**（fast-forward 到同一個 commit，零成本）。**仍保留不移除**：設定未套用時（他人 clone 未取得、設定被改、harness 行為變動）worktree 會退回從 `origin/<預設分支>` 切出而**靜默落後主線**，此步是唯一攔截點；保留的代價是一次 no-op，移除而設定又沒生效的代價是整個 run 帶著錯誤前提做完 ③驗證本需求的前提在同步後確實成立（例如所需檔案／目錄存在、數量符合預期）。**前提不成立就停下回報，不可帶著錯的前提往下做**——第②③步互為備援：②保證起點正確，③保證即使②失效也攔得住。
+   - **起手三步（順序不可換，任一步不符即停下回報）**：
+     - ①`pwd && git branch --show-current && git log --oneline -1`——確認位於 `.claude/worktrees/` 底下並記下 branch 名稱
+     - ②**`git merge main`**——確認與主線同步。本專案已設 `worktree.baseRef: "head"`（`.claude/settings.json`），harness worktree 直接從當前本地 HEAD 切出，故此步在正常情況下是 **no-op**（fast-forward 到同一個 commit，零成本）
+       - **仍保留不移除**：設定未套用時（他人 clone 未取得、設定被改、harness 行為變動）worktree 會退回從 `origin/<預設分支>` 切出而**靜默落後主線**，此步是唯一攔截點；保留的代價是一次 no-op，移除而設定又沒生效的代價是整個 run 帶著錯誤前提做完
+     - ③驗證本需求的前提在同步後確實成立（例如所需檔案／目錄存在、數量符合預期）。**前提不成立就停下回報，不可帶著錯的前提往下做**——第②③步互為備援：②保證起點正確，③保證即使②失效也攔得住
    - 工作目錄已由 harness 釘定：**禁止呼叫 `EnterWorktree`、禁止用 `cd` 換目錄**，**禁止碰主工作區與其他 worktree**。
    - 載入 `eval-flow` skill，走 **Tier 1 精簡路徑**，但：
      - 精簡初始化照常（manifest 填 `tier: 1`、`spec_inline`、`risk_report_path: "skipped"`、`usage_report_path: "skipped"`）；因 HITL 已在主 session 完成，`phase` 直接設 `"decomposed"`，並在 manifest 附註「HITL 於主 session 批次完成（parallel-run）」。
      - **task 檔命名例外**：用 `task/YYYY-MM-DD-<slug>.md`（防兩個 run 同建當天檔造成 merge 衝突）。僅並行 run 適用此例外；單一 run 維持 `task/YYYY-MM-DD.md`。
-   - 跑循環 1–7，全部 gate 照常（hook 以該次 tool call 的實際 cwd 解析所屬 worktree 根後才套用 gate，故在各 worktree 內獨立生效——`CLAUDE_PROJECT_DIR` 釘死在 session 啟動目錄、不隨 worktree 移動，此前提由 `.claude/hooks/eval_gates.py` 的 root 解析建立，非天然成立）。**限制**：`CLAUDE_PROJECT_DIR` 為 git 儲存庫子目錄的專案開 worktree 時解析到 worktree 根，該類專案目前不支援並行。
+   - 跑循環 1–7，全部 gate 照常（hook 以該次 tool call 的實際 cwd 解析所屬 worktree 根後才套用 gate，故在各 worktree 內獨立生效——`CLAUDE_PROJECT_DIR` 釘死在 session 啟動目錄、不隨 worktree 移動，此前提由 `.claude/hooks/eval_gates.py` 的 root 解析建立，非天然成立）。
+     - **限制**：`CLAUDE_PROJECT_DIR` 為 git 儲存庫子目錄的專案開 worktree 時解析到 worktree 根，該類專案目前不支援並行。
    - **既有測試只增不改**（含 fixture／conftest／測試工具檔）：發現必須修改既有測試＝這個變更動到既有行為＝獨立性假設已破 → 觸發「卡住即停」，該需求退出並行（之後改序列跑）。單一 run 的「有意行為變更同步舊測試」規則僅在非並行模式適用。
    - **BUGLOG 不落盤**：修到 bug 時，BUGLOG 條目寫進回報內容，**不** append `retro/BUGLOG.md`；由主 session 於 merge 後統一 append 並做兩層制升級判定（兩個 worktree 各 grep 自己的快照會漏看對方，重複偵測會失靈）。
    - **blocker 出在 main 既有 code 時禁止在 worktree 修**：標明後依「卡住／HITL 協定」停下，由主 session 在 main 上走 bugfix 流程（診斷先行→判級→修），修完後本 worktree `git merge main` 同步再續跑（修一次、兩支受惠、merge 零衝突）。
@@ -54,9 +63,14 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
 8. **merge 序列（每支都做；未經使用者確認不 merge、不清 worktree）**。前置條件：**主工作區必須 clean**——批次期間主 session 做的 Tier 0 微調若尚未 commit，先請使用者處置（commit 或 stash），否則全套測試的結果混入未提交變更，紅綠都不可信：
    1. **機械檢查①（測試完整性）**：`git diff main...<branch> --name-status` 過濾測試路徑（含 conftest／fixture／測試工具檔），出現 M／D → 不 merge，把 diff 列給使用者過目（判準只有一個：測試有沒有被改弱）。純 A（新增檔）放行。
    2. **機械檢查②（實際交集重驗）**：本支與其他未合支的**實際** changed-file 清單取交集，非空 → 停下回報（前置 2 是預估，此處以實際值重驗）。
-   3. **後合者先同步**：在自己 worktree `git merge main`，重跑自己的相關測試，綠了才進下一步（真衝突 → 停下回報，不自行硬解）。**副作用（無害，但別誤讀 log）**：同步是在 worktree 側執行，之後把該 branch 合入 main 時會留下 `Merge branch 'main' into <branch>` 這種方向看起來相反的 merge commit——那是同步那一步的紀錄，不是把 main 合進 main。
-   4. `git merge <branch>` 進 main → 跑**全套測試**，判準為「相對 merge 前 main 的 baseline 無新增失敗」（非絕對全綠，避免 main 既有 flaky 卡死收尾）。全套 baseline 在合**第一支前**跑一次快照，存 `run/parallel-merge-YYYY-MM-DD.test_baseline.json`（批次層級，不屬於任一 run）。**此處必須手動帶 `--cmd "<全套指令>"`**——該 run_id 沒有對應的 manifest，而 `test_baseline.py` 預設從 manifest 讀 `test_command`，省略 `--cmd` 會直接失敗。
-   5. 綠 → append 該 run 帶回的 BUGLOG 條目（append 前先 grep 舊條目做兩層制升級判定）→ 清理 worktree 與 branch。**清理可能失敗，且失敗時不可強拆**：harness 建的 worktree 帶 lock，`git worktree remove --force` 會被擋（提示需 `-f -f` 或先 unlock）。強拆有破壞 harness 狀態的風險，屬**應回報而非硬幹**的情況——工作已合入 main，殘留 worktree 無害。未上鎖者照常 `git worktree remove` 並刪 branch；仍上鎖者列入回報，交由使用者或 harness 自行回收。
+   3. **後合者先同步**：在自己 worktree `git merge main`，重跑自己的相關測試，綠了才進下一步（真衝突 → 停下回報，不自行硬解）。
+      - **副作用（無害，但別誤讀 log）**：同步是在 worktree 側執行，之後把該 branch 合入 main 時會留下 `Merge branch 'main' into <branch>` 這種方向看起來相反的 merge commit——那是同步那一步的紀錄，不是把 main 合進 main。
+   4. `git merge <branch>` 進 main → 跑**全套測試**，判準為「相對 merge 前 main 的 baseline 無新增失敗」（非絕對全綠，避免 main 既有 flaky 卡死收尾）。
+      - 全套 baseline 在合**第一支前**跑一次快照，存 `run/parallel-merge-YYYY-MM-DD.test_baseline.json`（批次層級，不屬於任一 run）
+      - **此處必須手動帶 `--cmd "<全套指令>"`**——該 run_id 沒有對應的 manifest，而 `test_baseline.py` 預設從 manifest 讀 `test_command`，省略 `--cmd` 會直接失敗
+   5. 綠 → append 該 run 帶回的 BUGLOG 條目（append 前先 grep 舊條目做兩層制升級判定）→ 清理 worktree 與 branch。
+      - **清理可能失敗，且失敗時不可強拆**：harness 建的 worktree 帶 lock，`git worktree remove --force` 會被擋（提示需 `-f -f` 或先 unlock）。強拆有破壞 harness 狀態的風險，屬**應回報而非硬幹**的情況——工作已合入 main，殘留 worktree 無害
+      - 未上鎖者照常 `git worktree remove` 並刪 branch；仍上鎖者列入回報，交由使用者或 harness 自行回收
 9. **merge gate 紅燈**：當一個 bugfix 走既有「診斷先行」流程，在**主 session** 做（語意衝突根因跨兩支 branch，單一 worktree 的視野只有一半），診斷完照常判級修復。
 10. **任一 run failed**：該 worktree **原地凍結**（狀態全在 manifest／`eval_state.json`／staging area），回報死因；其餘成功的 run 照常走確認→merge。凍結的 run 之後依 `eval-flow-resume` skill 在原 worktree 續跑。
 
@@ -76,7 +90,9 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
 
 ## 被 Tier 2 [P] fan-out 重用（單向指向）
 
-`skills/eval-flow/references/rare-paths.md` 的 fan-out 節重用本 skill 的機制：步驟 5（worktree 開設）、步驟 6（背景 agent 規則，含起手三步、既有測試只增不改、BUGLOG 不落盤、blocker 禁修）、步驟 7–10（rolling merge 收尾與機械檢查①②）、步驟 11–13（卡住／HITL 協定）、步驟 14（批次中斷恢復）。**本 skill 是這些機制的單一來源**；fan-out 與本 skill 的分岔點（前置歸父 run、item 迷你 run 身分與 `Parent-Run-Id` 溯源、`[P]` ≥2 且各 ≥150 行門檻）住 rare-paths fan-out 節，不在此重列（R-007）。
+`skills/eval-flow/references/rare-paths.md` 的 fan-out 節重用本 skill 的機制：步驟 5（worktree 開設）、步驟 6（背景 agent 規則，含起手三步、既有測試只增不改、BUGLOG 不落盤、blocker 禁修）、步驟 7–10（rolling merge 收尾與機械檢查①②）、步驟 11–13（卡住／HITL 協定）、步驟 14（批次中斷恢復）。
+
+**本 skill 是這些機制的單一來源**；fan-out 與本 skill 的分岔點（前置歸父 run、item 迷你 run 身分與 `Parent-Run-Id` 溯源、`[P]` ≥2 且各 ≥150 行門檻）住 rare-paths fan-out 節，不在此重列（R-007）。
 
 ## 不變量
 

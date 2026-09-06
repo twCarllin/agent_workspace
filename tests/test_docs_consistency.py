@@ -64,11 +64,14 @@ class SkillReferencesTest(unittest.TestCase):
 
 class HelperSubcommandDocsTest(unittest.TestCase):
     def test_eval_state_subcommands_in_docs_exist(self):
-        """eval-flow skill 列的 helper 子命令必須真的存在於 eval_state.py。"""
+        """eval-flow skill 列的 helper 子命令必須真的存在於 eval_state.py。
+
+        清單的單一枚舉點自 2026-09-06 起收斂到 references/formats.md
+        （run 2026-09-06-skill-prose-slimming 去重，SKILL.md 改指向句）。"""
         source = read(ROOT / ".claude" / "hooks" / "eval_state.py")
-        skill = read(ROOT / "skills" / "eval-flow" / "SKILL.md")
+        skill = read(ROOT / "skills" / "eval-flow" / "references" / "formats.md")
         m = re.search(r"eval_state\.py`（`([^）]+)`）", skill)
-        self.assertIsNotNone(m, "eval-flow skill 找不到 helper 子命令清單")
+        self.assertIsNotNone(m, "eval-flow references/formats.md 找不到 helper 子命令清單")
         for cmd in m.group(1).split("`／`"):
             self.assertIn(
                 f'add_parser("{cmd}")', source,

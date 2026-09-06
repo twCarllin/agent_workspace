@@ -125,6 +125,9 @@ Phase 1 完成 = 能指名**一條命令**（測試呼叫／curl／script 路徑
 
 ## retro 兩層制（bugfix 收尾必做，不論 tier、含 Tier 0）
 
-- **證據層（一律寫，主 flow 直寫）**：修完後 append 一行到 `retro/BUGLOG.md`（`- YYYY-MM-DD［模組路徑］根因分類：根因一句`，分類用 root-cause-table 的分類表），不 spawn agent、不寫約束句——每個 bug 都是上游流程漏洞的證據，不累積等於白修。**worktree run 例外（parallel-run）**：worktree 內不 append，條目隨回報帶回、由主 session 於 merge 後統一 append（含 grep 升級判定），見 parallel-run skill
-- **教訓層（重複才升級）**：append 前先 grep `retro/BUGLOG.md` 有無同模組或同根因分類的舊條目。**有命中**（同一漏洞第 2 次出現）→ 依 RETRO.md 條目格式（見 retro agent 定義）提煉一條約束句寫進 `retro/RETRO.md`，並在命中的 BUGLOG 條目尾註 `↑RETRO`；再次命中已註記的條目時，改為檢視既有 RETRO 條目是否需加嚴，不重複新增。升級判定是機械 grep，不是模型裁量——單發偶然 bug 留在證據層，RETRO.md 只收重複模式，保住條目對 writer prompt 的攔截力
+- **證據層（一律寫，主 flow 直寫）**：修完後 append 一行到 `retro/BUGLOG.md`（`- YYYY-MM-DD［模組路徑］根因分類：根因一句`，分類用 root-cause-table 的分類表），不 spawn agent、不寫約束句——每個 bug 都是上游流程漏洞的證據，不累積等於白修
+  - **worktree run 例外（parallel-run）**：worktree 內不 append，條目隨回報帶回、由主 session 於 merge 後統一 append（含 grep 升級判定），見 parallel-run skill
+- **教訓層（重複才升級）**：append 前先 grep `retro/BUGLOG.md` 有無同模組或同根因分類的舊條目。**有命中**（同一漏洞第 2 次出現）→ 依 RETRO.md 條目格式（見 retro agent 定義）提煉一條約束句寫進 `retro/RETRO.md`，並在命中的 BUGLOG 條目尾註 `↑RETRO`
+  - 再次命中已註記的條目時，改為檢視既有 RETRO 條目是否需加嚴，不重複新增
+  - 升級判定是機械 grep，不是模型裁量——單發偶然 bug 留在證據層，RETRO.md 只收重複模式，保住條目對 writer prompt 的攔截力
 - Eval Flow 循環內 reviewer 出 🔴 的 retro agent 呼叫規則不變（見 eval-flow skill），與本兩層制並行
