@@ -18,6 +18,7 @@ python3 .claude/hooks/test_baseline.py baseline
 
 - **全套測試指令從 manifest 的 `test_command` 讀**（single source of truth；`--cmd` 僅供覆寫）。manifest 尚無此欄時，先確認指令並寫入 manifest 再跑——不要每個 run 各猜一套，baseline 與 check 範圍不一致就會出現「無關的既有失敗」
 - **跑一次**：所有失敗記為 `stable_failures`（進場既有壞測試，之後不擋 gate）。非確定性（flaky）失敗不在 baseline 階段預先分類——scoped 測試架構下每輪跑的測試面積小、噪音低，改由 check 在**出現新失敗時**才重跑一次確認可重現（惰性驗證，成本只在有訊號時付）
+- **`__suite__` 套件層失敗**（無法解析出個別失敗的整體性失敗）例外於上一點：baseline 階段即重跑一次確認可重現才記入 `stable_failures`；記入後，check 每次執行皆於 stderr 印出「gate 對套件層級失敗失明」警告（不影響判定與 exit code）——因為 gate 的新增失敗比對機制看不見套件層失敗，需要額外提醒使用者注意
 - **自動沿用**：既有 baseline 檔中存在「`head_sha` == 目前 HEAD 且 cmd 相同」者 → script 直接沿用其 `stable_failures`（baseline 記的是**進場 HEAD 的既有失敗快照**，同進場 HEAD 即可沿用、免重跑全套；本 run 工作樹的新變更由 check 把關）；測試環境變了但 HEAD 沒變時用 `--fresh` 強制重建
 - 寫入 `run/<run_id>.test_baseline.json`（`run_id` 自動讀 `eval_state.json`）。此檔隨 commit 進 git，`stable_failures` 就是本 run 進場時的**既有欠帳快照**
 - **既有壞測試 = 記錄級欠帳，不是攔截級**：與 hotfix `debt` 不同——不擋新 run、本 run 不修（修它是 scope 偏移），但 retro 時彙報數量與清單，讓債看得見

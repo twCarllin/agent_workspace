@@ -161,6 +161,19 @@ def cmd_baseline(args):
             )
             return
     fails, _ = run_tests(cmd)
+    if "__suite__" in fails:
+        print(
+            "[test-gate] 首跑整個 suite 失敗、無法解析個別測試名稱，重跑一次確認…"
+        )
+        fails, _ = run_tests(cmd)
+        if "__suite__" in fails:
+            print(
+                "[test-gate] 警告：連續兩次整個 suite 失敗，仍無法解析個別測試名稱"
+                "（判定失明，看不到實際壞了哪些測試）；建議改用 --fresh 重建並檢查測試指令輸出格式",
+                file=sys.stderr,
+            )
+        else:
+            print("[test-gate] 未重現以重跑為準：第二次已可解析個別失敗")
     stable = fails
     os.makedirs("run", exist_ok=True)
     data = {
@@ -188,6 +201,12 @@ def cmd_check(args):
     with open(path, encoding="utf-8") as f:
         base = json.load(f)
     known = set(base.get("stable_failures", []))
+    if "__suite__" in known:
+        print(
+            "[test-gate] 警告：baseline 對整套測試判定失明（stable_failures 含 __suite__），"
+            "無法判斷全套層級的失敗是否為新增，僅能比對可解析的個別測試名稱",
+            file=sys.stderr,
+        )
     cmd = resolve_cmd(args, run_id)
     key = args.strike_key or "_default"
 

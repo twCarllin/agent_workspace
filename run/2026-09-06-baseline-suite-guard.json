@@ -1,0 +1,23 @@
+{
+  "run_id": "2026-09-06-baseline-suite-guard",
+  "created_at": "2026-09-06 12:20",
+  "framework_version": "2026.08.20.1",
+  "tier": 2,
+  "tier_rationale": "bugfix（診斷先行已完成，診斷結論擴寫成 Spec）：改動標的 .claude/hooks/test_baseline.py 的 cmd_baseline／cmd_check 判定路徑＝step 5 測試 gate 判定式——動可執行邏輯行＋動高風險機制本體兩道判準同時成立，觸發高風險排除 → Tier 2（大小本身很小，入口由規則定）",
+  "phase": "completed",
+  "spec_path": "spec/2026-09-06-baseline-suite-guard.md",
+  "spec_inline": null,
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-06 12:55 — 使用者逐條裁示 usage 開放問題並確認報告（重跑 1 次、in fails 判斷式、沿用不另印警告、mine 不納入、警告文案實作定關鍵字）",
+  "hitl_rulings": 5,
+  "risk_report_path": "risk/2026-09-06-baseline-suite-guard.md",
+  "usage_report_path": "usage/2026-09-06-baseline-suite-guard.md",
+  "impact_report_path": "impact/2026-09-06-baseline-suite-guard.md",
+  "task_file": "task/2026-09-06.md",
+  "status": "completed",
+  "failed_reason": null,
+  "subagent_usage": {
+    "prep": 250353,
+    "loop": 319265
+  }
+}

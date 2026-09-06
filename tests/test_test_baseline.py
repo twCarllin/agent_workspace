@@ -32,6 +32,27 @@ CMD_NEW_NONREPRODUCIBLE = (
     'echo "FAILED tests/test_broken.py::test_a"; '
     '[ $m -eq 1 ] && echo "FAILED tests/test_d.py::test_d"; exit 1'
 )
+# __suite__ 重跑確認分支用的計數檔 stub（B1）：m 記錄呼叫次數，控制首跑 vs 重跑的行為差異。
+# 首跑整個 suite 崩潰（無可解析輸出）、重跑變乾淨 → row1
+CMD_SUITE_THEN_CLEAN = (
+    'm=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; '
+    '[ $m -eq 1 ] && exit 1; exit 0'
+)
+# 首跑、重跑都整個 suite 崩潰（無可解析輸出）→ row2
+CMD_SUITE_ALWAYS = (
+    'm=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; exit 1'
+)
+# 首跑即可解析出個別失敗（非 __suite__）→ row3，不應重跑
+CMD_INDIVIDUAL_FIRST = (
+    'm=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; '
+    'echo "FAILED tests/test_broken.py::test_a"; exit 1'
+)
+# 首跑整個 suite 崩潰、重跑解析出個別失敗 → row4
+CMD_SUITE_THEN_INDIVIDUAL = (
+    'm=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; '
+    '[ $m -eq 1 ] && exit 1; '
+    'echo "FAILED tests/test_broken.py::test_a"; exit 1'
+)
 
 
 class BaselineScriptTest(unittest.TestCase):
@@ -56,6 +77,11 @@ class BaselineScriptTest(unittest.TestCase):
         result = self.run_script("baseline", "--cmd", CMD_STABLE)
         self.assertEqual(result.returncode, 0, result.stderr)
         return self.read_baseline()
+
+    def read_counter(self):
+        """讀計數檔 stub 的呼叫次數（== 全套實際執行次數）。"""
+        p = self.dir / "m"
+        return int(p.read_text().strip()) if p.exists() else 0
 
     def test_baseline_records_all_failures_as_stable(self):
         data = self.build_baseline()
@@ -93,6 +119,40 @@ class BaselineScriptTest(unittest.TestCase):
         data = self.read_baseline()
         self.assertNotIn("flaky", data)  # 非確定性失敗不持久化
         self.assertNotIn("failure_log", data)
+
+    def write_baseline_with_stable(self, stable_failures):
+        """直接寫 baseline JSON（仿 write_prev_baseline 慣例），供 B2 測試控制 known 內容。"""
+        (self.dir / "run").mkdir(exist_ok=True)
+        (self.dir / "run" / "t.test_baseline.json").write_text(
+            json.dumps({
+                "run_id": "t", "cmd": "x", "head_sha": None,
+                "stable_failures": stable_failures,
+            }), encoding="utf-8",
+        )
+
+    def test_check_warns_when_baseline_blind_to_suite_and_no_new_failure(self):
+        """row1: baseline stable_failures 含 __suite__＋本次無新失敗 → stderr 含失明警告、exit 0。"""
+        self.write_baseline_with_stable(["__suite__"])
+        result = self.run_script("check", "--cmd", "exit 0", "--strike-key", "s1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("失明", result.stderr)
+
+    def test_check_no_b2_warning_when_baseline_has_no_suite_sentinel(self):
+        """row2: baseline 不含 __suite__ → 無 B2 警告、既有 PASS 行不變。"""
+        self.build_baseline()
+        result = self.run_script("check", "--cmd", CMD_STABLE, "--strike-key", "s1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("失明", result.stderr)
+        self.assertIn("PASS", result.stdout)
+
+    def test_check_warns_and_still_passes_when_suite_crashes_again(self):
+        """row3[邊界/組合]: baseline known 含 __suite__＋本次全套崩潰 fails=={__suite__}
+        → new 為空、判定 PASS exit 0（原失明行為不改）＋同時印 B2 警告（失明現形）。"""
+        self.write_baseline_with_stable(["__suite__"])
+        result = self.run_script("check", "--cmd", "exit 1", "--strike-key", "s1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("失明", result.stderr)
+        self.assertIn("PASS", result.stdout)
 
     def test_check_without_baseline_fails_with_instruction(self):
         result = self.run_script("check", "--cmd", "exit 0")
@@ -177,6 +237,43 @@ class BaselineScriptTest(unittest.TestCase):
         self.assertTrue((self.dir / "ran").exists())
         self.assertNotIn("reused_from", self.read_baseline())
 
+    def test_suite_crash_then_clean_rerun_drops_suite_sentinel(self):
+        """row1: 首跑 __suite__、重跑乾淨 → stable 不含 __suite__、stdout 印未重現關鍵字、全套執行 2 次。"""
+        result = self.run_script("baseline", "--cmd", CMD_SUITE_THEN_CLEAN)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("未重現以重跑為準", result.stdout)
+        data = self.read_baseline()
+        self.assertNotIn("__suite__", data["stable_failures"])
+        self.assertEqual(data["stable_failures"], [])
+        self.assertEqual(self.read_counter(), 2)
+
+    def test_suite_crash_twice_keeps_suite_sentinel_with_warning(self):
+        """row2: 首跑、重跑皆 __suite__ → stable 含 __suite__、stderr 含失明警告與 --fresh 建議。"""
+        result = self.run_script("baseline", "--cmd", CMD_SUITE_ALWAYS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("失明", result.stderr)
+        self.assertIn("--fresh", result.stderr)
+        data = self.read_baseline()
+        self.assertIn("__suite__", data["stable_failures"])
+        self.assertEqual(self.read_counter(), 2)
+
+    def test_individual_failure_first_run_does_not_rerun(self):
+        """row3[邊界]: 首跑即可解析個別失敗（非 __suite__）→ 不重跑、全套執行 1 次、照記為 stable。"""
+        result = self.run_script("baseline", "--cmd", CMD_INDIVIDUAL_FIRST)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = self.read_baseline()
+        self.assertEqual(data["stable_failures"], ["tests/test_broken.py::test_a"])
+        self.assertEqual(self.read_counter(), 1)
+
+    def test_suite_crash_then_individual_rerun_uses_second_result(self):
+        """row4[組合]: 首跑 __suite__、重跑解析出個別失敗 → stable 為第二次個別失敗、不含 __suite__、全套執行 2 次。"""
+        result = self.run_script("baseline", "--cmd", CMD_SUITE_THEN_INDIVIDUAL)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = self.read_baseline()
+        self.assertEqual(data["stable_failures"], ["tests/test_broken.py::test_a"])
+        self.assertNotIn("__suite__", data["stable_failures"])
+        self.assertEqual(self.read_counter(), 2)
+
     def test_related_maps_by_name_and_content(self):
         (self.dir / "src").mkdir()
         (self.dir / "tests").mkdir()
@@ -189,6 +286,65 @@ class BaselineScriptTest(unittest.TestCase):
         self.assertIn("tests/test_foo.py", paths)
         self.assertIn("tests/test_service.py", paths)
         self.assertNotIn("tests/test_unrelated.py", paths)
+
+
+class SuiteSentinelIntegrationTest(unittest.TestCase):
+    """B1（cmd_baseline __suite__ 重跑分支）→ B2（cmd_check 失明警告）跨 item 串接驗證。
+    只驗證兩個 item 串起來的行為，不重覆 4.1／4.2 已各自涵蓋的單元案。
+    複用既有計數檔 stub（CMD_SUITE_ALWAYS／CMD_SUITE_THEN_CLEAN），不另存副本；
+    setUp／run_script／read_baseline／read_counter 沿用 BaselineScriptTest 的既有慣例，
+    不繼承其 test_* 方法（避免整合 class 重跑一遍單元案）。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        (self.dir / "eval_state.json").write_text('{"run_id": "t"}', encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_script(self, *args):
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), *args],
+            cwd=self.dir, capture_output=True, text=True,
+        )
+
+    def read_baseline(self):
+        return json.loads((self.dir / "run" / "t.test_baseline.json").read_text(encoding="utf-8"))
+
+    def read_counter(self):
+        """讀計數檔 stub 的呼叫次數（== 全套實際執行次數）。"""
+        p = self.dir / "m"
+        return int(p.read_text().strip()) if p.exists() else 0
+
+    def test_reproducible_suite_crash_baseline_then_check_warns(self):
+        """情境①：baseline 遇可重現 __suite__（B1 照記＋stderr 警告）
+        → 對同 run baseline 跑 check，B2 亦印失明警告。"""
+        base_result = self.run_script("baseline", "--cmd", CMD_SUITE_ALWAYS)
+        self.assertEqual(base_result.returncode, 0, base_result.stderr)
+        self.assertIn("失明", base_result.stderr)  # B1 警告
+        data = self.read_baseline()
+        self.assertIn("__suite__", data["stable_failures"])
+        self.assertEqual(self.read_counter(), 2)  # 確認 stub 真的被 B1 重跑呼叫過
+
+        check_result = self.run_script("check", "--cmd", "exit 0", "--strike-key", "s1")
+        self.assertEqual(check_result.returncode, 0, check_result.stderr)
+        self.assertIn("失明", check_result.stderr)  # B2 警告
+
+    def test_transient_suite_crash_baseline_then_check_no_warning(self):
+        """情境②：暫時性路徑（B1 首崩重跑不崩 → 不記 __suite__）
+        → 對同 run baseline 跑 check，B2 無失明警告。"""
+        base_result = self.run_script("baseline", "--cmd", CMD_SUITE_THEN_CLEAN)
+        self.assertEqual(base_result.returncode, 0, base_result.stderr)
+        self.assertIn("未重現以重跑為準", base_result.stdout)
+        data = self.read_baseline()
+        self.assertNotIn("__suite__", data["stable_failures"])
+        self.assertEqual(self.read_counter(), 2)  # 確認 stub 真的被 B1 重跑呼叫過
+
+        check_result = self.run_script("check", "--cmd", "exit 0", "--strike-key", "s1")
+        self.assertEqual(check_result.returncode, 0, check_result.stderr)
+        self.assertNotIn("失明", check_result.stderr)
 
 
 class BuildMineCmdTest(unittest.TestCase):
