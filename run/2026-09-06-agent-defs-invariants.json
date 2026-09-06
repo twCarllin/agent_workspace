@@ -1,0 +1,47 @@
+{
+  "run_id": "2026-09-06-agent-defs-invariants",
+  "created_at": "2026-09-06 16:40",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "complexity_reasons 空集合（agent 定義檔 prose 重組：git 可復原、docs 一致性＋model policy 測試可驗、無外部副作用；構成方式（搬移＋指向、不新增行為義務）已由使用者 2026-09-06 批次 HITL 裁決）；預估 active time ~30 分 ≤120",
+  "estimated_active_minutes": 30,
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "三個循環 agent 定義檔（.claude/agents/code-writer.md、task-verifier.md、code-reviewer.md）各補「不變量（交付前自檢）」＋「失敗模式」二節（借 agentflow advisor prompt 骨架：Invariants／Failure modes）。構成方式＝搬移＋指向，守 R-007：①不變量節＝交付前可逐條自檢的斷言索引，每條一行、附指向（規則編號／節名），內容細則留在原節不重述；既有的純斷言式重複句（如 task-verifier 工作守則與五種升級節的重複條目）搬移收斂、原位不留複本；②失敗模式節＝檔內既有明文禁止模式的具名索引（附指向）；③不新增任何行為義務——兩節每一條均可對映到檔內既有規則原文；④frontmatter（name／description／tools／model）逐字不動（tests/test_model_policy.py 守 model 欄）。目的：agent 交付前有自檢錨點、主 flow 稽核有對照表",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-06 16:05 — 使用者批次確認（與 Run A 同輪 AskUserQuestion）：Run B 1 task／3 items、搬移＋指向構成、不新增行為義務、frontmatter 不動；選建議選項、無修改",
+  "hitl_rulings": 0,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-06.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "純 prose agent 定義變更。baseline stable 0（進場即建，修正 Run A 的建晚教訓）；check sub_task_t10 PASS；full_suite PASS（272 tests，含 test_model_policy 驗 frontmatter model 與 test_docs_consistency）。契約 row 主 flow grep 自驗＋checker 複核（兩節存在×3、搬移非複製、frontmatter 過濾 diff 零輸出、邊界句全命中）。mutation：不適用（prose）",
+  "verification_commands": [
+    {
+      "command": "python3 .claude/hooks/test_baseline.py baseline --run-id 2026-09-06-agent-defs-invariants",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key sub_task_t10 --run-id 2026-09-06-agent-defs-invariants",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key full_suite --run-id 2026-09-06-agent-defs-invariants",
+      "exit_code": 0
+    },
+    {
+      "command": "契約 grep 逐條（兩節×3、搬移計數、frontmatter 過濾 diff）",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true,
+  "actual_active_minutes": 20,
+  "subagent_usage": {
+    "prep": 0,
+    "loop": 42169
+  }
+}

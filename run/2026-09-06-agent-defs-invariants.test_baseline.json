@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-06-agent-defs-invariants",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "6d73fc977515792578ca62ccafe0510bbcd0b825",
+  "stable_failures": []
+}
