@@ -132,7 +132,7 @@ python3 .claude/hooks/test_baseline.py check --strike-key full_suite
 - 留痕方式按 tier：
   - **Tier 1／2**：manifest 記 `test_policy: "waived_by_user"` ＋一句豁免範圍與使用者原話，隨 commit 進 git。waive 率可統計（比照 tier 分佈統計）——豁免比例異常升高是制度失效的警報
   - **Tier 0**：不為豁免建檔（維持零建檔哲學）。豁免記在 Tier 0 本來就要交付的**變更回報**裡：驗證欄寫「使用者豁免（引用原話）」。此為**弱留痕，屬有意取捨**（Tier 0 已排除高風險面，稽核價值低）
-- 豁免不改變 Tier 準入條件：高風險面照樣進不了 Tier 0／1
+- 豁免不改變 Tier 準入條件：信任邊界／公開契約的本體變更照樣進不了 Tier 0／1（判準住 CLAUDE.md Router 防濫用規則）
 
 ## 硬 gate 與誠實回報的邊界（明寫取捨）
 

@@ -1,0 +1,47 @@
+{
+  "run_id": "2026-09-06-tier-router-v2",
+  "created_at": "2026-09-06 13:19",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "complexity_reasons 空集合（設計五點＋四項不做已由使用者 2026-09-06 逐點裁決通過，未決重大決策清空；全 prose 流程文件，git 可復原、docs 一致性測試可驗、無外部副作用，不觸信任邊界／公開契約；單一連貫變更）；預估 active time ~40 分 ≤120。舊制判準下亦成立：prose 非可執行邏輯、不觸高風險排除、1 task／3 items",
+  "estimated_active_minutes": 40,
+  "phase": "decomposed",
+  "spec_path": null,
+  "spec_inline": "依 agentflow（scratchpad clone，skills/agentflow/SKILL.md＋references/ag.md 原文）重寫分級制度，治兩病灶：Router 誤送（實測 2026-09-06-baseline-suite-guard：25 行本機可復原修改因『gate 判定式＝高風險面』類別制排除被送 Tier 2，570k tokens／38 分，前置佔 44%）與循環稅（2026-09-06-gameday-flow-fixes：一個連貫變更拆 3 輪 checker）。四個改動（使用者已裁決）：(1) 判級軸換理由碼——Router 第一步列 complexity_reasons，只准五碼：重大不確定（需求歧義）、跨子系統協調（多模組多角色）、公開介面／落地資料契約（對外 API／DB schema／跨程式檔案格式本體）、信任邊界（auth／權限、金流／交易、部署／環境、對外發佈本體）、未決重大決策；空集合→Tier 1 直走；『本體 vs 使用』兩段判準沿用；本地開發工具鏈（hooks／tests／skills／流程文件）不因檔案類別自動觸碼（git 可復原、測試可指認、無外部副作用），仍可觸『重大不確定／未決決策』。行數退出 Tier 1／2 判級軸（agentflow：job length is never used；Tier 0 門檻保留）；大小閘獨立：預估 active time >120 分或請求不連貫→Tier 2，manifest 記 estimated_active_minutes（選填，收尾可補 actual_active_minutes）。(2) Tier 1＋點名 advisor（非新 tier，hook 零變更）：有具名重大問題→輕量 HITL 提報『問題原文＋點名 advisor（usage-analyzer 或 impact-analyzer 擇需）』，確認後（phase=decomposed，既有 AGENT_MIN_PHASE 已放行）跑該 advisor 再進循環；點名必附問題原文，只點階段不說問題不合格（agentflow ag.md 原文）。(3) 事後降級門：判 Tier 2 後、前置 1 開跑前，瑣碎、無歧義、機械性→向使用者提議退回 Tier 1（附一句理由）；降級必經使用者確認，agent 不可自行降；執行中升級不可逆不變。(4) 循環稅兩刀＋all-in：合併審查放寬——同一連貫變更（同 spec_inline 一句涵蓋）的多 item、合計 staged diff 一輪可讀（≤約 400 行）→併一輪 checker（輸入集為各 item DoD／契約之聯集），取代舊『純 prose＋單檔 ≤30 行＋語義同源』三條件（舊條件成為子集）；主 flow 直寫捷徑擴及全 tier（單 item ≤100 行，守則同 Tier 1 第 4 點——寫審分離、知識前置自查留痕）；all-in：使用者明說才觸發，強制 Tier 2 完整流程、選配全跑、直寫捷徑／合併審查／降級門全關；agent 不可自行宣告、不可主動建議（與驗證豁免同型）；預設容許小工作抄捷徑，跳過的選配步驟回報留痕一句。明文不做（Minimality 留痕於 Router 節尾註或本欄）：不引入 devlog 對話制、不引入四層模型 profile、不動 hook／Tier 0／Tier B／Hotfix、Tier 2 前置不拆 trigger 制（實測前置對真 Tier 2 有價值：usage HITL 5 裁示、impact 行號級慣例；病在誤送不在管線）。R-006 同語義盤點結果：需同步 eval-flow SKILL.md Tier 1 節『高風險面』句與 test-strategy 豁免句；usage-scenario-analysis 的『高風險面（金流／schema）』舉例與新判準相容不動；歷史 task 檔不回改。出生證：使用者 2026-09-06 明示決策＋兩 run 實測成本數據（manifest subagent_usage）",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-06 13:19 — 使用者裁決設計五點＋四項不做（原話「好，按照這樣調整」，方案全文見前輪回報與 spec_inline）；1 task／3 items 計畫含於該方案（原提 4 items，測試併入 5.3）",
+  "hitl_rulings": 1,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-06.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "baseline stable 0；check sub_task_5.1／sub_task_5.2-5.3／full_suite 皆 PASS 無新增穩定失敗（全套 273 tests OK，docs 一致性測試涵蓋四個改動 md）。契約 row 主 flow 逐條 grep 自驗＋checker 複核：5.1 complexity_reasons／信任邊界／all-in≥2／降級門命中、高風險面全檔零命中、80 行與 Bootstrap 與本體vs使用原句仍在；5.2 點名（同段含 usage-analyzer）／合併審查／estimated_active_minutes 命中、diff 零 hooks、phase 仍須 decomposed 原句在；5.3 高風險面照樣零命中、信任邊界／waived_by_user 命中。審查軌跡：st5.1 r1 checker 直過（6/6）；st5.2＋5.3 合併輪 r1 checker 直過（8/8，合併依據＝舊制小 prose 合併規則，新合併審查規則本 run 不自用）。純 prose 無新增測試檔，mutation 不適用",
+  "verification_commands": [
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key sub_task_5.1 --run-id 2026-09-06-tier-router-v2",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key sub_task_5.2-5.3 --run-id 2026-09-06-tier-router-v2",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key full_suite --run-id 2026-09-06-tier-router-v2",
+      "exit_code": 0
+    },
+    {
+      "command": "契約 row grep 自驗（三 item 逐條，見 local_test_evidence）",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true,
+  "actual_active_minutes": 25,
+  "subagent_usage": {
+    "prep": 0,
+    "loop": 50824
+  }
+}

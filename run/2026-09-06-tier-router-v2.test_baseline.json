@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-06-tier-router-v2",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "0ffecfbc7f97fa9bd9cede500709fb678f5c72ad",
+  "stable_failures": []
+}
