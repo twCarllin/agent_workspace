@@ -211,6 +211,19 @@ def collect(run_dir="run"):
             (m["run_id"], _events_summary(events) if events is not None else None)
         )
 
+    # Tier 0 留痕（run/tier0.jsonl，eval_state.py tier0 產出）：沿用 _parse_events 寬容讀法（R-009）
+    tier0_entries = _parse_events(os.path.join(run_dir, "tier0.jsonl"))
+    if tier0_entries is None:
+        data["tier0"] = None
+    else:
+        valid = [e for e in tier0_entries if isinstance(e, dict)]
+        data["tier0"] = {
+            "count": len(valid),
+            "lines": sum(e["lines"] for e in valid
+                         if isinstance(e.get("lines"), int) and not isinstance(e.get("lines"), bool)),
+            "last_ts": max((e["ts"] for e in valid if isinstance(e.get("ts"), str)), default=None),
+        }
+
     log_path = os.path.join(run_dir, "gate_hits.log")
     if os.path.exists(log_path):
         with open(log_path, encoding="utf-8") as f:
@@ -288,6 +301,12 @@ def report(data):
         append_gate_hits(out, data)  # gate 攔截可能先於第一個完成的 run
         return "\n".join(out)
     out.append(f"tier 分佈：{dict(data['tiers'])}　status：{dict(data['statuses'])}")
+    t0 = data.get("tier0")
+    if t0:
+        last = t0["last_ts"] or "n/a"
+        out.append(f"Tier 0 留痕：{t0['count']} 筆／合計 {t0['lines']} 行／最近一筆 {last}")
+    else:
+        out.append("Tier 0 留痕：無記錄（需要 run/tier0.jsonl，見 eval_state.py tier0）")
     out.append(f"waive 率：{pct(data['waived'], n_runs)}")
     hitl_total = data["hitl_confirmed"] + data["hitl_rejections"]
     out.append(f"HITL 打回率：{pct(data['hitl_rejections'], hitl_total)}（歷史指標，價值信號看裁示數）")

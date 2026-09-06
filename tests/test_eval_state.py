@@ -362,5 +362,61 @@ class EventAppendTest(unittest.TestCase):
         self.assertIsNone(eval_gates.MANIFEST_RE.match(events_path))
 
 
+class Tier01TelemetryTest(unittest.TestCase):
+    """event（Tier 1 事件留痕）與 tier0（Tier 0 一行留痕）子命令。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+
+    def tearDown(self):
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    def read_events(self, run_id):
+        with open(os.path.join("run", f"{run_id}.events.jsonl"), encoding="utf-8") as f:
+            return [json.loads(line) for line in f if line.strip()]
+
+    def read_tier0(self):
+        with open(os.path.join("run", "tier0.jsonl"), encoding="utf-8") as f:
+            return [json.loads(line) for line in f if line.strip()]
+
+    def test_event_without_state_file_succeeds(self):
+        """Tier 1 場景：eval_state.json 不存在也能寫事件（不經 load()）。"""
+        self.assertFalse(os.path.exists("eval_state.json"))
+        run_cli("event", "t1-run", "hitl_confirmed", "--note", "1 task／4 items")
+        events = self.read_events("t1-run")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["cmd"], "hitl_confirmed")
+        self.assertIn("ts", events[0])
+        self.assertEqual(events[0]["args"]["note"], "1 task／4 items")
+
+    def test_event_appends_in_order(self):
+        run_cli("event", "t1-run", "init_done")
+        run_cli("event", "t1-run", "item_reviewed")
+        self.assertEqual([e["cmd"] for e in self.read_events("t1-run")],
+                         ["init_done", "item_reviewed"])
+
+    def test_tier0_appends_entry_with_four_keys(self):
+        run_cli("tier0", "--summary", "文案微調", "--files", "a.py, b.md", "--lines", "12")
+        entries = self.read_tier0()
+        self.assertEqual(len(entries), 1)
+        e = entries[0]
+        self.assertEqual(set(e), {"ts", "summary", "files", "lines"})
+        self.assertEqual(e["summary"], "文案微調")
+        self.assertEqual(e["files"], ["a.py", "b.md"])
+        self.assertEqual(e["lines"], 12)
+
+    def test_tier0_is_append_only(self):
+        run_cli("tier0", "--summary", "第一筆", "--files", "a.py", "--lines", "1")
+        run_cli("tier0", "--summary", "第二筆", "--files", "b.py", "--lines", "2")
+        self.assertEqual([e["summary"] for e in self.read_tier0()], ["第一筆", "第二筆"])
+
+    def test_tier0_rejects_blank_summary(self):
+        with self.assertRaises(SystemExit):
+            run_cli("tier0", "--summary", "  ", "--files", "a.py", "--lines", "1")
+
+
 if __name__ == "__main__":
     unittest.main()

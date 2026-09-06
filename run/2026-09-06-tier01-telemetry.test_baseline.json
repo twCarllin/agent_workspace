@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-06-tier01-telemetry",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "95df765ec70e3b328009ae148481a9c0fe177cab",
+  "stable_failures": []
+}

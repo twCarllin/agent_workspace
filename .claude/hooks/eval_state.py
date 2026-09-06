@@ -245,6 +245,33 @@ def cmd_list_files(args):
         print("\n".join(seen))
 
 
+def cmd_event(args):
+    """Tier 1 事件留痕：Tier 1 不建 eval_state.json，本子命令不經 load()，
+    直接沿用 append_event 寫 run/<run_id>.events.jsonl（R-009：沿用同路徑既有 helper）。"""
+    append_event(args.run_id, args.name, args)
+    print(f"[eval-state] event: {args.name} -> run/{args.run_id}.events.jsonl")
+
+
+TIER0_LOG = os.path.join("run", "tier0.jsonl")
+
+
+def cmd_tier0(args):
+    """Tier 0 收尾留痕：append 一行到 run/tier0.jsonl。純記錄欄位，無任何 gate 消費
+    （R-010：非判定基準）。"""
+    if not args.summary.strip():
+        fail("--summary 不可為空字串")
+    entry = {
+        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "summary": args.summary,
+        "files": [f.strip() for f in args.files.split(",") if f.strip()],
+        "lines": args.lines,
+    }
+    os.makedirs("run", exist_ok=True)
+    with open(TIER0_LOG, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    print(f"[eval-state] tier0 留痕 +1 -> {TIER0_LOG}")
+
+
 def cmd_archive(args):
     state = load()
     run_id = state.get("run_id")
@@ -316,6 +343,18 @@ def main():
     p.add_argument("--command", required=True)
     p.add_argument("--exit-code", type=int, required=True, dest="exit_code")
     p.set_defaults(func=cmd_add_verification)
+
+    p = sub.add_parser("event")
+    p.add_argument("run_id")
+    p.add_argument("name")
+    p.add_argument("--note", default=None)
+    p.set_defaults(func=cmd_event)
+
+    p = sub.add_parser("tier0")
+    p.add_argument("--summary", required=True)
+    p.add_argument("--files", required=True, help="逗號分隔的檔案清單")
+    p.add_argument("--lines", type=int, required=True, help="git diff 變更行數（增＋刪）")
+    p.set_defaults(func=cmd_tier0)
 
     p = sub.add_parser("list-files")
     p.set_defaults(func=cmd_list_files)

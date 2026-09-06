@@ -110,8 +110,17 @@
 - 每個會寫入狀態的子命令（`init`／`add-subtask`／`set-step`／`set-files`／`set-test`／`set-status`／`set-review`／`set-verify`／`add-verification`／`archive`）成功寫入（`save()` 之後）append 一行 JSON：`{"ts": "<ISO8601>", "cmd": "<子命令>", "args": {...}}`；唯讀的 `list-files` 不記
 - `args` 鍵全記，字串值 >200 字元截斷並標 `…[truncated]`
 - append 是旁路記錄：寫入失敗（如 `run/` 不可寫）僅 stderr warning，不影響原子命令的 exit code；`eval_state.json` 缺 `run_id` 時同樣只 warning 並略過記錄
-- **已知限制**：Tier 1 不建 `eval_state.json`，故無此檔（與 `verification_commands` 等 Tier 1 專用欄位同一類覆蓋限制）
+- **Tier 1 的寫入路徑**：Tier 1 不建 `eval_state.json`，改以 `event` 子命令（`python3 .claude/hooks/eval_state.py event <run_id> <節點名> [--note <str>]`，不經 load()）於流程節點直寫本檔——呼叫點住 eval-flow SKILL.md「Tier 1 精簡路徑」；事件行形狀同上（`cmd` 為節點名）
 - 消費端見 `stats.py`（依 `ts` 欄位取極值計時距；`set-step` 重入依事件的 sub_task id＋`step` 計數，不依賴檔內物理行序）
+
+## run/tier0.jsonl 格式
+
+**冷溯源檔**（單一共用檔、append-only、永不清除；Tier 0 本身不 commit，隨使用者或下一個 run 的 commit 進 git）。Tier 0 改完回報時 append 一行：
+
+- 指令：`python3 .claude/hooks/eval_state.py tier0 --summary "<一句>" --files "<逗號分隔清單>" --lines <int：git diff 增＋刪>`
+- 行形狀：`{"ts": "<ISO8601 UTC>", "summary": "...", "files": [...], "lines": <int>}`
+- **純記錄欄位，不被任何 gate 消費**——加 gate 消費此檔即為判定行為變更（比照 `verification_commands` 同條款）
+- 消費端：`stats.py`「Tier 0 留痕」節（筆數／合計行數／最近一筆 ts；壞行寬容跳過）
 
 ## eval_state.json 操作規則
 

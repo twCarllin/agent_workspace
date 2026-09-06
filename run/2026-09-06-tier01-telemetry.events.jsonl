@@ -1,0 +1,3 @@
+{"ts": "2026-09-06T10:19:08.805929+00:00", "cmd": "items1-4_reviewed", "args": {"run_id": "2026-09-06-tier01-telemetry", "name": "items1-4_reviewed", "note": "合併審查 r1 checker 通過（④裁決不成立＋sabotage 補證）"}}
+{"ts": "2026-09-06T10:19:08.897169+00:00", "cmd": "items1-4_verified", "args": {"run_id": "2026-09-06-tier01-telemetry", "name": "items1-4_verified", "note": "全套 280 OK＋契約實跑＋sabotage 2 點 FAIL/PASS"}}
+{"ts": "2026-09-06T10:19:31.790596+00:00", "cmd": "completed", "args": {"run_id": "2026-09-06-tier01-telemetry", "name": "completed", "note": "收尾 commit 前"}}

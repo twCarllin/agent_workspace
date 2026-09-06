@@ -1,0 +1,51 @@
+{
+  "run_id": "2026-09-06-tier01-telemetry",
+  "created_at": "2026-09-06 17:21",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "理由碼空集合——載體設計已由使用者裁決（Tier 0 append 一行 log、Tier 1 事件時間戳）；本地開發工具鏈變更不觸信任邊界／公開契約；DoD 明確可驗",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "Tier 0 與 Tier 1 都要有執行紀錄，且要有時間戳：Tier 0 收尾 append 一行留痕到 run/tier0.jsonl；Tier 1 於流程節點寫入 run/<run_id>.events.jsonl（新增不依賴 eval_state.json 的 event 子命令）；stats.py 消費端補 Tier 0 節；相關文件同步",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-06 17:25 — 確認 1 task／4 items 計畫（Tier0/1 留痕＋時間戳，合併審查＋直寫捷徑）",
+  "hitl_rulings": 0,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-06.md",
+  "status": "completed",
+  "failed_reason": null,
+  "estimated_active_minutes": 50,
+  "local_test_passed": true,
+  "local_test_evidence": "python3 -m unittest discover -s tests → Ran 280 tests OK（baseline stable 0，+8 新測試）；契約實跑：event 子命令於無 eval_state.json 乾淨目錄 exit 0＋事件行含 ts/cmd/note；stats 無檔顯示無記錄；文件 4 grep 契約全過（不建任何檔→0、eval_state.py event→3、故無此檔→0、旁路→1）；sabotage 獨立重放 2 點（cmd_tier0 files 拆列、stats lines 加總）破壞→FAIL→恢復→PASS，__pycache__ 清理、零殘留；規則 8 裁決：無新增測試檔、依字面不適用（詳審查落檔 主 flow 處置節）",
+  "verification_commands": [
+    {
+      "command": "python3 -m unittest discover -s tests",
+      "exit_code": 0
+    },
+    {
+      "command": "eval_state.py event demo-tmp milestone --note x（無 eval_state.json 乾淨目錄）",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/stats.py | grep 'Tier 0'",
+      "exit_code": 0
+    },
+    {
+      "command": "grep -F '不建任何檔' CLAUDE.md skills/eval-flow/SKILL.md README.md",
+      "exit_code": 1
+    },
+    {
+      "command": "grep -rF '故無此檔' skills/",
+      "exit_code": 1
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key full_suite",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true,
+  "actual_active_minutes": 35
+}

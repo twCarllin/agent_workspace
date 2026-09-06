@@ -62,6 +62,44 @@ class StatsCollectTest(unittest.TestCase):
             f.write("2026-07-15 11:00:00\teval_state.json 仍存在。須先歸檔\n")
             f.write("2026-07-15 12:00:00\t假測試 lint 未過（修測試）\n")
 
+    def _write_tier0_lines(self, lines):
+        os.makedirs(self.run_dir, exist_ok=True)
+        with open(os.path.join(self.run_dir, "tier0.jsonl"), "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+
+    def test_tier0_absent_file_is_unrecorded(self):
+        self.make_fixture()
+        data = stats.collect(self.run_dir)
+        self.assertIsNone(data["tier0"])
+        self.assertIn("Tier 0 留痕：無記錄", stats.report(data))
+
+    def test_tier0_entries_counted_with_lines_and_last_ts(self):
+        self.make_fixture()
+        self._write_tier0_lines([
+            json.dumps({"ts": "2026-09-06T01:00:00+00:00", "summary": "s1",
+                        "files": ["a.py"], "lines": 10}),
+            json.dumps({"ts": "2026-09-06T02:00:00+00:00", "summary": "s2",
+                        "files": ["b.py"], "lines": 5}),
+        ])
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["tier0"], {
+            "count": 2, "lines": 15, "last_ts": "2026-09-06T02:00:00+00:00",
+        })
+        self.assertIn("Tier 0 留痕：2 筆／合計 15 行", stats.report(data))
+
+    def test_tier0_bad_lines_skipped_without_crash(self):
+        self.make_fixture()
+        self._write_tier0_lines([
+            "not-json{{{",
+            json.dumps({"ts": "2026-09-06T01:00:00+00:00", "summary": "ok",
+                        "files": ["a.py"], "lines": 3}),
+            json.dumps({"ts": None, "summary": "lines 非 int", "files": [], "lines": "x"}),
+        ])
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["tier0"]["count"], 2)  # 壞 JSON 行不計；合法 JSON 但欄位型別錯仍計筆數
+        self.assertEqual(data["tier0"]["lines"], 3)  # lines 只加總 int
+        self.assertEqual(data["tier0"]["last_ts"], "2026-09-06T01:00:00+00:00")
+
     def test_derived_files_not_counted_as_runs(self):
         self.make_fixture()
         data = stats.collect(self.run_dir)
