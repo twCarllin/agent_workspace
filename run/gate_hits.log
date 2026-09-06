@@ -16,3 +16,4 @@
 2026-08-20 14:34:20	eval_state.json 仍存在。須先歸檔為 run/<run_id>.eval.json 並清除後才可 commit；若為失敗收尾（status: failed），依規則由使用者裁決，不可由 Claude commit
 2026-08-20 16:00:00	呼叫 code-writer 前須完成前置 0：eval_state.json 不存在（run 未初始化）
 2026-09-05 22:49:29	假測試 lint 未過（修測試或以行尾 `# testlint: allow` 豁免並留痕）：
+2026-09-06 16:49:03	run/2026-09-06-agent-defs-invariants.json status 非 completed（in_progress），不可 commit

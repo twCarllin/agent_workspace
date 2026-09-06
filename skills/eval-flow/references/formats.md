@@ -33,7 +33,8 @@
 ```
 
 - `framework_version`：前置 0 從 `.claude/hooks/VERSION` 讀入——事後鑑識「這個 run 是在哪一版流程規則下跑的」（部署健檢用 `python3 .claude/hooks/doctor.py`）
-- `hitl_rejections`：HITL gate 被使用者**打回**的累計次數（usage 報告退回重寫、計畫被否決都算）。打回當下 +1。與 `hitl_confirmed_at` 一起餵 `stats.py` 的打回率——趨近 0% 的人閘門是蓋章，候選降級
+- `hitl_rejections`：HITL gate 被使用者**打回**的累計次數（usage 報告退回重寫、計畫被否決都算）。打回當下 +1。餵 `stats.py` 的打回率——**歷史指標**（2026-09-06 起降級：人閘門的價值信號是裁示數不是打回率，見 `hitl_rulings`；舊「趨近 0% 即蓋章候選降級」警告已自 stats.py 移除）
+- `hitl_rulings`：HITL 確認當下的**裁示條數**（int，選填；無裁示填 0）。Tier 2 前置 2 與 Tier 1 輕量 HITL 同名同義（寫入時機見 eval-flow SKILL.md 對應節）；消費端 `stats.py` 裁示數分佈
 - `tier` / `tier_rationale`：Router 判定後寫入（供審計；Tier 1 若升級 Tier 2 須更新）
 - `phase`：流程狀態機欄位，hook 憑此攔亂序的 subagent 呼叫（見「Gate 的硬性執行」gate 7）
   - 轉移時機：前置 0 建立 `"init"` → 前置 1 無 🔴 `"risk_done"` → 前置 2 使用者確認 `"usage_confirmed"` → 前置 3 審查通過 `"decomposed"` → step 6 收尾 `"completed"`。Tier 1 於輕量 HITL 確認後直接設 `"decomposed"`

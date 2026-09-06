@@ -87,7 +87,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
    - `<files>`＝**當前 sub_task 的 `files`**（主 flow 讀 `eval_state.json` 該 sub_task 的 `files` 欄帶入；收斂到當前 sub_task 涉及檔，避免跨 sub_task staging 累積污染）。
      - **注意**：`eval_state.py list-files` 是全 sub_task 聯集，不是單一 sub_task 來源、不可用於此。此收斂為退回主 worktree 循序時的污染修法（與 fan-out 無關、底層必需）。
 3. **預設派 `task-verifier`（checker，haiku）審查**——checker **不讀 diff**，輸入集＝該 item 的 task 檔內容（DoD＋契約表原文）＋writer 工作報告全文＋步驟 2 的 `git diff --cached --stat -- <files>` 輸出＋測試輸出尾段＋`run/<run_id>.mine_log.json` 摘要。
-   - 職責＝核對「宣稱與憑據對得上」：DoD 逐條有憑據、契約 row 逐條有對應測試斷言（以 grep 測試檔核）、仲裁記錄與 mine 指紋一致、sabotage 自檢證據存在（見 `.claude/agents/code-writer.md` 測試管轄規則 A2）、無疑似注入標註未處理
+   - 職責＝核對「宣稱與憑據對得上」：DoD 逐條有憑據、契約 row 逐條有對應測試斷言（以 grep 測試檔核）、仲裁記錄與 mine 指紋一致、sabotage 自檢證據存在（見 `.claude/agents/code-writer.md` 測試管轄規則 8）、無疑似注入標註未處理
    - 其審查報告**強制兩節、缺一退件**：①**完成度節**——對照 task 檔該 item 的 DoD 與子任務逐條核對，**明列 diff `--stat` 中缺席的項目**（scope 偏移一併檢，以檔名清單核對，不讀內容）；②**憑據節**（取代品質節）——上述憑據逐項核對結果，逐項標「有憑據／缺席／存疑」
    - checker 不做 Fowler smell 品質審查（那是 reviewer 的職責，只在升級輪出現）。`step` 欄位記 `reviewing`（`verifying` 保留供舊 run resume 相容，新路徑不再使用）
    - **五類升級觸發（checker 遇任一情況 → 主 flow 改派 code-reviewer 全 diff 審，既有流程原樣）**：
