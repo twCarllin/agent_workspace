@@ -7,7 +7,7 @@
 指標與其回答的問題：
   tier 分佈        分級有沒有發揮省成本作用（Tier 1 幾乎為零 → 門檻太緊）
   waive 率         驗證豁免有沒有變質為常態後門
-  HITL 打回率      人閘門是真防線還是蓋章（趨近 0% → 候選降級為通知）
+  HITL 打回率      歷史指標，僅供對照——人閘門的價值信號改看裁示數（實測：打回率 0% 的 HITL 單場出 5 條裁示）
   rework 率（首輪即有 🔴）  幾成 sub_task 首輪就有 review_reds >= 1（需要第二輪）；
                             legacy 歸檔無頂層 review_reds 時 fallback len(rounds) >= 2
   維度分佈         哪個品質維度問題最多（改進 writer prompt 的依據）；
@@ -290,10 +290,7 @@ def report(data):
     out.append(f"tier 分佈：{dict(data['tiers'])}　status：{dict(data['statuses'])}")
     out.append(f"waive 率：{pct(data['waived'], n_runs)}")
     hitl_total = data["hitl_confirmed"] + data["hitl_rejections"]
-    out.append(
-        f"HITL 打回率：{pct(data['hitl_rejections'], hitl_total)}"
-        + ("　⚠ 趨近 0% 的人閘門是蓋章，候選降級" if hitl_total and not data["hitl_rejections"] else "")
-    )
+    out.append(f"HITL 打回率：{pct(data['hitl_rejections'], hitl_total)}（歷史指標，價值信號看裁示數）")
     append_hitl_rulings(out, data)
     out.append(f"rework 率（首輪即有 🔴）：{pct(data['rework'], data['sub_tasks'])}")
     append_checker_escalation(out, data)
