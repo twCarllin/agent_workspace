@@ -1,0 +1,7 @@
+{"ts": "2026-09-06T10:52:02.610697+00:00", "cmd": "init", "args": {"run_id": "2026-09-06-tax-batch-wrapper", "name": "init", "note": "Tier 1 精簡初始化"}}
+{"ts": "2026-09-06T10:52:02.666245+00:00", "cmd": "hitl_confirmed", "args": {"run_id": "2026-09-06-tax-batch-wrapper", "name": "hitl_confirmed", "note": "對話核准 1+3，裁示 2 條"}}
+{"ts": "2026-09-06T10:54:28.105153+00:00", "cmd": "verify_cmd", "args": {"exit_code": 0}}
+{"ts": "2026-09-06T10:58:00.922339+00:00", "cmd": "items1-3_reviewed", "args": {"run_id": "2026-09-06-tax-batch-wrapper", "name": "items1-3_reviewed", "note": "合併審查 r1 checker 🟢 零升級"}}
+{"ts": "2026-09-06T10:58:13.180036+00:00", "cmd": "verify_cmd", "args": {"exit_code": 0}}
+{"ts": "2026-09-06T10:58:13.218592+00:00", "cmd": "items1-3_verified", "args": {"run_id": "2026-09-06-tax-batch-wrapper", "name": "items1-3_verified", "note": "全套 285 OK＋契約實跑＋sabotage FAIL/PASS"}}
+{"ts": "2026-09-06T10:58:29.649444+00:00", "cmd": "completed", "args": {"run_id": "2026-09-06-tax-batch-wrapper", "name": "completed", "note": "收尾 commit 前"}}

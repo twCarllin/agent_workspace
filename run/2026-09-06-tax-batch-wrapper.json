@@ -1,0 +1,35 @@
+{
+  "run_id": "2026-09-06-tax-batch-wrapper",
+  "created_at": "2026-09-06 18:51",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "理由碼空集合——流程稅削減兩項（簿記 wrapper、批次派工）設計已由使用者於對話裁決（只做 1＋3、批次單位＝task、上限對齊合併審查 ≤400 行）；本地工具鏈與流程文件變更，不觸信任邊界／公開契約",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "流程稅削減：①簿記機械化——新 wrapper script run_verify.py 一次完成「跑驗證指令＋記 verification_commands（Tier 1 manifest／Tier 2 eval_state）＋寫事件」，SKILL.md step 5 與 Tier 1 節改指 wrapper；③批次派工——派工單位從 item 升到 task（合計 ≤400 行才批次、[P] 不混批、失敗隔離單 item 退件、憑據仍逐 item 分節），投放 SKILL.md 循環 step 1 與 code-writer.md 工作報告格式",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-06 18:51 — 使用者對話核准「做 1, 3 吧」（方案落點與 60 分估已先列示）",
+  "hitl_rulings": 2,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-06.md",
+  "status": "completed",
+  "failed_reason": null,
+  "estimated_active_minutes": 60,
+  "local_test_passed": true,
+  "local_test_evidence": "run_verify.py 執行全套 unittest → Ran 285 tests OK（+5 新測試，baseline stable 0，check --strike-key full_suite PASS）；12.1 五條單元測試涵蓋全部契約 row；12.2/12.3 文件 grep 契約全過；sabotage 自檢（規則 8，新增測試檔適用）：exit code 傳播破壞→FAIL(1)→還原→46 tests OK，__pycache__ 清理；還原一度誤用 git restore（新檔不在索引）改以 Edit 還原，最終 git status 核對無殘留",
+  "verification_commands": [
+    {
+      "command": "python3 -m unittest discover -s tests 2>&1 | grep -E '^(OK|FAILED|Ran)'",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key full_suite --run-id 2026-09-06-tax-batch-wrapper",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true,
+  "actual_active_minutes": 30
+}

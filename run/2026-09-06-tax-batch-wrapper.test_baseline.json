@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-06-tax-batch-wrapper",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "916fc858bb24cb9ba099a5c58cede2b366ce7407",
+  "stable_failures": []
+}
