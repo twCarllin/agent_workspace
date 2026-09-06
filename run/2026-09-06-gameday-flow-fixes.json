@@ -1,0 +1,49 @@
+{
+  "run_id": "2026-09-06-gameday-flow-fixes",
+  "created_at": "2026-09-06 11:48",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "checker 首戰 game day 回報的四項流程缺口中，prose 三項（視覺 DoD 的 step5 憑據記號、step5 發現 bug 的明文回路、dirty tree 進場檢查）：全 prose（skill／agent 定義條文），不動 hook 可執行邏輯行 → 高風險排除兩道判準皆不觸發；修法已與使用者逐項確認（歧義消）；1 task／3 items，合計預估 ~60 行 → Tier 1。第四項（test_baseline.py 的 __suite__ 毒化 baseline）動 step 5 gate 判定式本體（可執行邏輯＋機制本體同時成立），另立 Tier 2 run，不併入本 run",
+  "phase": "decomposed",
+  "spec_path": null,
+  "spec_inline": "第一次實戰（2026-09-06 checker 首戰 game day）回報四缺口，本 run 修 prose 三項。(1) 視覺類 DoD 的 step5 憑據記號：checker 在循環 step 3 執行、先於 step 5 本地測試，DoD 憑據本質上只能由 step 5 實跑產生（視覺呈現、實機行為）的 task 幾乎必然觸發升級④，多付一輪升級稅；且 task-verifier.md 輸入第 4 項寫「step 5 的驗證指令與結果摘要」，時間上不可能存在（step 5 未跑），規格自相矛盾。修法：判定前移到 task 檔——拆分者（或 Tier 1 主 flow 直建）在此類 DoD 條目尾標 `[憑據:step5]`（記號定義住 task-decomposition skill，單一枚舉點）；checker 見記號 → 完成度節記 🔍（step 5 待驗）、不計入升級②④（機械比對 task 檔原文，零裁量）；eval-flow step 5 由主 flow 逐條核對帶記號條目憑據已補，未補不得過 gate；task-verifier.md 輸入第 4 項改為「writer mine 自驗輸出尾段」消矛盾。配套制度化「使用者驗收」：test-strategy 前端／UI 節加——實機環境備不妥的視覺類條目，step 5 列「待使用者驗收」清單請使用者裁決、裁決記入 local_test_evidence；自動化功能測試照常硬 gate，本路徑非豁免（不觸發 test_policy）。(2) step 5 發現 bug 的明文回路：現行 test-strategy「三者皆非 → 立即回報使用者裁決」之後無明文路徑，實戰靠拼裝。修法：test-strategy 補確定路徑——使用者裁決「是 bug、要修」→ 主 flow 把裁決補進該 item 契約表 row（沿循環 step 1 補表機制，single source 不變）→ 該 sub_task step 設 fixing → 回派修正 → 從循環 step 3 重走；eval-flow step 3 的 r 號定義補「同 sub_task 連號遞增，不分回路來源（審查退回、step 5 打回、全套重開同一序列）」。(3) dirty tree 進場檢查：實戰遇孤兒變更（App.jsx／AdminLayout.jsx）讓 staging 與 commit 範圍複雜化、拖到收尾才裁決。修法：eval-flow 前置 0 加進場檢查子步——建 manifest 前跑 `git status --porcelain`，非空 → 列檔案清單問使用者歸屬（納入本 run／擱置不動），裁決一句寫 manifest `dirty_tree_ruling`（選填欄，乾淨樹免記）；Tier 1 精簡初始化加同守指向句（不重列，R-007）；references/formats.md 的 manifest 欄位表補該欄一行。行為不變驗證：全套測試綠（docs 一致性測試涵蓋改動檔）",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-06 11:50 — 使用者確認 1 task／3 items 計畫（AskUserQuestion：確認，開跑；Run B test_baseline.py 走 Tier 2 另跑一併確認）",
+  "hitl_rulings": 0,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-06.md",
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "test_baseline.py baseline: stable 0；check sub_task_3.1／3.2／3.3 與 full_suite 皆 PASS 無新增穩定失敗（全套 python3 -m unittest discover -s tests，含 docs 一致性測試涵蓋四個改動 md）。契約 row 主 flow 逐條 grep 自驗＋checker 逐 item 複核：3.1 grep -l '憑據:step5' 四檔命中、時間矛盾句零命中、五類升級與「不確定即升級④」原句仍在；3.2 '補進.*契約表'／'不分回路來源' 命中、「人是計數器」原句仍在；3.3 dirty_tree_ruling 兩檔命中、進場檢查於前置 0 與 Tier 1 節兩處命中。審查軌跡：st3.1／3.2／3.3 checker（haiku）各 r1 直過、零升級。純 prose 無新增測試檔，mutation 不適用",
+  "verification_commands": [
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key sub_task_3.1 --run-id 2026-09-06-gameday-flow-fixes",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key sub_task_3.2 --run-id 2026-09-06-gameday-flow-fixes",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key sub_task_3.3 --run-id 2026-09-06-gameday-flow-fixes",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key full_suite --run-id 2026-09-06-gameday-flow-fixes",
+      "exit_code": 0
+    },
+    {
+      "command": "契約 row grep 自驗（三 item 逐條，見 local_test_evidence）",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true,
+  "subagent_usage": {
+    "prep": 0,
+    "loop": 66926
+  }
+}

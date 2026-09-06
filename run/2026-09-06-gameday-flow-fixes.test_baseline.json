@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-06-gameday-flow-fixes",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "59d596e7854519bface4d236a8b4160420e255b0",
+  "stable_failures": []
+}

@@ -43,6 +43,7 @@ python3 .claude/hooks/test_baseline.py mine --strike-key <sub_task 標識>
 - **前端 UI 實機驗證屬 best-effort**：能備妥環境就做，備不妥就記 best-effort、以功能測試為準，**不阻塞收尾**。目前現況下前端實機驗證成本高、不易穩定備妥，驗證重心明確放在功能正確性
 - **不從零手刻平行 runtime**：起 app 前先找專案既有的啟動把手（`start-dev.sh`／`Makefile`／`package.json` scripts），有就一鍵起（正確 port／JWT secret／DB 已內建）。沒有或起不來 → 記 best-effort，**不自訂 port／secret／DB 手搭一套平行環境**——那是鑽牛角尖，不是驗證
 - **實測教訓**：一次 run 的「測試鬼打牆」全在 UI 實機環境（docker 缺、port 被 dev server 佔、JWT secret 沒帶導致 server 崩、Playwright 選擇器對不上、npx 誤裝套件 500），自動化 gate 反而一次就過。問題從來不是測試邏輯，是 UI runtime 環境——所以把力氣放在功能正確性測試，不放在前端實機
+- **視覺類 DoD 的使用者驗收（`[憑據:step5]` 條目的 best-effort 收口）**：帶 `[憑據:step5]` 記號（定義住 task-decomposition skill）的 DoD 條目，實機環境備妥 → 實跑取證；備不妥 → step 5 列「待使用者驗收」清單回報使用者逐條裁決，裁決記入 `local_test_evidence`（含使用者裁決原話一句）。**本路徑非豁免**——不觸發 `test_policy`、不需使用者明示豁免宣告；自動化功能測試照常硬 gate，交給人的只有「呈現對不對」這一段本來就無自動憑據的判定
 
 ## Step 5 執行順序（每個 sub_task）
 
@@ -94,6 +95,8 @@ script 重跑確認可重現的真新失敗，先判是否屬下列兩種**確�
 **三分類的判定上限是一次機械比對**（對 list-files 聯集、看 `git diff --cached`）——需要讀測試實作、追 import 鏈、跑額外測試才能歸因的，一律視同塞住，立即 HITL，**禁止自行調查歸因**（實測：這種調查燒大量 token 後結論多半是「與本 run 無關」，白查）。
 
 **三者皆非（真的是本 item 的 code 錯）→ 立即回報使用者裁決（人是計數器）**：不再有「自修 N 次才舉手」的額度——script 不記 strike、不設上限。把「卡在哪些測試、失敗原文、已試過什麼」回報使用者，由使用者決定續修或改路。塞住時的正確行為是舉手，不是自行空轉迴圈。（真失敗已由 script append 進 baseline 檔的 `failure_log`，稽核時「紅過卻無回報」即抓吞失敗）
+
+**裁決後的回修路徑（明文，不靠拼裝）**：使用者裁決「是 bug、要修」（含 step 5 實跑／使用者驗收發現的行為問題）→ 主 flow 把裁決結果補進該 item 的契約表 row（沿 eval-flow 循環 step 1 的補表機制，表可增補、single source 不變）→ 該 sub_task `step` 設 `fixing`、回派修正（直寫捷徑 item 由主 flow 直修）→ 從循環 **step 3** 重走（審查輪 r+1，r 號規則見 eval-flow step 3）。不新設迴圈——這與審查退回共用同一條 fixing 路，差別只在入口（審查輪發現 vs step 5 發現）與前置動作（先補契約 row 再修）。
 
 ## Commit 前全套檢查與重開路徑（跨 sub_task 破壞的最後防線）
 
