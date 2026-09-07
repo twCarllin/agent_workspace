@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-07-feedback-obs-fixes",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "85cda259a66fa063200d1a58ab26e264ce313841",
+  "stable_failures": []
+}

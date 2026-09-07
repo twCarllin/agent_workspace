@@ -108,6 +108,7 @@ def collect(run_dir="run"):
         "checked_by_direct": 0, "checked_by_escalated": 0,
         "checked_by_dist": Counter(), "checked_by_none": 0,
         "subagent_usage": [], "subagent_usage_missing": 0,  # (run_id, prep, loop)
+        "subagent_usage_main": [],  # (run_id, main) 選填鍵，主 flow 自報用量
     }
     for path in sorted(glob.glob(os.path.join(run_dir, "*.json"))):
         name = os.path.basename(path)
@@ -140,6 +141,9 @@ def collect(run_dir="run"):
             and isinstance(usage.get("loop"), int) and not isinstance(usage.get("loop"), bool)
         ):
             data["subagent_usage"].append((m["run_id"], usage["prep"], usage["loop"]))
+            main = usage.get("main")  # 選填；非 int 寬容跳過（prep/loop 照收）
+            if isinstance(main, int) and not isinstance(main, bool):
+                data["subagent_usage_main"].append((m["run_id"], main))
         else:
             data["subagent_usage_missing"] += 1
 
@@ -271,14 +275,19 @@ def append_checker_escalation(out, data):
 
 def append_subagent_usage(out, data):
     if data["subagent_usage"]:
-        parts = [f"{run_id}: prep {prep}／loop {loop}" for run_id, prep, loop in data["subagent_usage"]]
+        main_by_run = dict(data["subagent_usage_main"])
+        parts = [
+            f"{run_id}: prep {prep}／loop {loop}"
+            + (f"／main {main_by_run[run_id]}" if run_id in main_by_run else "")
+            for run_id, prep, loop in data["subagent_usage"]
+        ]
         total_prep = sum(prep for _, prep, _ in data["subagent_usage"])
         total_loop = sum(loop for _, _, loop in data["subagent_usage"])
         ratio = f"{total_prep / total_loop:.2f}" if total_loop else "n/a"
-        out.append(
-            f"前置/循環成本比：{'、'.join(parts)}　合計比值 prep:loop = {ratio}"
-            f"　無記錄：{data['subagent_usage_missing']} 個 run"
-        )
+        line = f"前置/循環成本比：{'、'.join(parts)}　合計比值 prep:loop = {ratio}"
+        if main_by_run:
+            line += f"　main 合計 {sum(main_by_run.values())}（{len(main_by_run)} 個 run 有記錄）"
+        out.append(line + f"　無記錄：{data['subagent_usage_missing']} 個 run")
     else:
         out.append("前置/循環成本比：無記錄（需要 subagent_usage）")
 

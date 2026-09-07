@@ -87,7 +87,8 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
    - **升級為 code-reviewer 全 diff 審時，prompt 硬性指示改用 `git diff --cached -- <files>`**（file-scoped 完整 diff）
    - `<files>`＝**當前 sub_task 的 `files`**（主 flow 讀 `eval_state.json` 該 sub_task 的 `files` 欄帶入；收斂到當前 sub_task 涉及檔，避免跨 sub_task staging 累積污染）。
      - **注意**：`eval_state.py list-files` 是全 sub_task 聯集，不是單一 sub_task 來源、不可用於此。此收斂為退回主 worktree 循序時的污染修法（與 fan-out 無關、底層必需）。
-3. **預設派 `task-verifier`（checker，haiku）審查**——checker **不讀 diff**，輸入集＝該 item 的 task 檔內容（DoD＋契約表原文）＋writer 工作報告全文＋步驟 2 的 `git diff --cached --stat -- <files>` 輸出＋測試輸出尾段＋`run/<run_id>.mine_log.json` 摘要。
+   - **批前快照（跨批污染的行數修法）**：本批 `git add` **之前**，主 flow 先記當下 `git diff --cached --stat -- <files>` 輸出為「批前快照」（本 run 首批＝空快照，派 checker 時標明「首批」即可）。file-scoped 收斂只擋檔名污染；批間不 commit 時同檔跨批變更，`--stat` 行數仍會把前批算進本批（外部專案實測誤升級 1 次），checker 須以兩份快照差集核對（見步驟 3 輸入集）。
+3. **預設派 `task-verifier`（checker，haiku）審查**——checker **不讀 diff**，輸入集＝該 item 的 task 檔內容（DoD＋契約表原文）＋writer 工作報告全文＋步驟 2 的 `git diff --cached --stat -- <files>` 輸出＋步驟 2 的批前快照（首批＝空快照，標明「首批」）＋測試輸出尾段＋`run/<run_id>.mine_log.json` 摘要。
    - 職責＝核對「宣稱與憑據對得上」：DoD 逐條有憑據、契約 row 逐條有對應測試斷言（以 grep 測試檔核）、仲裁記錄與 mine 指紋一致、sabotage 自檢證據存在（見 `.claude/agents/code-writer.md` 測試管轄規則 8）、無疑似注入標註未處理
    - 其審查報告**強制兩節、缺一退件**：①**完成度節**——對照 task 檔該 item 的 DoD 與子任務逐條核對，**明列 diff `--stat` 中缺席的項目**（scope 偏移一併檢，以檔名清單核對，不讀內容）；②**憑據節**（取代品質節）——上述憑據逐項核對結果，逐項標「有憑據／缺席／存疑」
    - checker 不做 Fowler smell 品質審查（那是 reviewer 的職責，只在升級輪出現）。`step` 欄位記 `reviewing`（`verifying` 保留供舊 run resume 相容，新路徑不再使用）
@@ -140,7 +141,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
    - ①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留審查記錄的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json`、本 run 的 `run/<run_id>.review-st*-r*.md` 與 `run/<run_id>.mine_log.json`**（審查落檔與 mine 留痕是熱 scratchpad，收尾即清；失敗收尾則與 eval_state 一樣保留現場）
    - ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔、**測試 baseline `run/<run_id>.test_baseline.json`**、**事件日誌 `run/<run_id>.events.jsonl`（若存在）** 一併 `git add`
      - baseline 進 git 的要求住在 `test-strategy` skill——其 `stable_failures` 是本 run 進場的既有欠帳快照，漏掉不會有任何 gate 攔截或錯誤訊息，屬靜默遺失；本清單與該 skill 須一致，改任一端時對照另一端
-     - ②add 之前：主 flow 依 Agent 工具回執把本 run 的 subagent tokens 彙總寫入 manifest `subagent_usage`（`{"prep": <前置 agent 合計>, "loop": <循環 agent 合計>}`，選填；Tier 1 無前置 agent 填 `"prep": 0`）——前置/循環成本比的資料源，消費端見 stats.py
+     - ②add 之前：主 flow 依 Agent 工具回執把本 run 的 subagent tokens 彙總寫入 manifest `subagent_usage`（`{"prep": <前置 agent 合計>, "loop": <循環 agent 合計>, "main": <主 flow 自身用量，選填鍵>}`，選填；Tier 1 無前置 agent 填 `"prep": 0`）——前置/循環成本比的資料源，消費端見 stats.py；`main` 不填則主 flow 協調成本不入帳、流程稅被低估（欄位語義住 `references/formats.md`）
    - ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
 7. **有條件** 呼叫 `retro` subagent：
    - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro

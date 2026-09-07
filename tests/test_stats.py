@@ -534,6 +534,42 @@ class StatsCollectTest(unittest.TestCase):
         text = stats.report(data)  # 不 crash
         self.assertIn("前置/循環成本比：無記錄", text)
 
+    def test_subagent_usage_main_key_reported(self):
+        """契約 row 1：含 main 的 run，輸出行含 main 數字與 main 合計。"""
+        write(os.path.join(self.run_dir, "m1.json"), {
+            "run_id": "m1", "tier": 2, "status": "completed",
+            "subagent_usage": {"prep": 100, "loop": 400, "main": 300},
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["subagent_usage_main"], [("m1", 300)])
+        text = stats.report(data)
+        self.assertIn("m1: prep 100／loop 400／main 300", text)
+        self.assertIn("main 合計 300（1 個 run 有記錄）", text)
+
+    def test_subagent_usage_without_main_unchanged(self):
+        """契約 row 2：無 main 的 run 照舊輸出 prep/loop，不顯示 main、不報錯。"""
+        write(os.path.join(self.run_dir, "nm.json"), {
+            "run_id": "nm", "tier": 1, "status": "completed",
+            "subagent_usage": {"prep": 50, "loop": 50},
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["subagent_usage_main"], [])
+        text = stats.report(data)
+        self.assertIn("nm: prep 50／loop 50", text)
+        self.assertNotIn("main", text.split("前置/循環成本比")[1].split("\n")[0])
+
+    def test_subagent_usage_main_non_int_skipped(self):
+        """契約 row 3：main 非 int → main 寬容跳過，prep/loop 照常收。"""
+        write(os.path.join(self.run_dir, "mb.json"), {
+            "run_id": "mb", "tier": 1, "status": "completed",
+            "subagent_usage": {"prep": 10, "loop": 20, "main": "300"},
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["subagent_usage"], [("mb", 10, 20)])
+        self.assertEqual(data["subagent_usage_main"], [])
+        text = stats.report(data)
+        self.assertIn("mb: prep 10／loop 20", text)
+
     # --- [邊界] 全部舊 run 無任何新欄 → 三節顯示無記錄、exit 0 不 crash ---
 
     def test_all_legacy_runs_show_no_record_for_all_three_new_metrics(self):

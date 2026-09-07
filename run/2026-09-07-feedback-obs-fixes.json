@@ -1,0 +1,45 @@
+{
+  "run_id": "2026-09-07-feedback-obs-fixes",
+  "created_at": "2026-09-07 20:21",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "理由碼空集合——外部專案實戰反饋項3（checker 跨批 staging 污染）與項4（主 flow 用量入帳）的修法已由使用者裁定，無歧義、不觸信任邊界／公開契約本體、預估 active time 40 分",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "外部專案實戰反饋修正：①批次派工加「批前 staged --stat 快照」，checker 以差集核對行數，杜絕跨批 staging 污染（skills/eval-flow/SKILL.md 循環 step 2/3＋.claude/agents/task-verifier.md 輸入節）；②manifest subagent_usage 加選填 main 鍵記主 flow 用量，.claude/hooks/stats.py 讀取輸出、tests/test_stats.py 補案例、references/formats.md 與 SKILL.md step 6 ② 同步",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-07 20:21 — 確認 1 task／2 items 計畫（直寫捷徑＋合併審查）；dirty tree 3 檔裁決併入本 run commit",
+  "hitl_rulings": 1,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-07.md",
+  "dirty_tree_ruling": "進場 3 檔（.claude/agents/code-writer.md、.claude/agents/task-verifier.md、run/tier0.jsonl）＝同批反饋的 Tier 0 項1/2 產物，使用者裁決併入本 run commit",
+  "estimated_active_minutes": 40,
+  "actual_active_minutes": 25,
+  "subagent_usage": {"prep": 0, "loop": 76302, "main": 50000},
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "test_baseline.py check（strike-key step5）PASS：無新增穩定失敗；全套 pytest tests/ 288 passed（+3 新測試）、stats 專屬 41 passed；baseline stable 0",
+  "verification_commands": [
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key step5",
+      "exit_code": 1
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-09-07-feedback-obs-fixes --strike-key step5",
+      "exit_code": 1
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-09-07-feedback-obs-fixes --strike-key step5",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-09-07-feedback-obs-fixes --strike-key full_suite",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true
+}

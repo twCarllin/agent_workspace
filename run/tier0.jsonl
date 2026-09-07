@@ -1,0 +1,2 @@
+{"ts": "2026-09-07T10:22:22.589990+00:00", "summary": "code-writer 規則 8 固化：sabotage FAIL/PASS 驗證只准走 mine，strike-key 加 _sabotage 後綴（外部專案反饋項 1）", "files": [".claude/agents/code-writer.md"], "lines": 4}
+{"ts": "2026-09-07T10:22:22.627124+00:00", "summary": "task-verifier 補 grep 實查步驟與『--stat 無法確認不是合格結論』，對齊 SKILL.md step 3 既載職責（矛盾修復，反饋項 2）", "files": [".claude/agents/task-verifier.md"], "lines": 13}
