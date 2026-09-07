@@ -91,6 +91,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 3. **預設派 `task-verifier`（checker，haiku）審查**——checker **不讀 diff**，輸入集＝該 item 的 task 檔內容（DoD＋契約表原文）＋writer 工作報告全文＋步驟 2 的 `git diff --cached --stat -- <files>` 輸出＋步驟 2 的批前快照（首批＝空快照，標明「首批」）＋測試輸出尾段＋`run/<run_id>.mine_log.json` 摘要。
    - 職責＝核對「宣稱與憑據對得上」：DoD 逐條有憑據、契約 row 逐條有對應測試斷言（以 grep 測試檔核）、仲裁記錄與 mine 指紋一致、sabotage 自檢證據存在（見 `.claude/agents/code-writer.md` 測試管轄規則 8）、無疑似注入標註未處理
    - 其審查報告**強制兩節、缺一退件**：①**完成度節**——對照 task 檔該 item 的 DoD 與子任務逐條核對，**明列 diff `--stat` 中缺席的項目**（scope 偏移一併檢，以檔名清單核對，不讀內容）；②**憑據節**（取代品質節）——上述憑據逐項核對結果，逐項標「有憑據／缺席／存疑」
+   - **信封註記（快 model 遵從補強）**：checker 派工 prompt 末尾附一句「報告首行戳記行、末行恰一個 `Self-check:`、兩節缺一退件（依你定義的輸出格式）」——規則住 agent 定義，此句為 recency 前置（實測 haiku 首輪漏交信封／缺節共 3 例，2026-09-07）
    - checker 不做 Fowler smell 品質審查（那是 reviewer 的職責，只在升級輪出現）。`step` 欄位記 `reviewing`（`verifying` 保留供舊 run resume 相容，新路徑不再使用）
    - **五類升級觸發（checker 遇任一情況 → 主 flow 改派 code-reviewer 全 diff 審，既有流程原樣）**：
      - ①憑據對不上或缺席
@@ -173,7 +174,7 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、mine 指紋
 
 - **主 flow 的每一句進度宣稱（「已派審」「已修復」「測試通過」「報告已產出」）必須同句附上可驗證憑據**：agent launched 回執、測試輸出尾行、`git diff --cached --stat`、`ls` 檔案存在證明。**沒有憑據的進度句，讀者（含接手者與使用者）應當作未發生。**
 - 這是 `local_test_evidence` 精神的推廣：證據要求不只在測試欄位，而在主 flow 所有進度回報。
-- **subagent 報告信封缺損 → 退件重取**：subagent 報告缺信封（無戳記行，或無終行 `Self-check:`）＝疑似截斷或未完成交付，主 flow 不得逕行解析該報告內容，須退件重取（重新呼叫該 subagent）。
+- **subagent 報告信封缺損 → 退件重取**：subagent 報告缺信封（無戳記行，或無終行 `Self-check:`）＝疑似截斷或未完成交付，主 flow 不得逕行解析該報告內容，須退件重取（重新呼叫該 subagent）。2026-09-07 起由 PostToolUse hook（`.claude/hooks/report_envelope_check.py`）機械偵測——缺損時 exit 2 的 stderr 即標準化退件訊息，主 flow 照訊息重取；hook 屬品質 lint、fail-open（解析異常放行），人工檢查為兜底、不因 hook 存在而豁免（動機：checker／writer 首輪信封缺損實測 4 例，說明見 `references/gates.md` 信封 lint 節）。
 - 與 write-ahead 的關係：`eval_state` 的 `step` 欄記的是**意圖**（打算做），憑據才是**動作發生的證明**——兩者缺一不可，resume 時以憑據對賬（見 eval-flow-resume skill）。
 
 ## 資料格式與操作規則

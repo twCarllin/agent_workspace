@@ -1,0 +1,37 @@
+{
+  "run_id": "2026-09-07-report-envelope-hook",
+  "created_at": "2026-09-07 21:38",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "理由碼空集合——checker 報告格式機械化（PostToolUse hook 驗信封）修法已由使用者裁定（1＋2 組合），無歧義、本地工具鏈不觸信任邊界、預估 active time 50 分",
+  "phase": "completed",
+  "spec_path": null,
+  "spec_inline": "subagent 報告信封機械驗收：新增 PostToolUse hook script（.claude/hooks/report_envelope_check.py）——subagent（7 類 agent 定義皆載信封規則）交付時機械驗「首行戳記行＋末行恰一個 Self-check:」，task-verifier 加驗兩節關鍵詞；缺任一 → exit 2 以標準化退件訊息回饋主 flow；解析異常 fail-open。並在 .claude/settings.json 註冊 PostToolUse hook、SKILL.md 憑據紀律節與 references/gates.md 補一句。動機：checker 首輪格式不合規 3 例（外部 2＋本地 1），格式遵從應靠機器不靠 model 自律",
+  "test_command": "python3 -m unittest discover -s tests",
+  "hitl_confirmed_at": "2026-09-07 21:40 — 確認 1 task／2 items 計畫（item 1 派 writer、item 2 直寫）；dirty tree（SKILL.md 派工註記＋tier0.jsonl）裁決併入本 run commit",
+  "hitl_rulings": 2,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-07.md",
+  "dirty_tree_ruling": "進場 2 檔（skills/eval-flow/SKILL.md、run/tier0.jsonl）＝方案 1 的 Tier 0 產物，使用者裁決併入本 run commit；run/*.review-st1-2-r1.md 為前 run 熱 scratchpad，不動",
+  "estimated_active_minutes": 50,
+  "actual_active_minutes": 35,
+  "subagent_usage": {"prep": 54461, "loop": 200764, "main": 40000},
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "test_baseline.py check（step5／full_suite）皆 PASS 無新增穩定失敗；全套 pytest 301 passed（+13 新測試）；hook 端到端：真實 dump 載荷重放 exit 0、壞信封案例 exit 2、上線後首次 checker 交付實際攔截一次（戳記行非首行）",
+  "verification_commands": [
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-09-07-report-envelope-hook --strike-key step5",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-09-07-report-envelope-hook --strike-key full_suite",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true
+}

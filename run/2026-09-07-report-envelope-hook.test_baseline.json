@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-07-report-envelope-hook",
+  "cmd": "python3 -m unittest discover -s tests",
+  "head_sha": "aef8dc622650668206ee5821bbc4404ffbdb9bc6",
+  "stable_failures": []
+}

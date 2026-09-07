@@ -26,3 +26,10 @@
 
 被擋時 hook 會以 stderr 回報原因，依訊息補齊狀態後重試。流程中亦可隨時自檢：`python3 .claude/hooks/eval_gates.py --validate eval_state.json`。hook 只攔 Claude 的 Bash 工具，不影響使用者自己終端的 git 操作。本 skill 對應條文為流程說明，實際防線以 hook 為準。
 
+## 報告信封 lint（PostToolUse hook，2026-09-07 起）
+
+`.claude/hooks/report_envelope_check.py`（設定於 `.claude/settings.json`，matcher `Task|Agent`）於 subagent 交付時機械驗收報告信封：首行戳記行、末行恰一個 `Self-check:`；`task-verifier` 加驗兩節關鍵詞（完成度／憑據）。缺任一 → exit 2，stderr 即標準化退件訊息，主 flow 照訊息重取。
+
+- **性質**：品質 lint、**fail-open**（stdin 非 JSON、欄位缺席、背景啟動回執、非信封名單 agent 一律放行）——**不是安全 gate**，不承擔攔截惡意內容的職責；與上方 PreToolUse gate 1–7 的攔截性質不同
+- 信封名單與載荷依據（2026-09-07 實測 PostToolUse `tool_response.content[].text`）住 script 檔頭，改名單時只改 script
+
