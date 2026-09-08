@@ -37,7 +37,7 @@
 - `hitl_rulings`：HITL 確認當下的**裁示條數**（int，選填；無裁示填 0）。Tier 2 前置 2 與 Tier 1 輕量 HITL 同名同義（寫入時機見 eval-flow SKILL.md 對應節）；消費端 `stats.py` 裁示數分佈
 - `tier` / `tier_rationale`：Router 判定後寫入（供審計；Tier 1 若升級 Tier 2 須更新）
 - `phase`：流程狀態機欄位，hook 憑此攔亂序的 subagent 呼叫（見「Gate 的硬性執行」gate 7）
-  - 轉移時機：前置 0 建立 `"init"` → 前置 1 無 🔴 `"risk_done"` → 前置 2 使用者確認 `"usage_confirmed"` → 前置 3 審查通過 `"decomposed"` → step 6 收尾 `"completed"`。Tier 1 於輕量 HITL 確認後直接設 `"decomposed"`
+  - 轉移時機：前置 0 建立 `"init"` → 前置 1 無 🔴（或依 SKILL.md 前置 1 執行條件跳過）`"risk_done"` → 前置 2 使用者確認 `"usage_confirmed"` → 前置 3 審查通過 `"decomposed"` → step 6 收尾 `"completed"`。Tier 1 於輕量 HITL 確認後直接設 `"decomposed"`
   - 舊 manifest 無此欄時 hook 以 `task_file` / `usage_report_path` 推導（向後相容）
 - `spec_path` / `spec_inline`：Tier 2 用 `spec_path`（Spec 檔）；Tier 1 用 `spec_inline`（需求原文一句話）。**兩者至少一個非空**，皆空不可往下（intent gate）
 - `test_command`：本專案的**全套測試指令**（test-strategy script 省略 `--cmd` 時的預設來源，single source of truth——保證 baseline 與 check 範圍一致）。前置 0 可先 `null`，**第一次 step 5 前必須寫入**；同專案的後續 run 沿用前一個 manifest 的值；Tier B 於 DoD 驗證時寫入
@@ -47,6 +47,7 @@
 - `subagent_usage`：**選填**。step 6 子項②收尾時主 flow 寫入的 tokens 彙總 `{"prep": int, "loop": int, "main": int}`——`prep`＝前置 agent 合計、`loop`＝循環 agent 合計（依 Agent 工具回執；Tier 1 無前置 agent 填 0）、`main`＝主 flow 自身本 run 用量（**選填鍵**，估計值，來源如 harness 顯示或 `/cost`；缺鍵＝主 flow 未入帳，成本比會系統性低估流程稅——外部專案反饋，2026-09-07）。消費端 `stats.py`：prep／loop 缺一或非 int → 整筆計無記錄；`main` 非 int → 只跳過 main、prep/loop 照收
 - `dirty_tree_ruling`：**選填**。前置 0 進場檢查（見 eval-flow SKILL.md）發現 dirty tree 時，使用者對孤兒變更歸屬的裁決一句（納入本 run／擱置不動）；乾淨樹免記（欄位缺席＝進場乾淨或舊 run 無此制）
 - `scout_report_path`：**已廢止**（前置 1.5 scout 已移除，蒐證職責併回 usage-analyzer／impact-analyzer 自掃）。舊 manifest 仍有此欄者不需回填移除——hook 對此欄無任何依賴，留著不影響任何 gate
+- `risk_report_path`：Tier 2 前置 1 存檔後寫入 `risk/<run_id>.md`；理由碼無邊界類而跳過時為 `"skipped: 理由碼無邊界類"`（執行條件住 eval-flow SKILL.md 前置 1，此處不重列）；Tier 1 固定為 `"skipped"`
 - `usage_report_path`：Tier 2 前置 2 使用者確認後寫入（`null` → 不可分拆 task）；Tier 1 固定為 `"skipped"`
 - `impact_report_path`：Tier 2 前置 2.5 impact-analyzer 產出後寫入路徑（或 `"skipped: <理由>"`）；Tier 1 固定為 `"skipped"`
 - `task_file`：分拆／建 task 後寫入

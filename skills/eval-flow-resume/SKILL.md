@@ -20,8 +20,8 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 
 | phase | 代表已完成 | 恢復動作 |
 |---|---|---|
-| `init` | 前置 0（manifest + eval_state 已建） | 檢查 `risk_report_path`：非空 → 風險分析做了一半但未過門檻，讀 `risk/<run_id>.md` 續跑前置 1；為 `null` → 從前置 1 開頭跑 |
-| `risk_done` | 前置 1（無 🔴） | 檢查 `usage/<run_id>.md` 是否已存在：存在但 `usage_report_path` 為 `null` → 報告已產出、卡在 HITL 確認，把報告摘要與開放問題重新呈給使用者裁示；不存在 → 呼叫 usage-analyzer 跑前置 2 |
+| `init` | 前置 0（manifest + eval_state 已建） | 檢查 `risk_report_path`：為 `risk/` 路徑 → 風險分析做了一半但未過門檻，讀 `risk/<run_id>.md` 續跑前置 1；為 `null` → 依 eval-flow SKILL.md 前置 1 的**執行條件**（理由碼機械推導）重derive：判必跑 → 從前置 1 開頭跑；判跳過 → 記 `"skipped: 理由碼無邊界類"`、設 `risk_done` 進前置 2；為 `skipped: ...` → 跳過已記但 phase 未設，補設 `risk_done` 續走 |
+| `risk_done` | 前置 1（無 🔴，或依執行條件跳過） | 檢查 `usage/<run_id>.md` 是否已存在：存在但 `usage_report_path` 為 `null` → 報告已產出、卡在 HITL 確認，把報告摘要與開放問題重新呈給使用者裁示；不存在 → 呼叫 usage-analyzer 跑前置 2 |
 | `usage_confirmed` | 前置 2（使用者已確認） | 先檢查 `impact_report_path`：為 `null` → 先呼叫 `impact-analyzer` 跑前置 2.5，產出後再繼續（Tier 1 不會停在此 phase，且其值固定 `"skipped"` 非 `null`）；非 `null` → 檢查 `task_file`：為 `null` → 呼叫 task-decomposer 跑前置 3；非空但 `phase` 未達 `decomposed` → task 檔已產出但 phase 未設，主 flow 核對 task-decomposer 自檢結論後設 phase |
 | `decomposed` | 前置 3（可進循環） | 進 Step 3（循環內恢復） |
 | `completed` | 全部完成 | 無事可做；若 `eval_state.json` 竟仍存在 → 收尾被中斷，補歸檔流程（step 6 收尾順序） |

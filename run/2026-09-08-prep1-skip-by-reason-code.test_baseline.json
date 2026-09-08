@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-08-prep1-skip-by-reason-code",
+  "cmd": "python3 -m pytest tests/ -q",
+  "head_sha": "bc26f285561735a8ce5de3f37774529aec88c6e6",
+  "stable_failures": []
+}

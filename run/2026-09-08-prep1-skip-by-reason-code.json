@@ -1,0 +1,42 @@
+{
+  "run_id": "2026-09-08-prep1-skip-by-reason-code",
+  "created_at": "2026-09-08T00:00:00+08:00",
+  "tier": 1,
+  "tier_rationale": "理由碼空集合：設計已由使用者裁決（理由碼推導跳過、all-in 全跑、逃生門不動），DoD 明確；變更對象為本地工具鏈流程文件（skills），不觸信任邊界／公開契約",
+  "estimated_active_minutes": 30,
+  "spec_inline": "前置 1 風險分析改為理由碼推導的條件執行：manifest tier_rationale 理由碼含「信任邊界」或「公開介面／落地資料契約」才必跑；不含則跳過，記 risk_report_path: \"skipped: 理由碼無邊界類\" 並將 phase 直設 risk_done；all-in 時照舊全跑；循環中 🔴 升級逃生門不變（被跳過者此時回頭補跑前置 1）。同步修 formats.md 的 phase 轉移句與 risk_report_path 語義、eval-flow-resume 的 init 列。",
+  "spec_path": null,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-08.md",
+  "dirty_tree_ruling": "3 個 2026-09-07 run 的熱 scratchpad 殘留（2 review 落檔＋1 mine_log），兩 run 均 completed，使用者裁決清除，已刪",
+  "hitl_confirmed_at": "2026-09-09 進場，確認範圍：1 task／3 items（SKILL.md 前置 1 條件執行＋formats.md 語義對齊＋resume init 列），直寫捷徑＋合併審，收尾同步部署 skills/",
+  "hitl_rulings": 2,
+  "phase": "completed",
+  "status": "completed",
+  "local_test_passed": true,
+  "local_test_evidence": "test_baseline.py check full_suite: PASS 無新增穩定失敗（baseline stable 0）；doctor.py: 健檢通過（skills 同步一致 9 個）",
+  "review_reds": 0,
+  "verify_passed": true,
+  "actual_active_minutes": 25,
+  "subagent_usage": {"prep": 0, "loop": 61850, "main": 30000},
+  "verification_commands": [
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --cmd 'python3 -m pytest tests/ -q' --strike-key full_suite",
+      "exit_code": 1
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-09-08-prep1-skip-by-reason-code --cmd 'python3 -m pytest tests/ -q' --strike-key full_suite",
+      "exit_code": 1
+    },
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --run-id 2026-09-08-prep1-skip-by-reason-code --cmd 'python3 -m pytest tests/ -q' --strike-key full_suite",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/doctor.py",
+      "exit_code": 0
+    }
+  ]
+}

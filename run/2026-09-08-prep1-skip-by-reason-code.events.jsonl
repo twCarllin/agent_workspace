@@ -1,0 +1,9 @@
+{"ts": "2026-09-08T15:58:35.358084+00:00", "cmd": "init", "args": {"run_id": "2026-09-08-prep1-skip-by-reason-code", "name": "init", "note": null}}
+{"ts": "2026-09-08T16:01:59.355409+00:00", "cmd": "hitl_confirmed", "args": {"run_id": "2026-09-08-prep1-skip-by-reason-code", "name": "hitl_confirmed", "note": null}}
+{"ts": "2026-09-08T16:11:30.415210+00:00", "cmd": "item1-3_reviewed", "args": {"run_id": "2026-09-08-prep1-skip-by-reason-code", "name": "item1-3_reviewed", "note": null}}
+{"ts": "2026-09-08T16:11:30.539452+00:00", "cmd": "verify_cmd", "args": {"exit_code": 1}}
+{"ts": "2026-09-08T16:11:36.628595+00:00", "cmd": "verify_cmd", "args": {"exit_code": 1}}
+{"ts": "2026-09-08T16:11:57.407967+00:00", "cmd": "verify_cmd", "args": {"exit_code": 0}}
+{"ts": "2026-09-08T16:12:04.622150+00:00", "cmd": "verify_cmd", "args": {"exit_code": 0}}
+{"ts": "2026-09-08T16:12:24.566591+00:00", "cmd": "item1-3_verified", "args": {"run_id": "2026-09-08-prep1-skip-by-reason-code", "name": "item1-3_verified", "note": null}}
+{"ts": "2026-09-08T16:12:24.637442+00:00", "cmd": "completed", "args": {"run_id": "2026-09-08-prep1-skip-by-reason-code", "name": "completed", "note": null}}
