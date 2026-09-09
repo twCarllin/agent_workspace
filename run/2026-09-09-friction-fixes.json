@@ -1,0 +1,33 @@
+{
+  "run_id": "2026-09-09-friction-fixes",
+  "created_at": "2026-09-09",
+  "tier": 1,
+  "tier_rationale": "理由碼空集合。外部專案實戰反饋兩項 hook bug：①report_envelope_check 因 harness 在戳記行前自動插 byline 行而全數假陽性退件；②test_baseline 以系統 python3 跑測試、缺專案 .venv 套件，記入 31 個幻影既有壞測試。皆為本地開發工具鏈 bugfix（修回預期行為、無新行為面、git 可復原、無外部副作用），不觸信任邊界；涉 2 hook＋2 測試檔共 4 檔超 Tier 0 的 3 檔上限，預估 active time ≤60 分 → Tier 1。",
+  "spec_inline": "修外部專案實戰回報的兩項框架 hook bug：(1) .claude/hooks/report_envelope_check.py 的首行戳記檢查改為容忍 harness 自動前插的 byline／日期行——戳記行出現在前 3 個非空行內即合規，整份無戳記行仍退件；(2) .claude/hooks/test_baseline.py 跑測試時若專案根目錄存在 .venv/bin（次選 venv/bin），將其前置到子行程 PATH，使 baseline／check／mine 一律用專案虛擬環境的直譯器與套件，避免系統 python3 缺套件產生幻影 stable failures。第三項回報（subagent_usage 空）診斷為外部專案部署滯後（本框架 09-07 已加主 flow 用量入帳，外部專案跑的是舊版 skill），無 code 缺陷，不在本 run 修。",
+  "spec_path": null,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-09.md",
+  "test_command": "python3 -m pytest tests/ -q",
+  "estimated_active_minutes": 45,
+  "phase": "completed",
+  "hitl_confirmed_at": "2026-09-09 計畫確認：1 task／2 items。Item 2 經裁決由自動綁 .venv 改為「baseline 錯配警示、不改行為」；第 3 項 subagent_usage 空判為外部部署滯後、不修 code",
+  "hitl_rulings": 1,
+  "status": "completed",
+  "verification_commands": [
+    {
+      "command": "python3 -m pytest tests/ -q",
+      "exit_code": 0
+    }
+  ],
+  "local_test_passed": true,
+  "local_test_evidence": "python3 -m pytest tests/ -q → 310 passed, 19 subtests passed；兩改測試檔 64 passed；test_lint PASS；baseline stable 0",
+  "review_reds": 0,
+  "verify_passed": true,
+  "subagent_usage": {
+    "prep": 0,
+    "loop": 60821,
+    "main": 45000
+  }
+}

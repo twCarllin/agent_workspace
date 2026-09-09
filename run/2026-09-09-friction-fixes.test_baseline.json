@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-09-friction-fixes",
+  "cmd": "python3 -m pytest tests/ -q",
+  "head_sha": "e21c7fb5979d57b837a791505b5358069f2dfb32",
+  "stable_failures": []
+}

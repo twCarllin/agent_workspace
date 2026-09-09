@@ -58,7 +58,10 @@ def check_envelope(text, subagent_type):
     missing = []
     lines = [line for line in text.splitlines() if line.strip() != ""]
 
-    if not lines or not STAMP_RE.match(lines[0]):
+    # 戳記行落在前 3 個非空行內即合規：容忍 harness 在戳記行前自動插入的
+    # byline／日期行（實測 agent 框架前插 1–2 行，令「首行必為戳記」永遠假陽性）。
+    # 前 3 個非空行皆非戳記行（戳記在更後或全無）才退件。
+    if not any(STAMP_RE.match(line) for line in lines[:3]):
         missing.append("首行戳記行")
 
     self_check_idxs = [i for i, line in enumerate(lines) if line.startswith("Self-check:")]

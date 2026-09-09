@@ -17,6 +17,7 @@ python3 .claude/hooks/test_baseline.py baseline
 ```
 
 - **全套測試指令從 manifest 的 `test_command` 讀**（single source of truth；`--cmd` 僅供覆寫）。manifest 尚無此欄時，先確認指令並寫入 manifest 再跑——不要每個 run 各猜一套，baseline 與 check 範圍不一致就會出現「無關的既有失敗」
+  - **`test_command` 須指定專案直譯器**（專案有虛擬環境時，寫成 `.venv/bin/python3 -m pytest` 之類，不要用裸 `python3`）——系統直譯器缺專案套件會讓整批測試 import 失敗、被誤記為既有 `stable_failures`（幻影欠帳，實測外部專案累積 31 個）。baseline 偵測到「有 `.venv/bin` 但 cmd 未用它且有 stable 失敗」時會於 stderr 印錯配警示（僅提醒、不改執行環境）
 - **跑一次**：所有失敗記為 `stable_failures`（進場既有壞測試，之後不擋 gate）。非確定性（flaky）失敗不在 baseline 階段預先分類——scoped 測試架構下每輪跑的測試面積小、噪音低，改由 check 在**出現新失敗時**才重跑一次確認可重現（惰性驗證，成本只在有訊號時付）
 - **`__suite__` 套件層失敗**（無法解析出個別失敗的整體性失敗）例外於上一點：baseline 階段即重跑一次確認可重現才記入 `stable_failures`。
   - 記入後，check 每次執行皆於 stderr 印出「gate 對套件層級失敗失明」警告（不影響判定與 exit code）——因為 gate 的新增失敗比對機制看不見套件層失敗，需要額外提醒使用者注意

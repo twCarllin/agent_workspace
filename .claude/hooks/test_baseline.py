@@ -140,6 +140,16 @@ def find_reusable_baseline(run_id, cmd, head):
     return candidate
 
 
+def venv_mismatch(cmd, root="."):
+    """偵測「專案有虛擬環境目錄、但 test_command 未使用它」的錯配。
+    cwd（root）存在 .venv/bin（次選 venv/bin）且 cmd 字串未提及該目錄名 → 回傳目錄名；
+    否則回傳 None。純偵測，不改任何執行環境（HITL 裁決：警示而非自動綁，2026-09-09）。"""
+    for name in (".venv", "venv"):
+        if os.path.isdir(os.path.join(root, name, "bin")):
+            return None if name in cmd else name
+    return None
+
+
 def cmd_baseline(args):
     run_id = resolve_run_id(args)
     cmd = resolve_cmd(args, run_id)
@@ -191,6 +201,14 @@ def cmd_baseline(args):
     )
     if stable:
         print("[test-gate] 既有壞測試（欠帳，僅記錄）：" + ", ".join(sorted(stable)))
+        mismatch = venv_mismatch(cmd)
+        if mismatch:
+            print(
+                f"[test-gate] 警告：專案有 {mismatch}/bin 但 test_command 未使用它"
+                f"（cmd={cmd!r}）——上列失敗可能是系統直譯器缺套件造成的幻影欠帳，"
+                f"請檢查 manifest test_command 是否應改用 {mismatch}/bin 的直譯器",
+                file=sys.stderr,
+            )
 
 
 def cmd_check(args):

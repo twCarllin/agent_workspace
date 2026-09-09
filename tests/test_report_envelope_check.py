@@ -132,6 +132,25 @@ class ReportEnvelopeCheckTest(unittest.TestCase):
         proc = run_hook(json.dumps(make_payload(subagent_type="code-writer", report_text=report)))
         self.assertEqual(proc.returncode, 0)
 
+    # row 12: harness 前插 1 行 byline，戳記行為第 2 個非空行 -> exit 0（容忍）
+    def test_row12_one_byline_before_stamp_passes(self):
+        report = "\n".join(["by claude-code 2026-09-09", compliant_report()])
+        proc = run_hook(json.dumps(make_payload(report_text=report)))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    # row 13: harness 前插 2 行，戳記行為第 3 個非空行 -> exit 0（容忍上限）
+    def test_row13_two_bylines_before_stamp_passes(self):
+        report = "\n".join(["byline a", "byline b", compliant_report()])
+        proc = run_hook(json.dumps(make_payload(report_text=report)))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    # row 14: 戳記行為第 4 個非空行（超出容忍窗）-> exit 2, stderr 含「戳記」
+    def test_row14_stamp_beyond_third_line_rejects(self):
+        report = "\n".join(["l1", "l2", "l3", compliant_report()])
+        proc = run_hook(json.dumps(make_payload(report_text=report)))
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("戳記", proc.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

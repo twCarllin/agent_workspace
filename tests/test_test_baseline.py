@@ -15,7 +15,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "test_basel
 
 # 匯入受測模組的純函式以便直接單元測
 sys.path.insert(0, str(SCRIPT.parent))
-from test_baseline import build_mine_argv, is_test_file  # noqa: E402
+from test_baseline import build_mine_argv, is_test_file, venv_mismatch  # noqa: E402
 
 # test_a 永遠失敗（既有壞測試，會進 stable_failures）
 CMD_STABLE = (
@@ -136,6 +136,21 @@ class BaselineScriptTest(unittest.TestCase):
         result = self.run_script("check", "--cmd", "exit 0", "--strike-key", "s1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("失明", result.stderr)
+
+    def test_baseline_warns_on_venv_mismatch_when_stable_failures(self):
+        """有 .venv/bin、cmd 未用它、baseline 有 stable 失敗 → stderr 印錯配警示，仍 exit 0。"""
+        os.makedirs(self.dir / ".venv" / "bin")
+        result = self.run_script("baseline", "--cmd", CMD_STABLE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(".venv/bin", result.stderr)
+        self.assertIn("test_command", result.stderr)
+
+    def test_baseline_no_venv_warning_when_no_stable_failures(self):
+        """有 .venv/bin 但 baseline 無 stable 失敗（cmd 全綠）→ 不印警示（無欠帳即無雜訊）。"""
+        os.makedirs(self.dir / ".venv" / "bin")
+        result = self.run_script("baseline", "--cmd", "exit 0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(".venv/bin", result.stderr)
 
     def test_check_no_b2_warning_when_baseline_has_no_suite_sentinel(self):
         """row2: baseline 不含 __suite__ → 無 B2 警告、既有 PASS 行不變。"""
@@ -393,6 +408,35 @@ class BuildMineCmdTest(unittest.TestCase):
         self.assertTrue(is_test_file("src/foo.test.ts"))
         self.assertTrue(is_test_file("src/bar.spec.js"))
         self.assertTrue(is_test_file("__tests__/baz.jsx"))
+
+
+class VenvMismatchTest(unittest.TestCase):
+    """venv_mismatch 純函式：偵測「有虛擬環境目錄但 cmd 未用它」的錯配。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _mk(self, name):
+        os.makedirs(os.path.join(self.dir, name, "bin"))
+
+    def test_dotvenv_present_cmd_unaware_returns_name(self):
+        self._mk(".venv")
+        self.assertEqual(venv_mismatch("python3 -m pytest -q", root=self.dir), ".venv")
+
+    def test_dotvenv_present_cmd_uses_it_returns_none(self):
+        self._mk(".venv")
+        self.assertIsNone(venv_mismatch(".venv/bin/python3 -m pytest", root=self.dir))
+
+    def test_no_venv_dir_returns_none(self):
+        self.assertIsNone(venv_mismatch("python3 -m pytest", root=self.dir))
+
+    def test_plain_venv_dir_detected(self):
+        self._mk("venv")
+        self.assertEqual(venv_mismatch("pytest -q", root=self.dir), "venv")
 
 
 class MineSubcommandTest(unittest.TestCase):
