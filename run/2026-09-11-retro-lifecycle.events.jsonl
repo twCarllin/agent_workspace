@@ -1,0 +1,6 @@
+{"ts": "2026-09-11T11:45:24.135658+00:00", "cmd": "init", "args": {"run_id": "2026-09-11-retro-lifecycle", "name": "init", "note": null}}
+{"ts": "2026-09-11T11:46:28.625514+00:00", "cmd": "hitl_confirmed", "args": {"run_id": "2026-09-11-retro-lifecycle", "name": "hitl_confirmed", "note": null}}
+{"ts": "2026-09-11T11:49:24.940213+00:00", "cmd": "verify_cmd", "args": {"exit_code": 0}}
+{"ts": "2026-09-11T12:19:26.823375+00:00", "cmd": "item1_reviewed", "args": {"run_id": "2026-09-11-retro-lifecycle", "name": "item1_reviewed", "note": null}}
+{"ts": "2026-09-11T12:19:26.861344+00:00", "cmd": "item1_verified", "args": {"run_id": "2026-09-11-retro-lifecycle", "name": "item1_verified", "note": null}}
+{"ts": "2026-09-11T12:19:26.898560+00:00", "cmd": "completed", "args": {"run_id": "2026-09-11-retro-lifecycle", "name": "completed", "note": null}}

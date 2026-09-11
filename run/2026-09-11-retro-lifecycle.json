@@ -1,0 +1,30 @@
+{
+  "run_id": "2026-09-11-retro-lifecycle",
+  "created_at": "2026-09-11",
+  "tier": 1,
+  "tier_rationale": "理由碼命中【跨子系統協調】——retro agent 定義、eval-flow SKILL.md（含 ~/.claude 鏡像副本）、retro/RETRO.md 檔頭三處須同動且語義相容（正是 R-006／R-007 的跨文件語義衝突失效面）。不觸信任邊界（本地開發工具鏈，v2 規則）、無未決決策（設計已於對話裁定）。協調工作可收斂、無具名待答問題、預估 active time ~45 分 ≤120 → Tier 1。",
+  "spec_inline": "重設計 retro 記憶機制，解決舊約束與新功能打架：(1) retro agent 輸出格式——約束句必須以適用條件開頭（『當 X 機制存在／做 Y 類操作時』），句尾標前提錨點（約束依賴的檔案/helper/機制名），並加寫作檢驗『這條約束在什麼情況下不適用？寫不出來就是過度一般化，重寫』；(2) retro/RETRO.md 檔頭新增 retired 生命週期規則——條目可標『［retired YYYY-MM-DD run_id］』，retire 必經使用者確認、agent 不可自行標；(3) eval-flow SKILL.md 循環 step 1 知識前置——加 retro 約束與 Spec/DoD 衝突的仲裁規則（Spec 優先、writer 不可靜默選邊、須寫仲裁記錄）、retro grep 篩選排除 retired 條目、貼入前對前提錨點做鮮度檢查（錨點檔案/函式已不存在→不貼、列 retire 候選回報使用者）。eval-flow 兩份實體副本（repo + ~/.claude 鏡像）須同步。既有 R-001~R-017 條目不回改（比照既有『格式已符合者不回改』慣例）。",
+  "spec_path": null,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-11.md",
+  "test_command": "python3 -m pytest tests/ -q",
+  "estimated_active_minutes": 45,
+  "phase": "completed",
+  "hitl_confirmed_at": "2026-09-11 使用者於對話核准四項 retro 重設計（適用條件+前提錨點、retired 生命週期、衝突仲裁、貼入前鮮度檢查），落為 1 task／3 items 合併審查計畫",
+  "hitl_rulings": 0,
+  "local_test_passed": true,
+  "local_test_evidence": "python3 -m pytest tests/ -q → 310 passed, 19 subtests passed (exit 0)；test_baseline baseline=0 既有壞測試、check --strike-key full_suite → PASS 無新增穩定失敗",
+  "review_reds": 0,
+  "verify_passed": true,
+  "status": "completed",
+  "failed_reason": null,
+  "subagent_usage": {"prep": 0, "loop": 53791},
+  "verification_commands": [
+    {
+      "command": "python3 -m pytest tests/ -q",
+      "exit_code": 0
+    }
+  ]
+}

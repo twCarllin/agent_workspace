@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-11-retro-lifecycle",
+  "cmd": "python3 -m pytest tests/ -q",
+  "head_sha": "6b591adb91830b10fe05141b74b7f7ca121fb263",
+  "stable_failures": []
+}
