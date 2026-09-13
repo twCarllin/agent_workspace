@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-14-retro-citation-slimming",
+  "cmd": "python3 -m pytest tests/ -q",
+  "head_sha": "accc77eca653cf3c81df480ed815a4d314fe851b",
+  "stable_failures": []
+}
