@@ -149,7 +149,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
    - ①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留審查記錄的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json`、本 run 的 `run/<run_id>.review-st*-r*.md` 與 `run/<run_id>.mine_log.json`**（審查落檔與 mine 留痕是熱 scratchpad，收尾即清；失敗收尾則與 eval_state 一樣保留現場）
    - ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔、**測試 baseline `run/<run_id>.test_baseline.json`**、**事件日誌 `run/<run_id>.events.jsonl`（若存在）** 一併 `git add`
      - baseline 進 git 的要求住在 `test-strategy` skill——其 `stable_failures` 是本 run 進場的既有欠帳快照，漏掉不會有任何 gate 攔截或錯誤訊息，屬靜默遺失；本清單與該 skill 須一致，改任一端時對照另一端
-     - ②add 之前：主 flow 依 Agent 工具回執把本 run 的 subagent tokens 彙總寫入 manifest `subagent_usage`（`{"prep": <前置 agent 合計>, "loop": <循環 agent 合計>, "main": <主 flow 自身用量，選填鍵>}`，選填；Tier 1 無前置 agent 填 `"prep": 0`）——前置/循環成本比的資料源，消費端見 stats.py；`main` 不填則主 flow 協調成本不入帳、流程稅被低估（欄位語義住 `references/formats.md`）
+     - ②add 之前：主 flow 跑 `python3 .claude/hooks/token_usage.py <run_id> --write`，由 transcript **實測**回寫 manifest `subagent_usage`（prep／loop／main）與 `token_usage` 明細——前置/循環成本比的資料源，消費端見 stats.py；不再依 Agent 工具回執自報、不再憑印象估 `main`（欄位語義與 fallback 住 `references/formats.md`，此處不重列）
    - ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
 7. **有條件** 呼叫 `retro` subagent：
    - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro

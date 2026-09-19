@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-19-token-usage-measure",
+  "cmd": "python3 -m pytest tests/ -q",
+  "head_sha": "84b60ea928c8129216f83b2ac2cc8b1f7a845c2a",
+  "stable_failures": []
+}

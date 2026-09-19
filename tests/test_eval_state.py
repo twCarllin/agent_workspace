@@ -392,6 +392,83 @@ class Tier01TelemetryTest(unittest.TestCase):
         self.assertIn("ts", events[0])
         self.assertEqual(events[0]["args"]["note"], "1 task／4 items")
 
+    # --- record_session：init 事件寫 manifest session_id／config_dir ---
+
+    def write_manifest(self, run_id, **extra):
+        os.makedirs("run", exist_ok=True)
+        m = {"run_id": run_id, "tier": 1, "status": "in_progress", **extra}
+        with open(os.path.join("run", f"{run_id}.json"), "w", encoding="utf-8") as f:
+            json.dump(m, f)
+        return m
+
+    def read_manifest(self, run_id):
+        with open(os.path.join("run", f"{run_id}.json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_event_init_records_session_keys_into_manifest(self):
+        before = self.write_manifest("t1-run")
+        env = {"CLAUDE_CODE_SESSION_ID": "sess-abc", "CLAUDE_CONFIG_DIR": "/cfg/dir"}
+        with mock.patch.dict(os.environ, env, clear=False):
+            run_cli("event", "t1-run", "init")
+        after = self.read_manifest("t1-run")
+        self.assertEqual(after["session_id"], "sess-abc")
+        self.assertEqual(after["config_dir"], "/cfg/dir")
+        for k, v in before.items():
+            self.assertEqual(after[k], v)
+
+    def test_event_init_defaults_config_dir_to_home_claude(self):
+        self.write_manifest("t1-run")
+        env = {"CLAUDE_CODE_SESSION_ID": "sess-abc"}
+        with mock.patch.dict(os.environ, env, clear=False):
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            run_cli("event", "t1-run", "init")
+        self.assertEqual(self.read_manifest("t1-run")["config_dir"],
+                         os.path.expanduser("~/.claude"))
+
+    def test_event_init_without_session_env_leaves_manifest_untouched(self):
+        self.write_manifest("t1-run")
+        path = os.path.join("run", "t1-run.json")
+        with open(path, "rb") as f:
+            raw = f.read()
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
+            run_cli("event", "t1-run", "init")
+        with open(path, "rb") as f:
+            self.assertEqual(f.read(), raw)
+        self.assertEqual(len(self.read_events("t1-run")), 1)
+
+    def test_event_init_does_not_overwrite_existing_session_id(self):
+        self.write_manifest("t1-run", session_id="old", config_dir="/old")
+        env = {"CLAUDE_CODE_SESSION_ID": "new", "CLAUDE_CONFIG_DIR": "/new"}
+        with mock.patch.dict(os.environ, env, clear=False):
+            run_cli("event", "t1-run", "init")
+        after = self.read_manifest("t1-run")
+        self.assertEqual((after["session_id"], after["config_dir"]), ("old", "/old"))
+
+    def test_event_init_without_manifest_still_appends_event(self):
+        self.assertFalse(os.path.exists(os.path.join("run", "t1-run.json")))
+        env = {"CLAUDE_CODE_SESSION_ID": "sess-abc"}
+        stderr = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=False), mock.patch("sys.stderr", stderr):
+            run_cli("event", "t1-run", "init")
+        self.assertEqual([e["cmd"] for e in self.read_events("t1-run")], ["init"])
+        self.assertIn("session 對應鍵未寫入", stderr.getvalue())
+        self.assertFalse(os.path.exists(os.path.join("run", "t1-run.json")))
+
+    def test_non_init_event_does_not_record_session(self):
+        self.write_manifest("t1-run")
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "sess-abc"}, clear=False):
+            run_cli("event", "t1-run", "hitl_confirmed")
+        self.assertNotIn("session_id", self.read_manifest("t1-run"))
+
+    def test_tier2_init_records_session_keys_into_manifest(self):
+        self.write_manifest("r2")
+        env = {"CLAUDE_CODE_SESSION_ID": "sess-t2", "CLAUDE_CONFIG_DIR": "/cfg"}
+        with mock.patch.dict(os.environ, env, clear=False):
+            run_cli("init", "--run-id", "r2")
+        after = self.read_manifest("r2")
+        self.assertEqual((after["session_id"], after["config_dir"]), ("sess-t2", "/cfg"))
+
     def test_event_appends_in_order(self):
         run_cli("event", "t1-run", "init_done")
         run_cli("event", "t1-run", "item_reviewed")

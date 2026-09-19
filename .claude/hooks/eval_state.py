@@ -86,6 +86,27 @@ def append_event(run_id, cmd_name, args):
         print(f"[eval-state] 警告：事件記錄寫入失敗（{e}），不影響本次操作", file=sys.stderr)
 
 
+def record_session(run_id):
+    """init 事件時把本 session 的對應鍵寫進 manifest 選填欄 session_id／config_dir
+    （token_usage.py 憑此開對應 transcript）。旁路：env 缺、manifest 缺或壞、寫入失敗
+    皆只 stderr warning、不改 exit code（同 append_event 慣例）；已有值不覆寫（resume
+    換 session 不得改寫首次 session）。"""
+    session_id = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if not session_id:
+        return
+    path = os.path.join("run", f"{run_id}.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            manifest = json.load(f)
+        if manifest.get("session_id"):
+            return
+        manifest["session_id"] = session_id
+        manifest["config_dir"] = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+        save(manifest, path)
+    except Exception as e:
+        print(f"[eval-state] 警告：session 對應鍵未寫入 manifest（{e}），不影響本次操作", file=sys.stderr)
+
+
 def find_subtask(state, sid):
     for st in state.get("sub_tasks", []):
         if st.get("id") == sid:
@@ -98,6 +119,7 @@ def cmd_init(args):
         fail(f"{STATE_PATH} 已存在：一個 worktree 同時只跑一個 run，先收尾或歸檔既有 run")
     save({"run_id": args.run_id, "sub_tasks": []})
     append_event(args.run_id, "init", args)
+    record_session(args.run_id)
     print(f"[eval-state] init: run_id={args.run_id}")
 
 
@@ -249,6 +271,8 @@ def cmd_event(args):
     """Tier 1 事件留痕：Tier 1 不建 eval_state.json，本子命令不經 load()，
     直接沿用 append_event 寫 run/<run_id>.events.jsonl（R-009：沿用同路徑既有 helper）。"""
     append_event(args.run_id, args.name, args)
+    if args.name == "init":
+        record_session(args.run_id)
     print(f"[eval-state] event: {args.name} -> run/{args.run_id}.events.jsonl")
 
 
