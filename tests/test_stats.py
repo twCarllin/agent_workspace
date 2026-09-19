@@ -487,7 +487,7 @@ class StatsCollectTest(unittest.TestCase):
     def test_subagent_usage_reported_per_run_and_ratio(self):
         write(os.path.join(self.run_dir, "su.json"), {
             "run_id": "su", "tier": 2, "status": "completed",
-            "subagent_usage": {"prep": 100, "loop": 400},
+            "subagent_usage": {"prep": 100, "loop": 400}, "token_usage": {},
         })
         data = stats.collect(self.run_dir)
         self.assertEqual(data["subagent_usage"], [("su", 100, 400)])
@@ -502,12 +502,12 @@ class StatsCollectTest(unittest.TestCase):
         self.assertEqual(data["subagent_usage"], [])
         self.assertEqual(data["subagent_usage_missing"], 1)
         text = stats.report(data)
-        self.assertIn("前置/循環成本比：無記錄（需要 subagent_usage）", text)
+        self.assertIn("前置/循環成本比：無實測記錄（需要 token_usage.py --write）", text)
 
     def test_subagent_usage_mixed_new_and_old_runs(self):
         write(os.path.join(self.run_dir, "new.json"), {
             "run_id": "new", "tier": 1, "status": "completed",
-            "subagent_usage": {"prep": 50, "loop": 50},
+            "subagent_usage": {"prep": 50, "loop": 50}, "token_usage": {},
         })
         write(os.path.join(self.run_dir, "old.json"), {"run_id": "old", "tier": 1, "status": "completed"})
         data = stats.collect(self.run_dir)
@@ -532,13 +532,13 @@ class StatsCollectTest(unittest.TestCase):
         self.assertEqual(data["subagent_usage"], [])
         self.assertEqual(data["subagent_usage_missing"], 3)
         text = stats.report(data)  # 不 crash
-        self.assertIn("前置/循環成本比：無記錄", text)
+        self.assertIn("前置/循環成本比：無實測記錄", text)
 
     def test_subagent_usage_main_key_reported(self):
         """契約 row 1：含 main 的 run，輸出行含 main 數字與 main 合計。"""
         write(os.path.join(self.run_dir, "m1.json"), {
             "run_id": "m1", "tier": 2, "status": "completed",
-            "subagent_usage": {"prep": 100, "loop": 400, "main": 300},
+            "subagent_usage": {"prep": 100, "loop": 400, "main": 300}, "token_usage": {},
         })
         data = stats.collect(self.run_dir)
         self.assertEqual(data["subagent_usage_main"], [("m1", 300)])
@@ -550,7 +550,7 @@ class StatsCollectTest(unittest.TestCase):
         """契約 row 2：無 main 的 run 照舊輸出 prep/loop，不顯示 main、不報錯。"""
         write(os.path.join(self.run_dir, "nm.json"), {
             "run_id": "nm", "tier": 1, "status": "completed",
-            "subagent_usage": {"prep": 50, "loop": 50},
+            "subagent_usage": {"prep": 50, "loop": 50}, "token_usage": {},
         })
         data = stats.collect(self.run_dir)
         self.assertEqual(data["subagent_usage_main"], [])
@@ -558,11 +558,62 @@ class StatsCollectTest(unittest.TestCase):
         self.assertIn("nm: prep 50／loop 50", text)
         self.assertNotIn("main", text.split("前置/循環成本比")[1].split("\n")[0])
 
+    # --- token_usage 分流：只有實測 run 進成本比，舊制自報另計不併計 ---
+
+    def test_legacy_self_reported_run_excluded_from_ratio(self):
+        """契約 row 舊制：有 subagent_usage 無 token_usage → 不進清單、legacy=1、輸出含不併計句。"""
+        write(os.path.join(self.run_dir, "lg.json"), {
+            "run_id": "lg", "tier": 1, "status": "completed",
+            "subagent_usage": {"prep": 0, "loop": 68161, "main": 50000},
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["subagent_usage"], [])
+        self.assertEqual(data["subagent_usage_main"], [])
+        self.assertEqual(data["subagent_usage_legacy"], 1)
+        self.assertEqual(data["subagent_usage_missing"], 0)
+        text = stats.report(data)
+        self.assertIn("前置/循環成本比：無實測記錄（需要 token_usage.py --write）", text)
+        self.assertIn("舊制自報不併計：1 個 run", text)
+        self.assertIn("無記錄：0 個 run", text)
+
+    def test_measured_legacy_and_missing_runs_reported_in_three_segments(self):
+        """契約 row 組合：實測＋舊制＋無記錄各一 → 清單 1、legacy 1、missing 1，三段皆出現，比值只算實測。"""
+        write(os.path.join(self.run_dir, "ms.json"), {
+            "run_id": "ms", "tier": 1, "status": "completed",
+            "subagent_usage": {"prep": 1000, "loop": 4000, "main": 7000},
+            "token_usage": {"session_id": "s", "window": None, "main": {}, "subagents": []},
+        })
+        write(os.path.join(self.run_dir, "lg.json"), {
+            "run_id": "lg", "tier": 1, "status": "completed",
+            "subagent_usage": {"prep": 999, "loop": 1},
+        })
+        write(os.path.join(self.run_dir, "none.json"), {"run_id": "none", "tier": 1, "status": "completed"})
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["subagent_usage"], [("ms", 1000, 4000)])
+        self.assertEqual(data["subagent_usage_legacy"], 1)
+        self.assertEqual(data["subagent_usage_missing"], 1)
+        text = stats.report(data)
+        self.assertIn("前置/循環成本比（實測）：ms: prep 1000／loop 4000／main 7000", text)
+        self.assertIn("prep:loop = 0.25", text)  # 舊制的 999/1 未混入
+        self.assertIn("main 合計 7000（1 個 run 有記錄）", text)
+        self.assertIn("舊制自報不併計：1 個 run", text)
+        self.assertIn("無記錄：1 個 run", text)
+
+    def test_token_usage_non_dict_treated_as_legacy(self):
+        """契約 row 邊界：token_usage 非 dict → 視同舊制。"""
+        write(os.path.join(self.run_dir, "nd.json"), {
+            "run_id": "nd", "tier": 1, "status": "completed",
+            "subagent_usage": {"prep": 1, "loop": 2}, "token_usage": "x",
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["subagent_usage"], [])
+        self.assertEqual(data["subagent_usage_legacy"], 1)
+
     def test_subagent_usage_main_non_int_skipped(self):
         """契約 row 3：main 非 int → main 寬容跳過，prep/loop 照常收。"""
         write(os.path.join(self.run_dir, "mb.json"), {
             "run_id": "mb", "tier": 1, "status": "completed",
-            "subagent_usage": {"prep": 10, "loop": 20, "main": "300"},
+            "subagent_usage": {"prep": 10, "loop": 20, "main": "300"}, "token_usage": {},
         })
         data = stats.collect(self.run_dir)
         self.assertEqual(data["subagent_usage"], [("mb", 10, 20)])
@@ -582,7 +633,7 @@ class StatsCollectTest(unittest.TestCase):
         text = stats.report(data)
         self.assertIn("HITL 裁示數：無記錄（需要 hitl_rulings）", text)
         self.assertIn("checker 升級率：無記錄（需要 checked_by）", text)
-        self.assertIn("前置/循環成本比：無記錄（需要 subagent_usage）", text)
+        self.assertIn("前置/循環成本比：無實測記錄（需要 token_usage.py --write）", text)
 
 
 # --- 2.4：整合測試（跨 item）——真實 eval_state.py 子命令序列 → events.jsonl → stats 消費 ---

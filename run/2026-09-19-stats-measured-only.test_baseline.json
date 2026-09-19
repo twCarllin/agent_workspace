@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-19-stats-measured-only",
+  "cmd": "python3 -m pytest tests/ -q",
+  "head_sha": "8e2178fc137544429f0c2066ae35ad34f8ba2a90",
+  "stable_failures": []
+}

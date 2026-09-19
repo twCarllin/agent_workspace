@@ -27,8 +27,10 @@
                    讀 eval.json sub_tasks 的 checked_by 欄（checker／reviewer:碼／null）；
                    null 或缺鍵＝無記錄不入分母；未知值原樣歸「其他」桶顯示，不驗證
   前置/循環成本比  前置流程（Spec／風險／影響）相對執行循環的 token 成本結構；
-                   讀 manifest 選填欄 subagent_usage（{"prep","loop"}）；
-                   缺欄的 run 計「無記錄」
+                   讀 manifest 選填欄 subagent_usage（{"prep","loop"}），但**只納入同時有
+                   token_usage 欄的 run**（token_usage.py --write 的 transcript 實測）；
+                   有 subagent_usage 而無 token_usage＝舊制 Agent 回執自報，單位與實測不同
+                   （數萬 vs 數百萬），另計「舊制自報不併計」不進比值；缺欄的 run 計「無記錄」
 
 資料來源：run/*.json（manifest）、run/*.eval.json、run/*.test_baseline.json、
 run/*.events.jsonl、run/gate_hits.log。欄位缺漏時顯示 n/a 並註明需要什麼資料，不猜。
@@ -107,8 +109,9 @@ def collect(run_dir="run"):
         "hitl_rulings": [], "hitl_rulings_missing": 0,
         "checked_by_direct": 0, "checked_by_escalated": 0,
         "checked_by_dist": Counter(), "checked_by_none": 0,
-        "subagent_usage": [], "subagent_usage_missing": 0,  # (run_id, prep, loop)
-        "subagent_usage_main": [],  # (run_id, main) 選填鍵，主 flow 自報用量
+        "subagent_usage": [], "subagent_usage_missing": 0,  # (run_id, prep, loop)，僅實測 run
+        "subagent_usage_main": [],  # (run_id, main) 選填鍵，主 flow 用量（實測 run）
+        "subagent_usage_legacy": 0,  # 有 subagent_usage 無 token_usage：舊制自報，不併計
     }
     for path in sorted(glob.glob(os.path.join(run_dir, "*.json"))):
         name = os.path.basename(path)
@@ -140,10 +143,13 @@ def collect(run_dir="run"):
             and isinstance(usage.get("prep"), int) and not isinstance(usage.get("prep"), bool)
             and isinstance(usage.get("loop"), int) and not isinstance(usage.get("loop"), bool)
         ):
-            data["subagent_usage"].append((m["run_id"], usage["prep"], usage["loop"]))
-            main = usage.get("main")  # 選填；非 int 寬容跳過（prep/loop 照收）
-            if isinstance(main, int) and not isinstance(main, bool):
-                data["subagent_usage_main"].append((m["run_id"], main))
+            if not isinstance(m.get("token_usage"), dict):
+                data["subagent_usage_legacy"] += 1  # 舊制自報：單位不同，不進清單與比值
+            else:
+                data["subagent_usage"].append((m["run_id"], usage["prep"], usage["loop"]))
+                main = usage.get("main")  # 選填；非 int 寬容跳過（prep/loop 照收）
+                if isinstance(main, int) and not isinstance(main, bool):
+                    data["subagent_usage_main"].append((m["run_id"], main))
         else:
             data["subagent_usage_missing"] += 1
 
@@ -284,12 +290,13 @@ def append_subagent_usage(out, data):
         total_prep = sum(prep for _, prep, _ in data["subagent_usage"])
         total_loop = sum(loop for _, _, loop in data["subagent_usage"])
         ratio = f"{total_prep / total_loop:.2f}" if total_loop else "n/a"
-        line = f"前置/循環成本比：{'、'.join(parts)}　合計比值 prep:loop = {ratio}"
+        line = f"前置/循環成本比（實測）：{'、'.join(parts)}　合計比值 prep:loop = {ratio}"
         if main_by_run:
             line += f"　main 合計 {sum(main_by_run.values())}（{len(main_by_run)} 個 run 有記錄）"
-        out.append(line + f"　無記錄：{data['subagent_usage_missing']} 個 run")
     else:
-        out.append("前置/循環成本比：無記錄（需要 subagent_usage）")
+        line = "前置/循環成本比：無實測記錄（需要 token_usage.py --write）"
+    out.append(line + f"　舊制自報不併計：{data['subagent_usage_legacy']} 個 run"
+               f"　無記錄：{data['subagent_usage_missing']} 個 run")
 
 
 def append_gate_hits(out, data):
