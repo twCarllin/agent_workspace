@@ -185,8 +185,10 @@ def cmd_set_status(args):
 
 
 VALID_DIMENSIONS = {"Clarity", "Completeness", "Testability", "Non-functional", "Technical_constraints"}
-# 審定者留痕（checker 化，2026-09-06）：checker＝checker 輪直過；reviewer:①-⑤＝升級輪（碼見 eval-flow step 3）；reviewer:manual＝手動觸發
-VALID_CHECKED_BY = {"checker", "reviewer:①", "reviewer:②", "reviewer:③", "reviewer:④", "reviewer:⑤", "reviewer:manual"}
+# 審定者留痕（checker 化，2026-09-06）：checker＝checker 輪直過；reviewer:①-⑤＝升級輪（碼見 eval-flow step 3）；
+# reviewer:manual＝手動觸發；reviewer:boundary＝理由碼含邊界類的 run 直派 reviewer（2026-09-21，不計升級率）
+VALID_CHECKED_BY = {"checker", "reviewer:①", "reviewer:②", "reviewer:③", "reviewer:④", "reviewer:⑤",
+                    "reviewer:manual", "reviewer:boundary"}
 
 
 def cmd_set_review(args):
@@ -252,7 +254,10 @@ def cmd_add_verification(args):
         {"command": args.command, "exit_code": args.exit_code}
     )
     save(state)
-    append_event(state.get("run_id"), "add-verification", args)
+    # 事件鍵用 verify_command：append_event 會過濾 `command` 鍵（與子命令 dest 同名），
+    # 直接傳 args 會讓事件只剩 exit_code（2026-09-21 修正；消費端 stats.py 全套次數）
+    append_event(state.get("run_id"), "add-verification",
+                 argparse.Namespace(id=args.id, verify_command=args.command, exit_code=args.exit_code))
     print(f"[eval-state] sub_task {args.id} verification_commands "
           f"+1（共 {len(st['verification_commands'])} 筆）exit={args.exit_code}")
 
@@ -355,7 +360,7 @@ def main():
     p.add_argument("--dimensions", default=None,
                    help="維度→問題數 JSON，如 '{\"Clarity\":1}'")
     p.add_argument("--checked-by", dest="checked_by", default=None,
-                   help="審定者留痕：checker｜reviewer:①-⑤｜reviewer:manual")
+                   help="審定者留痕：checker｜reviewer:①-⑤｜reviewer:manual｜reviewer:boundary")
     p.set_defaults(func=cmd_set_review)
 
     p = sub.add_parser("set-verify")

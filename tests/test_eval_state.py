@@ -135,6 +135,24 @@ class EvalStateHelperTest(unittest.TestCase):
         self.assertIn("checker", captured.getvalue())  # 契約：stderr 含合法值清單（寬鬆存在性）
         self.assertEqual(self.read_state(), before)  # 檔案不變
 
+    def test_set_review_checked_by_boundary_is_valid(self):
+        """邊界直派（2026-09-21）：reviewer:boundary 為合法審定者值。"""
+        self.bootstrap()
+        run_cli("set-review", "1", "0", "--checked-by", "reviewer:boundary")
+        self.assertEqual(self.read_state()["sub_tasks"][0]["checked_by"], "reviewer:boundary")
+
+    def test_add_verification_event_records_command_text(self):
+        """事件鍵 verify_command：append_event 過濾 `command` 鍵（子命令 dest），指令原文須以
+        verify_command 鍵留痕（2026-09-21 修正；消費端 stats.py 全套次數）。"""
+        self.bootstrap()
+        run_cli("add-verification", "1", "--command", "pytest -q --strike-key full_suite", "--exit-code", "0")
+        with open("run/2026-07-15-demo.events.jsonl", encoding="utf-8") as f:
+            ev = [json.loads(line) for line in f if line.strip()][-1]
+        self.assertEqual(ev["cmd"], "add-verification")
+        self.assertEqual(ev["args"]["verify_command"], "pytest -q --strike-key full_suite")
+        self.assertEqual(ev["args"]["exit_code"], 0)
+        self.assertEqual(ev["args"]["id"], 1)
+
     def test_archive_carries_checked_by(self):
         self.bootstrap()
         run_cli("set-files", "1", "src/a.py")

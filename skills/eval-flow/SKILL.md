@@ -100,6 +100,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
    - 其審查報告**強制兩節、缺一退件**：①**完成度節**——對照 task 檔該 item 的 DoD 與子任務逐條核對，**明列 diff `--stat` 中缺席的項目**（scope 偏移一併檢，以檔名清單核對，不讀內容）；②**憑據節**（取代品質節）——上述憑據逐項核對結果，逐項標「有憑據／缺席／存疑」
    - **信封註記（快 model 遵從補強）**：checker 派工 prompt 末尾附一句「報告首行戳記行、末行恰一個 `Self-check:`、兩節缺一退件（依你定義的輸出格式）」——規則住 agent 定義，此句為 recency 前置（實測 haiku 首輪漏交信封／缺節共 3 例，2026-09-07）
    - checker 不做 Fowler smell 品質審查（那是 reviewer 的職責，只在升級輪出現）。`step` 欄位記 `reviewing`（`verifying` 保留供舊 run resume 相容，新路徑不再使用）
+   - **邊界直派（理由碼機械推導，2026-09-21，原則：信任邊界變更須有人審實作 diff 的安全性）**：讀 manifest `tier_rationale` 的理由碼——含**信任邊界**或**公開介面／落地資料契約** → 該 run **全部 sub_task 跳過 checker**，step 3 直接派 `code-reviewer` 全 diff 審（輸入照升級輪：step 2 改附 `git diff --cached -- <files>` 完整 diff）。set-review `--checked-by reviewer:boundary`；審查落檔尾註 `checked_by: reviewer(boundary)`；**不計入**升級率（stats.py 另計「邊界直派」）；step 7 retro 條件視同升級輪；all-in 亦同。判定只依已留痕的理由碼推導，**agent 不得臨場裁量**（同前置 1 執行條件的慣例）。動機：checker 不讀 diff，邊界類變更的實作 diff 若不升級便無人審安全性；理由碼已留痕，直派的成本只落在邊界 run
    - **五類升級觸發（checker 遇任一情況 → 主 flow 改派 code-reviewer 全 diff 審，既有流程原樣）**：
      - ①憑據對不上或缺席
      - ②契約 row 找不到對應測試斷言
@@ -112,7 +113,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
      - 命名：st＝sub_task id、r＝該 sub_task 的審查輪次，逐輪遞增且**不分回路來源**——審查退回、step 5 打回（見 test-strategy「裁決後的回修路徑」）、全套重開的複審同一序列連號；升級輪與 checker 輪同輪同 r 號
      - 落檔**新增尾註** `checked_by: checker` 或 `checked_by: reviewer(escalated: <理由代碼①-⑤>)`（命名格式不變，只增列此尾註）
      - `set-review <id> <🔴數>` 僅於**首輪**落檔後執行（checker 輪 `<🔴數>` 固定填 0——B4 憑據契約不動；升級輪由 reviewer 結果填，記修正前原始數，與操作規則條呼應）
-     - set-review **必帶 `--checked-by`**（checker 輪＝`checker`；升級輪＝`reviewer:<理由代碼①-⑤>`；手動觸發＝`reviewer:manual`）——冷溯源的審定者留痕（升級率統計靠此欄，消費端見 stats.py）
+     - set-review **必帶 `--checked-by`**（checker 輪＝`checker`；升級輪＝`reviewer:<理由代碼①-⑤>`；手動觸發＝`reviewer:manual`；邊界直派＝`reviewer:boundary`；合法值單一枚舉點住 `eval_state.py` `VALID_CHECKED_BY`）——冷溯源的審定者留痕（升級率統計靠此欄，消費端見 stats.py）
      - 落檔是熱 scratchpad（只為中斷恢復服務），step 6 收尾時隨 `eval_state.json` 一併清除、不進 git
    - **🔴 重裁條款**：主 flow 對每條 🔴 先做事實核對——至少讀 producer 端證據（上游 schema、函式定義、實際輸出），有反證 → 送獨立重裁（重呼叫 reviewer 附上反證，或取第二意見），**不可未經查證直接派 writer 照修**（reviewer 可能只讀消費面就下錯誤斷言，照修會把正確的 code 改壞）
    - **引文核實（重裁不限 🔴）**：任何發現（含 🟡）只要引用具體 code 片段／行號，主 flow 套用修正前必須對照 staged 原碼核實：`git show :<檔案> | grep -n -F '<引文片段>'`（引文跨多行或含特殊字元時，取最具識別性的**單行**片段）。
@@ -154,7 +155,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 7. **有條件** 呼叫 `retro` subagent：
    - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro
    - code-reviewer 無 🔴 → **不呼叫 retro**（reviewer 一次過即無回顧價值）
-   - 本條件僅掛**升級輪**（reviewer 判定）——checker 通過輪與升級後零 🔴 輪都**不呼叫 retro**；升級本身是流程正常運作、不是教訓（2026-09-06 使用者裁決）
+   - 本條件僅掛**升級輪**（reviewer 判定；邊界直派輪視同升級輪）——checker 通過輪與升級後零 🔴 輪都**不呼叫 retro**；升級本身是流程正常運作、不是教訓（2026-09-06 使用者裁決）
 
 ## Model 指派原則
 
@@ -181,7 +182,10 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、mine 指紋
 
 - **主 flow 的每一句進度宣稱（「已派審」「已修復」「測試通過」「報告已產出」）必須同句附上可驗證憑據**：agent launched 回執、測試輸出尾行、`git diff --cached --stat`、`ls` 檔案存在證明。**沒有憑據的進度句，讀者（含接手者與使用者）應當作未發生。**
 - 這是 `local_test_evidence` 精神的推廣：證據要求不只在測試欄位，而在主 flow 所有進度回報。
-- **subagent 報告信封缺損 → 退件重取**：subagent 報告缺信封（無戳記行，或無終行 `Self-check:`）＝疑似截斷或未完成交付，主 flow 不得逕行解析該報告內容，須退件重取（重新呼叫該 subagent）。2026-09-07 起由 PostToolUse hook（`.claude/hooks/report_envelope_check.py`）機械偵測——缺損時 exit 2 的 stderr 即標準化退件訊息，主 flow 照訊息重取；hook 屬品質 lint、fail-open（解析異常放行），人工檢查為兜底、不因 hook 存在而豁免（動機：checker／writer 首輪信封缺損實測 4 例，說明見 `references/gates.md` 信封 lint 節）。
+- **subagent 報告信封缺損 → 二分處置（2026-09-21，原則：表現層問題只警告、不觸發付費重試）**：
+  - **blocking**（缺終行 `Self-check:`，或 task-verifier 缺兩節關鍵詞）＝疑似截斷或未完成交付，主 flow 不得逕行解析該報告內容，須退件重取（重新呼叫該 subagent）——**重取最多 1 次**；第 2 次仍缺 → 不再重取，主 flow 人工檢視該報告內容（判斷是否完整可用）並在回報留痕一句「信封第 2 次缺損，人工檢視採用／退件」
+  - **advisory**（只缺首行戳記行）＝表現層缺項，**不退件**：hook 以 PostToolUse `additionalContext` 回傳警告，主 flow 照常解析報告、在回報留痕一句
+  - 2026-09-07 起由 PostToolUse hook（`.claude/hooks/report_envelope_check.py`）機械偵測——blocking 時 exit 2 的 stderr 即標準化退件訊息；hook 屬品質 lint、fail-open（解析異常放行），人工檢查為兜底、不因 hook 存在而豁免（兩類項目與載荷的單一枚舉點住 `references/gates.md` 信封 lint 節；動機：checker／writer 首輪信封缺損實測 4 例，每例付費重跑一次）。
 - 與 write-ahead 的關係：`eval_state` 的 `step` 欄記的是**意圖**（打算做），憑據才是**動作發生的證明**——兩者缺一不可，resume 時以憑據對賬（見 eval-flow-resume skill）。
 
 ## 資料格式與操作規則
@@ -220,10 +224,10 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、mine 指紋
    - **點名 advisor（有具名重大問題時）**：Router 判 Tier 1 時若理由碼非空（靠具名問題收斂），HITL 一併提報「**問題原文**＋點名的 advisor（`usage-analyzer` 或 `impact-analyzer` 擇需）」——只點 advisor 不說問題＝不合格（agentflow ag.md 原則）
      - 確認後（phase 已 `decomposed`，既有 AGENT_MIN_PHASE 放行）先跑該 advisor（產出照其定義存檔、回寫 manifest 對應欄），拿到答案再進循環
    - 確認後將 manifest 的 `phase` 設為 `"decomposed"`（hook 憑此放行 code-writer）、`hitl_confirmed_at` 記「時間＋確認範圍一句話」、`hitl_rulings` 記裁示條數（int，選填；無裁示填 0，語義同前置 2 的同名欄），並跑 `eval_state.py event <run_id> hitl_confirmed`，才進循環
-4. **主 flow 直寫捷徑（可選，全 tier 適用——v2 擴及 Tier 2，2026-09-06；all-in 時關閉）**：單 item 預估 ≤100 行 → 主 flow 可直接寫 code、不 spawn `code-writer`（省一次全新 agent 重建 context 的稅）。守則：
+4. **主 flow 直寫捷徑（可選，全 tier 適用——v2 擴及 Tier 2，2026-09-06；all-in 時關閉）**：主 flow 判斷「交接是否划算」（2026-09-21：行數與檔案類型不是委派依據）——考量 item 是否需要獨立乾淨 context、主 flow 目前 context 負載、item 邏輯是否簡單機械；划算則直接寫 code、不 spawn `code-writer`（省一次全新 agent 重建 context 的稅）。**留痕（硬性）**：每 item 在 manifest 選填欄 `executor_notes` 記一句 `item <id>: 直寫｜派工 — <理由>`（欄位語義見 `references/formats.md`），供事後審計選擇是否合理。守則：
    - 「寫的人 ≠ 審的人」防線不變（審的人預設為 `task-verifier`（checker），照常獨立審；升級走循環 step 3 五類觸發同一套規則，改派 `code-reviewer`）
    - 知識前置（三源，見循環 step 1）改由主 flow 自查並在回報留痕
-   - 超過 ≤100 行或跨多檔複雜 item 仍派 `code-writer`
+   - 需要獨立 context 的 item（多檔複雜邏輯、主 flow context 已重）仍派 `code-writer`
    - hook 對 code-writer 的 phase gate 不受影響（直寫路徑不經該 gate，phase 仍須 decomposed 才動工——由輕量 HITL 保證）
 5. **共用循環**：進入上方循環的步驟 1–7（code-writer → review（含完成度節）→ 本地測試 → commit）。收尾**不歸檔**（無 `eval_state.json`）：
    - **事件留痕（時間戳，接續步驟 1 的留痕點）**：每 item 審查報告落檔後跑 `eval_state.py event <run_id> item<id>_reviewed`、step 5 驗證完成後 `event <run_id> item<id>_verified`、收尾 commit 前 `event <run_id> completed`——Tier 2 的同等資訊由 eval_state.py 各子命令自動附掛，Tier 1 靠這三個呼叫點補齊（消費端 stats.py 事件節不分 tier）

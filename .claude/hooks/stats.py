@@ -25,7 +25,10 @@
                    缺欄的 run 計「無記錄」不入分母
   checker 升級率   修剪審查後 checker 是否真的擋住問題、升級頻率多高；
                    讀 eval.json sub_tasks 的 checked_by 欄（checker／reviewer:碼／null）；
-                   null 或缺鍵＝無記錄不入分母；未知值原樣歸「其他」桶顯示，不驗證
+                   null 或缺鍵＝無記錄不入分母；未知值原樣歸「其他」桶顯示，不驗證；
+                   reviewer:boundary（邊界直派，非升級）另計不入分母
+  全套測試次數     每 run 收尾全套（--strike-key full_suite）跑了幾次——重跑是收尾停止規則的證據；
+                   讀 events 的 verify_cmd／add-verification 事件 args.verify_command；舊事件無此鍵計 0
   前置/循環成本比  前置流程（Spec／風險／影響）相對執行循環的 token 成本結構；
                    讀 manifest 選填欄 subagent_usage（{"prep","loop"}），但**只納入同時有
                    token_usage 欄的 run**（token_usage.py --write 的 transcript 實測）；
@@ -93,7 +96,15 @@ def _events_summary(events):
             step_hits[(args.get("id"), args.get("step"))] += 1
     reentry = sum(cnt - 1 for cnt in step_hits.values() if cnt >= 2)
 
-    return {"count": len(events), "span_seconds": span_seconds, "reentry": reentry}
+    # 全套測試次數：verify 事件的指令原文含 full_suite strike-key（2026-09-21；舊事件無 verify_command 鍵計 0）
+    full_suite = 0
+    for e in events:
+        if e.get("cmd") in ("verify_cmd", "add-verification"):
+            cmd_text = (e.get("args") or {}).get("verify_command")
+            if isinstance(cmd_text, str) and "--strike-key full_suite" in cmd_text:
+                full_suite += 1
+
+    return {"count": len(events), "span_seconds": span_seconds, "reentry": reentry, "full_suite": full_suite}
 
 
 def collect(run_dir="run"):
@@ -108,7 +119,7 @@ def collect(run_dir="run"):
         "events": [],  # (run_id, summary dict | None)
         "hitl_rulings": [], "hitl_rulings_missing": 0,
         "checked_by_direct": 0, "checked_by_escalated": 0,
-        "checked_by_dist": Counter(), "checked_by_none": 0,
+        "checked_by_dist": Counter(), "checked_by_none": 0, "checked_by_boundary": 0,
         "subagent_usage": [], "subagent_usage_missing": 0,  # (run_id, prep, loop)，僅實測 run
         "subagent_usage_main": [],  # (run_id, main) 選填鍵，主 flow 用量（實測 run）
         "subagent_usage_legacy": 0,  # 有 subagent_usage 無 token_usage：舊制自報，不併計
@@ -182,10 +193,13 @@ def collect(run_dir="run"):
                     verif_recorded = True
                     verif_cmds += len(sub_vc)
                 # checker 升級率：checked_by 欄。null／缺鍵＝無記錄；"checker"＝直過；
+                # "reviewer:boundary"＝邊界直派（非升級，不入分母）；
                 # 其餘任何值（reviewer:碼 或未知值，不驗證）＝升級，計入分佈
                 checked_by = st.get("checked_by")
                 if checked_by == "checker":
                     data["checked_by_direct"] += 1
+                elif checked_by == "reviewer:boundary":
+                    data["checked_by_boundary"] += 1
                 elif checked_by:
                     data["checked_by_escalated"] += 1
                     data["checked_by_dist"][checked_by] += 1
@@ -270,11 +284,14 @@ def append_checker_escalation(out, data):
     total = direct + escalated
     if total:
         dist = dict(data["checked_by_dist"].most_common())
-        out.append(
+        line = (
             f"checker 升級率：{pct(escalated, total)}"
             f"（直過 {direct}／升級 {escalated}；reviewer 分佈 {dist}）"
             f"　無記錄：{data['checked_by_none']} 個 sub_task"
         )
+        if data["checked_by_boundary"]:
+            line += f"　邊界直派：{data['checked_by_boundary']} 個 sub_task"
+        out.append(line)
     else:
         out.append("checker 升級率：無記錄（需要 checked_by）")
 
@@ -353,7 +370,7 @@ def report(data):
                 parts.append(f"{run_id}: 無記錄")
             else:
                 span = f"{info['span_seconds']:.1f}s" if info["span_seconds"] is not None else "n/a"
-                parts.append(f"{run_id}: {info['count']} 事件／時距 {span}／重入 {info['reentry']}")
+                parts.append(f"{run_id}: {info['count']} 事件／時距 {span}／重入 {info['reentry']}／全套 {info['full_suite']}")
         out.append(f"事件記錄：{'、'.join(parts)}")
     append_gate_hits(out, data)
     return "\n".join(out)

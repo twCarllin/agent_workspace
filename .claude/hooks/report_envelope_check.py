@@ -6,8 +6,13 @@
 「完成度」「憑據」兩節關鍵詞）。
 
 性質：品質 lint，不是安全 gate。fail-open——stdin 非 JSON、頂層非 dict、
-欄位型別不符等一切解析異常一律放行（exit 0），只有「payload 結構正常且能
-抽出報告文字，但信封本身不合規」才 exit 2 退件。
+欄位型別不符等一切解析異常一律放行（exit 0）。
+
+缺項二分（2026-09-21，原則：表現層問題只警告、不觸發付費重試）：
+  blocking：缺 Self-check 終行（疑似截斷）、task-verifier 缺兩節關鍵詞（缺節）
+            → exit 2，stderr 退件訊息，主 flow 退件重取（上限住 eval-flow SKILL.md）
+  advisory：只缺首行戳記行（表現層）
+            → exit 0，stdout 印 PostToolUse JSON 的 additionalContext 警告，不退件
 
 載荷依據：2026-09-07 以臨時 dump hook 實測 PostToolUse 的 stdin 載荷格式
 （見 run/2026-09-07-report-envelope-hook.json spec_inline）：
@@ -54,25 +59,25 @@ def extract_report_text(tool_response):
 
 
 def check_envelope(text, subagent_type):
-    """驗信封，回傳缺項清單（list[str]）；全部合規回傳空 list。"""
-    missing = []
+    """驗信封，回傳 (blocking, advisory) 兩清單；全部合規兩者皆空。"""
+    blocking, advisory = [], []
     lines = [line for line in text.splitlines() if line.strip() != ""]
 
     # 戳記行落在前 3 個非空行內即合規：容忍 harness 在戳記行前自動插入的
     # byline／日期行（實測 agent 框架前插 1–2 行，令「首行必為戳記」永遠假陽性）。
     # 前 3 個非空行皆非戳記行（戳記在更後或全無）才退件。
     if not any(STAMP_RE.match(line) for line in lines[:3]):
-        missing.append("首行戳記行")
+        advisory.append("首行戳記行")
 
     self_check_idxs = [i for i, line in enumerate(lines) if line.startswith("Self-check:")]
     if len(self_check_idxs) != 1 or self_check_idxs[0] != len(lines) - 1:
-        missing.append("Self-check 終行")
+        blocking.append("Self-check 終行")
 
     if subagent_type == "task-verifier":
         if "完成度" not in text or "憑據" not in text:
-            missing.append("兩節關鍵詞（完成度／憑據）")
+            blocking.append("兩節關鍵詞（完成度／憑據）")
 
-    return missing
+    return blocking, advisory
 
 
 def main():
@@ -111,15 +116,27 @@ def main():
     except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
         sys.exit(0)
 
-    missing = check_envelope(report_text, subagent_type)
-    if missing:
+    blocking, advisory = check_envelope(report_text, subagent_type)
+    if blocking:
         print(
             f"[report-envelope] 信封缺損（{subagent_type}）："
-            f"{'、'.join(missing)}。退件重取：重新呼叫該 subagent 補齊信封"
-            f"（首行戳記行、末行恰一個 Self-check:）。",
+            f"{'、'.join(blocking + advisory)}。退件重取：重新呼叫該 subagent 補齊信封"
+            f"（首行戳記行、末行恰一個 Self-check:）。重取上限見 eval-flow SKILL.md 憑據紀律。",
             file=sys.stderr,
         )
         sys.exit(2)
+
+    if advisory:
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": (
+                    f"[report-envelope] 警告（{subagent_type}）：缺{'、'.join(advisory)}，"
+                    f"表現層缺項不退件；主 flow 於回報留痕一句。"
+                ),
+            }
+        }, ensure_ascii=False))
+        sys.exit(0)
 
     sys.exit(0)
 

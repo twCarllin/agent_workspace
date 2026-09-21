@@ -47,6 +47,7 @@
 - `subagent_usage`：**選填**。step 6 子項②收尾時由 `python3 .claude/hooks/token_usage.py <run_id> --write` **實測回寫**的 tokens 彙總 `{"prep": int, "loop": int, "main": int}`——三鍵皆為 transcript 四欄（`input_tokens`／`cache_creation_input_tokens`／`cache_read_input_tokens`／`output_tokens`）加總；`prep`＝usage-analyzer／task-decomposer／impact-analyzer 的 subagent 合計、`loop`＝其餘 subagent 合計、`main`＝主 flow 自身。舊制「依 Agent 工具回執自報、`main` 憑印象估」**廢止**（實測 2026-09-14 run：自報 loop 68161，transcript 實測主 flow cache 讀 10.09M——估計法系統性低估流程稅，2026-09-19）。消費端 `stats.py`：prep／loop 缺一或非 int → 整筆計無記錄；`main` 非 int → 只跳過 main、prep/loop 照收
 - `token_usage`：**選填**。與 `subagent_usage` 同時由 `token_usage.py --write` 寫入的明細：`{"session_id", "window": [lo, hi]|null, "main": {四欄＋turns}, "subagents": [{"agent_type", "description", 四欄＋turns}]}`；`window` 取自 `events.jsonl` 首尾 `ts`（init 之前的判級／載 skill 用量不在窗內，屬已知低估面）。純記錄，無 gate 消費
 - `session_id`／`config_dir`：**選填**。init 事件（Tier 2 `init --run-id`、Tier 1 `event <run_id> init`）由 `eval_state.py` 自 `CLAUDE_CODE_SESSION_ID`／`CLAUDE_CONFIG_DIR` 環境變數自動寫入，已有值不覆寫（resume 換 session 保留首次）；`token_usage.py` 憑此開 `<config_dir>/projects/<cwd 編碼>/<session_id>.jsonl`。舊 run 缺欄＝該腳本走 fallback 掃描 `~/.claude*/projects/*/` 含 run_id 的 transcript
+- `executor_notes`：**選填**。list[str]，每 item 一句 `item <id>: 直寫｜派工 — <理由>`——主 flow 直寫捷徑（eval-flow SKILL.md Tier 1 第 4 點）的執行者選擇留痕；2026-09-21 起取代舊的固定行數硬門檻，判斷依據是「交接是否划算」，本欄供事後審計。純記錄欄位，無 gate 消費
 - `dirty_tree_ruling`：**選填**。前置 0 進場檢查（見 eval-flow SKILL.md）發現 dirty tree 時，使用者對孤兒變更歸屬的裁決一句（納入本 run／擱置不動）；乾淨樹免記（欄位缺席＝進場乾淨或舊 run 無此制）
 - `scout_report_path`：**已廢止**（前置 1.5 scout 已移除，蒐證職責併回 usage-analyzer／impact-analyzer 自掃）。舊 manifest 仍有此欄者不需回填移除——hook 對此欄無任何依賴，留著不影響任何 gate
 - `risk_report_path`：Tier 2 前置 1 存檔後寫入 `risk/<run_id>.md`；理由碼無邊界類而跳過時為 `"skipped: 理由碼無邊界類"`（執行條件住 eval-flow SKILL.md 前置 1，此處不重列）；Tier 1 固定為 `"skipped"`
@@ -112,7 +113,8 @@
 **冷溯源檔**（與本文件開頭「run manifest」節的分類相同：commit 時隨 manifest 同批 `git add`、永不清除）。
 
 - 每個會寫入狀態的子命令（`init`／`add-subtask`／`set-step`／`set-files`／`set-test`／`set-status`／`set-review`／`set-verify`／`add-verification`／`archive`）成功寫入（`save()` 之後）append 一行 JSON：`{"ts": "<ISO8601>", "cmd": "<子命令>", "args": {...}}`；唯讀的 `list-files` 不記
-- `args` 鍵全記，字串值 >200 字元截斷並標 `…[truncated]`
+- `args` 鍵全記（`func` 與子命令 dest `command` 除外），字串值 >200 字元截斷並標 `…[truncated]`
+- `verify_cmd`（Tier 1，run_verify.py 寫）與 `add-verification`（Tier 2）事件的 `args.verify_command`＝驗證指令原文（2026-09-21 起；因 `command` 鍵被過濾，舊事件只有 `exit_code`）。消費端 `stats.py` 事件節「全套 N」＝含 `--strike-key full_suite` 的此類事件數，供收尾停止規則（記錄級修正不重跑全套）累積證據
 - append 是旁路記錄：寫入失敗（如 `run/` 不可寫）僅 stderr warning，不影響原子命令的 exit code；`eval_state.json` 缺 `run_id` 時同樣只 warning 並略過記錄
 - **Tier 1 的寫入路徑**：Tier 1 不建 `eval_state.json`，改以 `event` 子命令（`python3 .claude/hooks/eval_state.py event <run_id> <節點名> [--note <str>]`，不經 load()）於流程節點直寫本檔——呼叫點住 eval-flow SKILL.md「Tier 1 精簡路徑」；事件行形狀同上（`cmd` 為節點名）
 - 消費端見 `stats.py`（依 `ts` 欄位取極值計時距；`set-step` 重入依事件的 sub_task id＋`step` 計數，不依賴檔內物理行序）

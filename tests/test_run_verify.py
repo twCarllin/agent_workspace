@@ -65,6 +65,7 @@ class RunVerifyTest(unittest.TestCase):
         self.assertEqual(ev["cmd"], "verify_cmd")
         self.assertIn("ts", ev)
         self.assertEqual(ev["args"]["exit_code"], 0)
+        self.assertEqual(ev["args"]["verify_command"], "python3 -c pass")  # 2026-09-21：指令原文留痕
 
     def test_failing_command_exit_code_propagated_and_recorded(self):
         self.write_manifest()
@@ -83,6 +84,9 @@ class RunVerifyTest(unittest.TestCase):
             st = json.load(f)["sub_tasks"][0]
         self.assertEqual(len(st["verification_commands"]), 1)
         self.assertEqual(self.read_manifest()["verification_commands"], [])  # manifest 不動
+        ev = self.read_events("r1")[-1]
+        self.assertEqual(ev["cmd"], "add-verification")
+        self.assertEqual(ev["args"]["verify_command"], "python3 -c pass")  # Tier 2 路徑同樣留痕
 
     def test_missing_manifest_exits_before_running_command(self):
         code = run_cli("--run-id", "no-such", "--cmd", "python3 -c pass")

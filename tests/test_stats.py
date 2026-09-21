@@ -310,6 +310,33 @@ class StatsCollectTest(unittest.TestCase):
         self.assertIn("事件記錄", text)
         self.assertIn("4 事件", text)
 
+    def test_events_full_suite_count_from_verify_command(self):
+        """全套測試次數（2026-09-21）：verify_cmd／add-verification 事件的 args.verify_command
+        含 `--strike-key full_suite` 者計數；不含者不計。"""
+        write(os.path.join(self.run_dir, "fs.json"), {"run_id": "fs", "tier": 1, "status": "completed"})
+        self.write_events("fs", [
+            {"ts": "2026-09-21T10:00:00+00:00", "cmd": "verify_cmd",
+             "args": {"verify_command": "python3 .claude/hooks/test_baseline.py check --strike-key full_suite", "exit_code": 0}},
+            {"ts": "2026-09-21T10:00:05+00:00", "cmd": "add-verification",
+             "args": {"id": 1, "verify_command": "python3 .claude/hooks/test_baseline.py check --strike-key full_suite --run-id fs", "exit_code": 0}},
+            {"ts": "2026-09-21T10:00:10+00:00", "cmd": "verify_cmd",
+             "args": {"verify_command": "diff -q a b", "exit_code": 0}},
+        ])
+        data = stats.collect(self.run_dir)
+        self.assertEqual(dict(data["events"])["fs"]["full_suite"], 2)
+        self.assertIn("全套 2", stats.report(data))
+
+    def test_events_full_suite_zero_when_legacy_events_lack_verify_command(self):
+        """邊界：舊事件 args 無 verify_command 鍵 → full_suite=0、不 crash。"""
+        write(os.path.join(self.run_dir, "old.json"), {"run_id": "old", "tier": 1, "status": "completed"})
+        self.write_events("old", [
+            {"ts": "2026-09-19T08:02:39+00:00", "cmd": "verify_cmd", "args": {"exit_code": 0}},
+            {"ts": "2026-09-19T08:02:40+00:00", "cmd": "add-verification", "args": {"id": 1, "exit_code": 0}},
+        ])
+        data = stats.collect(self.run_dir)
+        self.assertEqual(dict(data["events"])["old"]["full_suite"], 0)
+        self.assertIn("全套 0", stats.report(data))
+
     def test_run_without_events_file_shows_no_record(self):
         write(os.path.join(self.run_dir, "noev.json"), {"run_id": "noev", "tier": 1, "status": "completed"})
         data = stats.collect(self.run_dir)
@@ -440,6 +467,26 @@ class StatsCollectTest(unittest.TestCase):
         self.assertEqual(data["checked_by_dist"]["reviewer:①"], 1)
         text = stats.report(data)
         self.assertIn("checker 升級率：33%（1/3）", text)  # 2 直過 1 升級 → 33%
+        self.assertNotIn("邊界直派", text)  # 零 boundary 不印
+
+    def test_checker_escalation_boundary_dispatch_not_counted_as_escalation(self):
+        """邊界直派（2026-09-21）：reviewer:boundary 另計，不入升級率分母與 reviewer 分佈。"""
+        write(os.path.join(self.run_dir, "bd.json"), {"run_id": "bd", "tier": 2, "status": "completed"})
+        write(os.path.join(self.run_dir, "bd.eval.json"), {
+            "run_id": "bd", "sub_tasks": [
+                {"id": 1, "checked_by": "checker"},
+                {"id": 2, "checked_by": "reviewer:boundary"},
+                {"id": 3, "checked_by": "reviewer:①"},
+            ],
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["checked_by_direct"], 1)
+        self.assertEqual(data["checked_by_escalated"], 1)
+        self.assertEqual(data["checked_by_boundary"], 1)
+        self.assertNotIn("reviewer:boundary", data["checked_by_dist"])
+        text = stats.report(data)
+        self.assertIn("checker 升級率：50%（1/2）", text)
+        self.assertIn("邊界直派：1 個 sub_task", text)
 
     def test_checker_escalation_null_checked_by_is_no_record(self):
         write(os.path.join(self.run_dir, "old.json"), {"run_id": "old", "tier": 1, "status": "completed"})

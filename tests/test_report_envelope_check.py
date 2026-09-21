@@ -49,18 +49,30 @@ def run_hook(stdin_text):
 
 
 class ReportEnvelopeCheckTest(unittest.TestCase):
-    # row 1: 合規報告 -> exit 0 無輸出
+    # row 1: 合規報告 -> exit 0 無輸出（stdout 亦空：無 advisory 警告）
     def test_row1_compliant_task_verifier_passes(self):
         proc = run_hook(json.dumps(make_payload()))
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(proc.stderr, "")
+        self.assertEqual(proc.stdout, "")
 
-    # row 2: 首行非戳記行 -> exit 2, stderr 含「戳記」
-    def test_row2_missing_stamp_line_rejects(self):
+    # row 2: 首行非戳記行（advisory）-> exit 0, stdout 為 PostToolUse JSON 且 additionalContext 含「戳記」
+    def test_row2_missing_stamp_line_is_advisory(self):
         report = compliant_report(stamp_line="這不是戳記行")
+        proc = run_hook(json.dumps(make_payload(report_text=report)))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stderr, "")
+        out = json.loads(proc.stdout)
+        self.assertEqual(out["hookSpecificOutput"]["hookEventName"], "PostToolUse")
+        self.assertIn("戳記", out["hookSpecificOutput"]["additionalContext"])
+
+    # row 2b: 同時缺戳記與 Self-check -> exit 2, stderr 同時含兩項
+    def test_row2b_missing_stamp_and_self_check_rejects_listing_both(self):
+        report = "\n".join(["這不是戳記行", "", "## 完成度", "全部完成", "## 憑據", "測試通過"])
         proc = run_hook(json.dumps(make_payload(report_text=report)))
         self.assertEqual(proc.returncode, 2)
         self.assertIn("戳記", proc.stderr)
+        self.assertIn("Self-check", proc.stderr)
 
     # row 3: 無 Self-check 行 -> exit 2, stderr 含「Self-check」
     def test_row3_missing_self_check_rejects(self):
@@ -144,12 +156,12 @@ class ReportEnvelopeCheckTest(unittest.TestCase):
         proc = run_hook(json.dumps(make_payload(report_text=report)))
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-    # row 14: 戳記行為第 4 個非空行（超出容忍窗）-> exit 2, stderr 含「戳記」
-    def test_row14_stamp_beyond_third_line_rejects(self):
+    # row 14: 戳記行為第 4 個非空行（超出容忍窗）-> advisory：exit 0, additionalContext 含「戳記」
+    def test_row14_stamp_beyond_third_line_is_advisory(self):
         report = "\n".join(["l1", "l2", "l3", compliant_report()])
         proc = run_hook(json.dumps(make_payload(report_text=report)))
-        self.assertEqual(proc.returncode, 2)
-        self.assertIn("戳記", proc.stderr)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("戳記", json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"])
 
 
 if __name__ == "__main__":

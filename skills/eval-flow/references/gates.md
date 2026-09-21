@@ -28,7 +28,14 @@
 
 ## 報告信封 lint（PostToolUse hook，2026-09-07 起）
 
-`.claude/hooks/report_envelope_check.py`（設定於 `.claude/settings.json`，matcher `Task|Agent`）於 subagent 交付時機械驗收報告信封：首行戳記行、末行恰一個 `Self-check:`；`task-verifier` 加驗兩節關鍵詞（完成度／憑據）。缺任一 → exit 2，stderr 即標準化退件訊息，主 flow 照訊息重取。
+`.claude/hooks/report_envelope_check.py`（設定於 `.claude/settings.json`，matcher `Task|Agent`）於 subagent 交付時機械驗收報告信封。缺項二分（2026-09-21）：
+
+| 類別 | 項目 | hook 行為 | 主 flow 處置 |
+|---|---|---|---|
+| **blocking** | 末行恰一個 `Self-check:`；`task-verifier` 兩節關鍵詞（完成度／憑據） | exit 2，stderr 標準化退件訊息（一併列出 advisory 缺項） | 退件重取，上限與第 2 次處置見 SKILL.md 憑據紀律 |
+| **advisory** | 首行戳記行（前 3 個非空行內） | exit 0，stdout 印 PostToolUse JSON `hookSpecificOutput.additionalContext` 警告 | 不退件，照常解析，回報留痕一句 |
+
+合規（兩類皆無缺項）→ exit 0、無輸出。
 
 - **性質**：品質 lint、**fail-open**（stdin 非 JSON、欄位缺席、背景啟動回執、非信封名單 agent 一律放行）——**不是安全 gate**，不承擔攔截惡意內容的職責；與上方 PreToolUse gate 1–7 的攔截性質不同
 - 信封名單與載荷依據（2026-09-07 實測 PostToolUse `tool_response.content[].text`）住 script 檔頭，改名單時只改 script

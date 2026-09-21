@@ -1,0 +1,90 @@
+{
+  "run_id": "2026-09-21-flow-rule-tuning",
+  "created_at": "2026-09-21",
+  "framework_version": "2026.08.20.1",
+  "tier": 1,
+  "tier_rationale": "理由碼空集合：需求由外部流程對照報告收斂為 4 個明確改動，DoD 逐項一句講得清（無重大不確定）；全部落在本地開發工具鏈（skills prose、.claude/hooks script、tests、agent 定義 description），git 可復原、測試可指認，不觸信任邊界／公開契約本體；不跨子系統（同一 eval-flow 工具鏈）；無未決決策（4 項與 2 項擱置已由使用者於對話裁決）。預估 active time ~70 分 ≤120 → Tier 1。",
+  "spec_inline": "四項流程規則（2026-09-21 外部流程對照後採納）：(1) 邊界直派——manifest 理由碼含信任邊界或公開介面／落地資料契約的 run，循環 step 3 跳過 task-verifier 直接派 code-reviewer 全 diff 審，set-review --checked-by reviewer:boundary（eval_state.py VALID_CHECKED_BY 新值；stats.py 歸「直派」桶不計升級率）；(2) 信封缺損二分——report_envelope_check.py 只缺戳記行改為 exit 0 並以 PostToolUse additionalContext 回傳警告不退件，缺 Self-check 終行或 task-verifier 兩節關鍵詞仍 exit 2 退件；SKILL.md 補「退件重取最多 1 次，第 2 次仍缺由主 flow 人工檢視報告內容並留痕」；(3) verify_cmd／add-verification 事件補記指令原文——修 append_event 因 argparse 子命令 dest=command 碰撞而丟棄 command 鍵的 bug（改以 verify_command 鍵記錄），stats.py 事件節加每 run 全套測試（--strike-key full_suite）執行次數；(4) 直寫捷徑 ≤100 行硬門檻改為主 flow 判斷交接是否划算，manifest 選填欄 executor_notes 記每 item「直寫｜派工 — 理由一句」，寫審分離不變。可考慮的 Invariants 節與宿主專案衝突盤點兩項擱置不做。鏡像 ~/.claude/skills 同步。",
+  "spec_path": null,
+  "test_command": "python3 -m pytest tests/ -q",
+  "phase": "completed",
+  "hitl_confirmed_at": "2026-09-21 — 使用者對前兩回合的 4 項提案（邊界直派／信封二分＋上限／verify 事件補指令＋全套次數／直寫改判斷加留痕）與逐項使用差異說明回覆「好，執行吧」，視為確認 2 tasks／4 items 計畫；可考慮的 2 項擱置為主 flow 假設、已於回報明示",
+  "hitl_rulings": 0,
+  "risk_report_path": "skipped",
+  "usage_report_path": "skipped",
+  "impact_report_path": "skipped",
+  "task_file": "task/2026-09-21.md",
+  "estimated_active_minutes": 70,
+  "executor_notes": [
+    "item 1: 直寫 — 純 prose 三檔＋description 一句，主 flow 已載入全部原文、派工重建 context 不划算",
+    "item 2: 直寫 — 單檔 hook 分支改動＋測試 row 調整，邏輯機械",
+    "item 3: 直寫 — 兩處 Namespace 鍵名改動＋stats 一段計數，根因已由主 flow 診斷",
+    "item 4: 直寫 — 集合加一值＋stats 一個分桶"
+  ],
+  "status": "completed",
+  "failed_reason": null,
+  "local_test_passed": true,
+  "local_test_evidence": "test_baseline baseline --run-id → stable 0；run_verify 包 check --strike-key full_suite（cmd 讀 manifest test_command: python3 -m pytest tests/ -q）→ PASS 無新增穩定失敗 exit 0；全套 334 passed, 19 subtests passed；test_lint 四個改動測試檔 PASS；diff -rq skills ~/.claude/skills 只剩 .DS_Store；report_envelope_check.py 實跑 advisory 載荷 → exit 0 且 stdout 為 additionalContext JSON；stats.py 實跑對本 run 顯示「全套 1」。兩輪 checker 零升級（st1-r1 prose、st2-r1 script 合併輪）；st2-r1 報告缺首行戳記行，依新規則 advisory 不退件、已留痕於審查落檔",
+  "verification_commands": [
+    {
+      "command": "python3 .claude/hooks/test_baseline.py check --strike-key full_suite --run-id 2026-09-21-flow-rule-tuning",
+      "exit_code": 0
+    },
+    {
+      "command": "diff -rq skills ~/.claude/skills | grep -v DS_Store; test $? -eq 1",
+      "exit_code": 0
+    },
+    {
+      "command": "printf '%s' '{\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"code-writer\"},\"tool_response\":{\"status\":\"completed\",\"content\":[{\"type\":\"text\",\"text\":\"no stamp here\\n## 工作報告\\nSelf-check: ok\"}]}}' | python3 .claude/hooks/report_envelope_check.py",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 .claude/hooks/stats.py | grep -o '2026-09-21-flow-rule-tuning: [^、]*'",
+      "exit_code": 0
+    }
+  ],
+  "review_reds": 0,
+  "verify_passed": true,
+  "session_id": "1d826c69-a78c-498f-9f25-82e1dffad66e",
+  "config_dir": "/Users/carllin/.claude-account-ctbc",
+  "actual_active_minutes": 45,
+  "subagent_usage": {
+    "prep": 0,
+    "loop": 2902138,
+    "main": 10957451
+  },
+  "token_usage": {
+    "session_id": "1d826c69-a78c-498f-9f25-82e1dffad66e",
+    "window": [
+      "2026-09-21T03:29:52.101614+00:00",
+      "2026-09-21T03:38:40.570886+00:00"
+    ],
+    "main": {
+      "input_tokens": 936,
+      "cache_creation_input_tokens": 156288,
+      "cache_read_input_tokens": 10706498,
+      "output_tokens": 93729,
+      "turns": 33
+    },
+    "subagents": [
+      {
+        "agent_type": "task-verifier",
+        "description": "checker 審 Item 1（prose）",
+        "input_tokens": 454,
+        "cache_creation_input_tokens": 109021,
+        "cache_read_input_tokens": 1825111,
+        "output_tokens": 9638,
+        "turns": 56
+      },
+      {
+        "agent_type": "task-verifier",
+        "description": "checker 審 Item 2+3+4（script）",
+        "input_tokens": 228,
+        "cache_creation_input_tokens": 130409,
+        "cache_read_input_tokens": 819111,
+        "output_tokens": 8166,
+        "turns": 27
+      }
+    ]
+  }
+}

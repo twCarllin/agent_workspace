@@ -1,0 +1,6 @@
+{
+  "run_id": "2026-09-21-flow-rule-tuning",
+  "cmd": "python3 -m pytest tests/ -q",
+  "head_sha": "7fe6b6c1514864664a2da46c8d580ab15a4b0ff9",
+  "stable_failures": []
+}

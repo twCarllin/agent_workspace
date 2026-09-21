@@ -49,9 +49,10 @@ def main():
             st = eval_state.find_subtask(state, args.sub_task)
             st.setdefault("verification_commands", []).append(record)
             eval_state.save(state)
+            # 鍵名用 verify_command：append_event 過濾 `command` 鍵（子命令 dest 同名），見 eval_state.cmd_add_verification
             eval_state.append_event(
                 state.get("run_id"), "add-verification",
-                argparse.Namespace(id=args.sub_task, command=args.cmd, exit_code=exit_code))
+                argparse.Namespace(id=args.sub_task, verify_command=args.cmd, exit_code=exit_code))
         else:
             with open(manifest_path, encoding="utf-8") as f:
                 m = json.load(f)
@@ -60,7 +61,7 @@ def main():
                 json.dump(m, f, ensure_ascii=False, indent=2)
             eval_state.append_event(
                 args.run_id, "verify_cmd",
-                argparse.Namespace(command=args.cmd, exit_code=exit_code))
+                argparse.Namespace(verify_command=args.cmd, exit_code=exit_code))
         print(f"[run-verify] 已記錄 verification（exit={exit_code}）"
               f" -> {'eval_state.json sub_task ' + str(args.sub_task) if use_state else manifest_path}")
     except Exception as e:
