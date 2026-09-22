@@ -18,7 +18,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 - **進場檢查（建 manifest 之前）**：跑 `git status --porcelain`。非空 → 列出檔案清單問使用者歸屬（納入本 run／擱置不動），裁決一句寫入 manifest `dirty_tree_ruling`（選填欄；乾淨樹免記）。孤兒變更不先裁決，staging 與 commit 範圍會在收尾才爆（實測教訓，2026-09-06）
 - 接收本次要實作的 **Spec**（來源：Stage A intent→spec 的產出，或使用者手動指定的路徑）
 - 決定 `run_id`：`YYYY-MM-DD-<spec-slug>`（例如 `2026-07-06-partial-settlement`），作為本次 run 貫穿各檔的關聯鍵
-- **建立 run manifest** `run/<run_id>.json`（**冷溯源檔，commit 時隨 code 進 git、永不清除**），填入：
+- **建立 run manifest** `run/<run_id>.json`（**冷溯源檔：留在工作目錄、永不清除；不進版控**，見 step 6 子項②），填入：
   - `run_id`、`created_at`
   - `spec_path`：指向這份 Spec 的實際路徑（進入點在此把 Spec **記錄下來**）
   - `usage_report_path`、`task_file`：先設 `null`
@@ -148,9 +148,12 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–3（初始化�
 6. **收尾順序（**hook 強制**，見「Gate 的硬性執行」，完整清單見 `references/gates.md`）**：
    - ⓪先跑**全套測試檢查**（`test_baseline.py check --cmd "<全套指令>" --strike-key full_suite`，見 test-strategy skill）——出現新失敗代表相關測試沒抓到的跨 sub_task 破壞，依 skill 的「重開路徑」把肇事 sub_task 改回 in_progress 從步驟 3 重走，**不可收尾**
    - ①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留審查記錄的永久紀錄），manifest 填 `status: "completed"`、`phase: "completed"`，**清除 `eval_state.json`、本 run 的 `run/<run_id>.review-st*-r*.md` 與 `run/<run_id>.mine_log.json`**（審查落檔與 mine 留痕是熱 scratchpad，收尾即清；失敗收尾則與 eval_state 一樣保留現場）
-   - ②把 manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔、**測試 baseline `run/<run_id>.test_baseline.json`**、**事件日誌 `run/<run_id>.events.jsonl`（若存在）** 一併 `git add`
-     - baseline 進 git 的要求住在 `test-strategy` skill——其 `stable_failures` 是本 run 進場的既有欠帳快照，漏掉不會有任何 gate 攔截或錯誤訊息，屬靜默遺失；本清單與該 skill 須一致，改任一端時對照另一端
-     - ②add 之前：主 flow 跑 `python3 .claude/hooks/token_usage.py <run_id> --write`，由 transcript **實測**回寫 manifest `subagent_usage`（prep／loop／main）與 `token_usage` 明細——前置/循環成本比的資料源，消費端見 stats.py；不再依 Agent 工具回執自報、不再憑印象估 `main`（欄位語義與 fallback 住 `references/formats.md`，此處不重列）
+   - ②**冷溯源檔一律不進版控**（2026-09-22 變更）：manifest `run/<run_id>.json`、eval 歸檔檔、usage 報告、task 檔、測試 baseline `run/<run_id>.test_baseline.json`、事件日誌 `run/<run_id>.events.jsonl` **只留在工作目錄、永不清除，不 `git add`**。本次 commit 的 staged 內容＝循環 step 2 已陸續加入的**程式碼與測試檔**，此處不追加任何溯源檔
+     - **變更依據**：所有消費端（`eval_gates.py`／`stats.py`／`test_baseline.py`／`session_start.py`）都以 `glob("run/*.json")` 從工作目錄讀檔，無一從 git 歷史讀，故進不進版控不影響任何既有功能；而要求進版控會與目標專案既有 `.gitignore`（`run/`／`task/`／`retro/`）衝突，manifest 被擋住時舊版 commit gate 因「以 staged 有無 manifest 為啟動條件」而**靜默失效**（憑據一項都不驗）
+     - **`Run-Id: <run_id>` trailer 因此升為硬要求**（見子項③）：溯源檔不進版控後，它是 commit↔run 之間唯一的機械連結，也是 commit gate 的定位依據。漏寫 → gate 退回「工作目錄 in_progress」安全網，該次 commit 的四欄憑據不被核對（判定全貌見 `references/gates.md`）
+     - baseline 的處置要求同住 `test-strategy` skill——其 `stable_failures` 是本 run 進場的既有欠帳快照；**本節與該 skill 須一致，改任一端時對照另一端**
+     - **部署建議**：目標專案的 `.gitignore` 可加 `run/`、`task/`，免得 `git status` 長期掛著未追蹤檔。`retro/RETRO.md` **不在此列**——它是派工時貼進 writer prompt 的硬性約束、隨框架部署，照常進版控
+     - ②之前：主 flow 跑 `python3 .claude/hooks/token_usage.py <run_id> --write`，由 transcript **實測**回寫 manifest `subagent_usage`（prep／loop／main）與 `token_usage` 明細——前置/循環成本比的資料源，消費端見 stats.py；不再依 Agent 工具回執自報、不再憑印象估 `main`（欄位語義與 fallback 住 `references/formats.md`，此處不重列）
    - ③git commit，message 末尾附 `Run-Id: <run_id>` trailer（Spec↔usage↔task↔commit 的溯源由 `git log --grep "Run-Id: <run_id>"` 反查），結束
 7. **有條件** 呼叫 `retro` subagent：
    - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro
@@ -232,8 +235,8 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、mine 指紋
 5. **共用循環**：進入上方循環的步驟 1–7（code-writer → review（含完成度節）→ 本地測試 → commit）。收尾**不歸檔**（無 `eval_state.json`）：
    - **事件留痕（時間戳，接續步驟 1 的留痕點）**：每 item 審查報告落檔後跑 `eval_state.py event <run_id> item<id>_reviewed`、step 5 驗證完成後 `event <run_id> item<id>_verified`、收尾 commit 前 `event <run_id> completed`——Tier 2 的同等資訊由 eval_state.py 各子命令自動附掛，Tier 1 靠這三個呼叫點補齊（消費端 stats.py 事件節不分 tier）
    - manifest 填入四欄憑據（`local_test_passed: true`、`local_test_evidence`、`review_reds`、`verify_passed: true`）並標 `status: "completed"`
-   - 直接 `git add` **依 step 6 子項②的清單，減去 eval 歸檔檔與 usage 報告**（Tier 1 無此二者）並 commit（message 附 `Run-Id: <run_id>` trailer）
-   - **收尾要 add 哪些檔以 step 6 子項②為單一枚舉點**，本處與 `references/rare-paths.md` 內的 fan-out 節皆指向它、不各自重列（R-007——各自重列必漂移）
+   - 直接 commit **依 step 6 子項② 的處置**（Tier 1 無 eval 歸檔檔與 usage 報告；溯源檔同樣留在工作目錄不 `git add`），message 附 `Run-Id: <run_id>` trailer——**trailer 是 commit gate 的定位依據，不可省**
+   - **收尾對溯源檔怎麼處置，以 step 6 子項②為單一枚舉點**，本處與 `references/rare-paths.md` 內的 fan-out 節皆指向它、不各自重列（R-007——各自重列必漂移）
    - 不執行 eval_state.py 的 archive 操作、不清除任何 scratchpad（本就沒建）
    - sub_task 的 `risk_analysis` 可簡記為 `"router 已篩（Tier 1）"`，不需逐面向填
    - step 5 可用實際運行功能驗證取代自動化測試（不強制建測試），但 `local_test_evidence` 照填——證據要求不分 tier；驗證指令以 `run_verify.py` 執行（一次完成跑＋記 manifest `verification_commands`＋寫 verify_cmd 事件，見循環 step 5）

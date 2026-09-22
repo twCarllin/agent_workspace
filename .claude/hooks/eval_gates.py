@@ -43,6 +43,17 @@ MANIFEST_RE = re.compile(
     r"^run/(?P<run_id>[^/]+?)(?<!\.eval)(?<!\.test_baseline)\.json$"
 )
 
+# commit message 的 `Run-Id: <run_id>` trailer——收尾 commit 的必填項（eval-flow SKILL.md
+# step 6 ③ 與 Tier 1 精簡路徑第 5 點）。冷溯源檔不再進版控後，這是把一次 commit 對應回
+# 某個 run 的唯一可機械解析線索；gate 憑此從**工作目錄**定位 manifest，不再依賴它被 staged。
+#
+# 解析對象是 **Bash 指令原文**（hook 收到的 `tool_input.command`），不是 git 已解析的
+# message，故 trailer 那一行的尾端可能殘留 shell 語法（`-m "…"` 的收尾引號、heredoc
+# 分隔符等）。因此：
+#   - 捕捉組收斂為 run_id 實際字元集 `[A-Za-z0-9._-]`（日期-slug 命名），遇引號自然停住
+#   - **不加行尾 `$` 錨點**——加了會讓上述常見寫法整條匹配失敗，靜默退化成「定位不到」
+RUN_ID_TRAILER_RE = re.compile(r"^[ \t]*Run-Id:[ \t]*([A-Za-z0-9._-]+)", re.MULTILINE)
+
 TEST_FILE_NAME_RE = re.compile(r"^(test_.*|.*_test)\.py$")
 TEST_DIR_NAMES = {"test", "tests", "__tests__", "spec"}
 
@@ -147,8 +158,10 @@ def check_manifest(manifest_path, staged):
     tier = m.get("tier")
     archive_path = f"run/{run_id}.eval.json"
 
-    if archive_path in staged:
-        # 歸檔檔已 staged：Tier 1（向後相容）＋ Tier 2（現行）共用此路徑（單一判定點）
+    if archive_path in staged or os.path.exists(archive_path):
+        # 歸檔檔存在（staged 或工作目錄）：Tier 1（向後相容）＋ Tier 2（現行）共用此路徑
+        # （單一判定點）。冷溯源檔不再進版控後，歸檔檔的常態是「在工作目錄、未 staged」，
+        # 故判定由 staged 成員資格放寬為「staged 或工作目錄存在」——語義仍是「歸檔已完成」。
         archive = load_json(archive_path)
         if archive.get("run_id") != run_id:
             block(f"{archive_path} 的 run_id（{archive.get('run_id')}）與 manifest 不一致")
@@ -157,8 +170,9 @@ def check_manifest(manifest_path, staged):
         # Tier 1 豁免歸檔檔，改驗 manifest 自身四欄憑據（與 validate_state 共用 _validate_credentials）
         _validate_credentials(m, manifest_path)
     else:
-        block(f"{manifest_path} 已 staged，但 {archive_path} 未 staged：須先歸檔 eval_state 再 commit\n"
-              f"→ 補救：`python3 .claude/hooks/eval_state.py archive` 產出 {archive_path}，再 `git add {archive_path}`")
+        block(f"{manifest_path} 的 {archive_path} 不存在：須先歸檔 eval_state 再 commit\n"
+              f"→ 補救：`python3 .claude/hooks/eval_state.py archive` 產出 {archive_path}"
+              f"（歸檔檔是冷溯源檔，留在工作目錄即可，不需 git add）")
 
 
 def manifest_phase(manifest):
@@ -259,6 +273,58 @@ def check_abort_failed_narrow_exception(staged):
         return False
     reason = m.get("failed_reason")
     return isinstance(reason, str) and bool(reason.strip())
+
+
+def _manifest_path_from_command(command):
+    """從 `git commit` 指令原文的 `Run-Id:` trailer 定位 manifest 路徑。
+
+    回傳可用的 `run/<run_id>.json`，或 None（無 trailer／不成合法 manifest 路徑／檔案不存在）。
+    路徑合法性一律交給 `MANIFEST_RE` 判定（以 pattern 判檔案身分的單一判定點鐵律，R-001）——
+    不得在此另寫 endswith／startswith 補丁；亦不需另做路徑逃逸防護，pattern 的 `[^/]+?`
+    已排除路徑分隔符。
+
+    !! 判定基準：工作目錄（`os.path.exists`）!!
+    與同一執行路徑上 `check_manifest_deletion()` 的 git 索引基準（`--diff-filter=D`）不同，
+    依 R-009 於此明文標注兩者的發散情境與處置：
+      - 索引已刪、工作區仍在（`git rm --cached`）→ 防刪除 gate 排在本函式之前並攔下，
+        本函式不會被觸及（順序不可調換，見 run_hook 內註解）
+      - 從未進版控、工作區存在 → 索引查不到、本函式查得到。這正是本函式存在的理由：
+        冷溯源檔不再進版控後，「manifest 在工作目錄但不在索引」是常態而非異常
+      - 工作區已刪、索引仍在 → 本函式回 None，落回 `check_inprogress_runs()` 安全網；
+        安全網同樣掃工作目錄故亦查不到，gate fail-open。此與改造前「manifest 未 staged
+        即完全不檢查」的行為一致，不新增亦不減少攔截面
+    """
+    m = RUN_ID_TRAILER_RE.search(command)
+    if not m:
+        return None
+    path = f"run/{m.group(1)}.json"
+    if not MANIFEST_RE.match(path):
+        return None
+    return path if os.path.exists(path) else None
+
+
+def check_inprogress_runs():
+    """安全網（攔截型）：未能從 trailer 或 staged 定位到任何 manifest 時，掃工作目錄
+    `run/*.json`，發現 `status == "in_progress"` 的 run → 擋 commit。
+
+    存在理由：改造前本 gate 以「staged 中有 manifest」為啟動條件，manifest 被
+    `.gitignore` 擋住（或單純沒 add）時，四項憑據一項都不驗、commit 靜默放行且無訊息。
+    冷溯源檔不再進版控後這會成為常態，故改以工作目錄的 run 狀態兜底。
+
+    判定基準為工作目錄（基準發散說明見 `_manifest_path_from_command` docstring，R-009）。
+    """
+    for path in sorted(glob.glob("run/*.json")):
+        if not MANIFEST_RE.match(path):
+            continue
+        m = load_json_quiet(path)
+        if not isinstance(m, dict):
+            continue
+        if m.get("status") == "in_progress":
+            block(
+                f"{path} 仍為 in_progress：該 run 尚未收尾，不可 commit\n"
+                f"→ 補救：走完 eval-flow step 5／6（填四欄憑據、status 設 completed）後再 commit；"
+                f"若決定放棄該 run，改標 status: \"aborted\" 並填 failed_reason（不要刪檔）"
+            )
 
 
 def is_test_file(path):
@@ -457,10 +523,23 @@ def run_hook():
             "eval_state.json 仍存在。須先歸檔為 run/<run_id>.eval.json 並清除後才可 commit；"
             "若為失敗收尾（status: failed），依規則由使用者裁決，不可由 Claude commit\n"
             "→ 補救：`python3 .claude/hooks/eval_state.py archive`（會驗四項憑據、寫出歸檔檔並刪除 eval_state.json），"
-            "再把 manifest 標 status: completed 並 git add 歸檔檔"
+            "再把 manifest 標 status: completed（歸檔檔是冷溯源檔，留在工作目錄即可，不需 git add）"
         )
 
+    # 待驗 manifest ＝ staged 中匹配者（向後相容：舊 run，以及仍把 run/ 納入版控的專案）
+    # ∪ commit message `Run-Id:` trailer 定位者（冷溯源檔不進版控後的主路徑）。
     manifests = [p for p in sorted(staged) if MANIFEST_RE.match(p)]
+    trailer_path = _manifest_path_from_command(command)
+    if trailer_path is not None and trailer_path not in manifests:
+        manifests.append(trailer_path)
+
+    # 兩條路徑都定位不到 → 安全網。刻意排在 1d 窄例外「之後」（R-008 的攔截型優先原則在此
+    # 不適用且不可套用）：窄例外的成立條件是「staged 恰為一個 aborted／failed 的 manifest」，
+    # 亦即該次 commit 不含任何 code、只為留痕放棄的 run；那條逃生門不該被另一個未收尾的 run
+    # 卡死。兩者的 status 條件（aborted／failed vs in_progress）互斥，不存在互相遮蔽的情境。
+    if not manifests:
+        check_inprogress_runs()
+
     for path in manifests:
         check_manifest(path, staged)
     if manifests:

@@ -22,7 +22,7 @@ python3 .claude/hooks/test_baseline.py baseline
 - **`__suite__` 套件層失敗**（無法解析出個別失敗的整體性失敗）例外於上一點：baseline 階段即重跑一次確認可重現才記入 `stable_failures`。
   - 記入後，check 每次執行皆於 stderr 印出「gate 對套件層級失敗失明」警告（不影響判定與 exit code）——因為 gate 的新增失敗比對機制看不見套件層失敗，需要額外提醒使用者注意
 - **自動沿用**：既有 baseline 檔中存在「`head_sha` == 目前 HEAD 且 cmd 相同」者 → script 直接沿用其 `stable_failures`（baseline 記的是**進場 HEAD 的既有失敗快照**，同進場 HEAD 即可沿用、免重跑全套；本 run 工作樹的新變更由 check 把關）；測試環境變了但 HEAD 沒變時用 `--fresh` 強制重建
-- 寫入 `run/<run_id>.test_baseline.json`（`run_id` 自動讀 `eval_state.json`）。此檔隨 commit 進 git，`stable_failures` 就是本 run 進場時的**既有欠帳快照**
+- 寫入 `run/<run_id>.test_baseline.json`（`run_id` 自動讀 `eval_state.json`）。此檔是冷溯源檔，**留在工作目錄、永不清除；不進版控**（處置的單一枚舉點住 eval-flow SKILL.md step 6 子項②，改任一端時對照另一端）。`stable_failures` 就是本 run 進場時的**既有欠帳快照**
 - **既有壞測試 = 記錄級欠帳，不是攔截級**：與 hotfix `debt` 不同——不擋新 run、本 run 不修（修它是 scope 偏移），但 retro 時彙報數量與清單，讓債看得見
 - 無任何測試框架的專案不建 baseline，改走「零測試專案」節
 
@@ -159,7 +159,7 @@ python3 .claude/hooks/test_baseline.py check --strike-key full_suite
 - 跳過本地驗證**僅限使用者明示豁免**；agent 不可自行認定、**不可主動建議豁免**（與 hotfix 宣告緊急同一防濫用原則）
 - **豁免單次有效**：只管當次需求，不延續、不存在口頭的專案級常態豁免
 - 留痕方式按 tier：
-  - **Tier 1／2**：manifest 記 `test_policy: "waived_by_user"` ＋一句豁免範圍與使用者原話，隨 commit 進 git。waive 率可統計（比照 tier 分佈統計）——豁免比例異常升高是制度失效的警報
+  - **Tier 1／2**：manifest 記 `test_policy: "waived_by_user"` ＋一句豁免範圍與使用者原話（manifest 為冷溯源檔，留在工作目錄不進版控）。waive 率可統計（比照 tier 分佈統計）——豁免比例異常升高是制度失效的警報
   - **Tier 0**：不為豁免建檔（維持零建檔哲學）。豁免記在 Tier 0 本來就要交付的**變更回報**裡：驗證欄寫「使用者豁免（引用原話）」。此為**弱留痕，屬有意取捨**（Tier 0 已排除高風險面，稽核價值低）
 - 豁免不改變 Tier 準入條件：信任邊界／公開契約的本體變更照樣進不了 Tier 0／1（判準住 CLAUDE.md Router 防濫用規則）
 

@@ -6,15 +6,23 @@
 
 以下 gate 由 PreToolUse hook（`.claude/hooks/gate-check.sh` → `eval_gates.py`，設定於 `.claude/settings.json`，matcher `Bash|Task|Agent`）強制攔截，不再只靠文字約束。攔截點有二：Claude 執行 `git commit` 時（gate 1–6），與呼叫流程管制的 subagent 時（gate 7）：
 
+**待驗 manifest 的定位（gate 3–6 的共同前提，2026-09-22 起）**：冷溯源檔不再進版控（見 eval-flow SKILL.md step 6 子項②），故 commit gate **不以「staged 中有沒有 manifest」為啟動條件**。定位依序為：
+
+- **① commit message 的 `Run-Id: <run_id>` trailer**（主路徑）→ 取工作目錄的 `run/<run_id>.json`。解析對象是 Bash 指令原文，故 run_id 只認 `[A-Za-z0-9._-]`、不加行尾錨點（`-m "…"` 的收尾引號不得讓比對整條失效）；路徑合法性仍一律交給 `MANIFEST_RE`（單一判定點，R-001）
+- **② staged 中匹配 `MANIFEST_RE` 者**（向後相容：舊 run，以及仍把 `run/` 納入版控的專案），與①取聯集
+- **③ 安全網**：①②皆落空時，掃工作目錄 `run/*.json`，任一 `status` 為 `"in_progress"` → 擋 commit，訊息指示先收尾或改標 `aborted`。改造前此情境是**靜默放行**（四欄憑據一項都不驗、無任何訊息），manifest 被 `.gitignore` 擋掉時必然命中
+  - 安全網刻意排在 gate 3 窄例外**之後**：窄例外的成立條件是「staged 恰一個 aborted／failed manifest、不含任何 code」，該 commit 純為留痕放棄的 run，不該被另一個未收尾的 run 卡死；兩者的 `status` 條件互斥，不存在攔截型被永久遮蔽的情境（與 R-008 的攔截型優先原則不衝突，組合測試見 `tests/test_eval_gates.py` C10）
+- 判定基準是**工作目錄**（`os.path.exists`／`glob`），與 gate 2 防刪除的 git 索引基準（`--diff-filter=D`）不同；兩者的發散情境與處置明列於 `eval_gates.py` 的 `_manifest_path_from_command` docstring（R-009）
+
 1. **歸檔 gate**：`eval_state.json` 尚存在 → 擋 commit（防跳過歸檔；失敗收尾時也會擋，屬預期）。**窄例外（見 gate 3）**：staged 檔案集合恰為該 run 的 manifest 一個檔、`status` 為 `aborted`／`failed`、`failed_reason` 非空 → 豁免本 gate（**不豁免 gate 2**）
 2. **防刪除 gate**：staged 變更中出現 manifest（`run/*.json`，`MANIFEST_RE` 匹配者）的**刪除**（`git diff --cached --diff-filter=D`）→ 擋 commit，訊息指示改標 `aborted` 而非刪檔（歸檔檔／baseline 檔不受 `MANIFEST_RE` 匹配，不受本 gate 攔截）
    - **執行順序（硬性）**：本 gate 必須早於 gate 3 的窄例外判定執行——`git rm --cached` 會保留工作區檔案，若窄例外先讀檔案內容判定，會誤把「已從版控刪除」的 manifest 當成「內容合法的 aborted/failed 留痕」而放行，讓 manifest 消失卻繞過本 gate（2026-08-20 code-review 修正，R-008）
    - 窄例外**不豁免**本 gate
-3. **intent gate**：staged 的 `run/<run_id>.json` 中 `spec_path` 與 `spec_inline` 皆空、或 `status` 非 `"completed"` → 擋
+3. **intent gate**：**定位到的** `run/<run_id>.json` 中 `spec_path` 與 `spec_inline` 皆空、或 `status` 非 `"completed"` → 擋
    - **窄例外**（aborted／failed 留痕）：staged 檔案集合恰等於該一個 manifest、且 `status` 為 `"aborted"` 或 `"failed"`、且 `failed_reason` 非空 → 放行（同時豁免 gate 1，**不豁免 gate 2**）；任一條件不成立 → 原判定不變
-4. **測試 gate**：staged manifest 對應的 `run/<run_id>.eval.json` 未同批 staged、或其中任一 sub_task 非 `passed`／`local_test_passed` 非 `true`、或 `review_reds` 未留痕（非 int 或負數）／`verify_passed` 非 `true` → 擋（`verify_passed` 語義＝reviewer 完成度節通過，見操作規則）
-   - **Tier 1 分支**：若 `run/<run_id>.eval.json` 未 staged，改驗 manifest 自身四欄（`local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`），全過放行、豁免歸檔檔；已 staged 時走原路徑（向後相容）
-5. **假測試 lint gate**：staged 有 manifest（flow 收尾 commit）時，staged 的 Python 測試檔跑 `test_lint.py`，檢出 if-guard 藏斷言／無斷言／恆真斷言 → 擋（誤報以行尾 `# testlint: allow` 豁免並留痕，見 test-strategy skill）
+4. **測試 gate**：定位到的 manifest 對應的 `run/<run_id>.eval.json` **不存在**（staged 與工作目錄皆無）、或其中任一 sub_task 非 `passed`／`local_test_passed` 非 `true`、或 `review_reds` 未留痕（非 int 或負數）／`verify_passed` 非 `true` → 擋（`verify_passed` 語義＝reviewer 完成度節通過，見操作規則）
+   - **Tier 1 分支**：若 `run/<run_id>.eval.json` 不存在，改驗 manifest 自身四欄（`local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`），全過放行、豁免歸檔檔；歸檔檔存在時走原路徑（Tier 2 現行，Tier 1 向後相容）
+5. **假測試 lint gate**：**定位到 manifest**（flow 收尾 commit）時，staged 的 Python 測試檔跑 `test_lint.py`——啟動條件隨上方定位改變，不再只認 staged manifest，否則溯源檔不進版控後本 gate 會整條失效，檢出 if-guard 藏斷言／無斷言／恆真斷言 → 擋（誤報以行尾 `# testlint: allow` 豁免並留痕，見 test-strategy skill）
 6. **不變量驗證**：歸檔檔 `run_id` 與 manifest 不一致 → 擋
 7. **phase 狀態機（subagent 呼叫攔截）**：依 `eval_state.json.run_id` 定位 manifest，檢查 `phase` 是否達到該 agent 的最低要求，未達 → 擋呼叫：
    - `usage-analyzer` 需 `phase >= risk_done`（前置 1 未完不可跑前置 2）

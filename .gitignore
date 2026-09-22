@@ -2,3 +2,5 @@
 eval_state.json
 .claude/worktrees/
 __pycache__/
+run/
+task/

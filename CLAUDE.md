@@ -71,7 +71,7 @@
 
 ## Task Principle
 
-- 產出物目錄慣例（`task/YYYY-MM-DD.md`、`usage/`／`risk/`／`impact/` 以 run_id 命名、`run/<run_id>.json` 冷溯源隨 commit 進 git）住 `eval-flow` skill 各前置節與 `references/formats.md`，不在此重列
+- 產出物目錄慣例（`task/YYYY-MM-DD.md`、`usage/`／`risk/`／`impact/` 以 run_id 命名、`run/<run_id>.json` 冷溯源留在工作目錄、不進版控）住 `eval-flow` skill 各前置節與 `references/formats.md`，不在此重列
 - **產出物自足性（換手的前提）**：Spec、usage 報告、task 檔、風險報告必須**不依賴對話上下文**即可讀懂——不得出現「如上所述」「依先前討論」等指涉對話的內容；task item 必須寫明確檔案路徑與 DoD。標準是：任何未參與對話的 AI／工程師讀檔即可接手。**引用其他 run 產出檔（spec／usage／impact 路徑＋節次）不算依賴對話**——應指向式引用、不重述內容
 - 每次新增或讀取任務時，使用**當天日期**的檔案（例如 `task/2026-04-18.md`）
 - 呼叫 subagent 完成任務（例外：Tier 1 小 item 的主 flow 直寫捷徑，見 eval-flow skill）

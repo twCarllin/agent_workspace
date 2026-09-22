@@ -33,7 +33,7 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 
 1. 讀 `eval_state.json`，找 `status: "in_progress"` 的 sub_task（正常只有一個）
    - 一個都沒有且尚有未開始的 sub_task → 從下一個未開始的 sub_task 的步驟 1（code-writer）開跑
-   - 全部 `passed` → 收尾被中斷，執行 step 6 收尾順序（歸檔 → 清除 eval_state → git add → commit）
+   - 全部 `passed` → 收尾被中斷，執行 step 6 收尾順序（歸檔 → 清除 eval_state → 回寫 token 用量 → commit；溯源檔不 `git add`，見 eval-flow SKILL.md step 6 子項②）
 2. 讀該 sub_task 的 `step` 與 `files`，用 `git diff --cached -- <files>` 還原工作現場（確認 staged 內容與 `step` 相符：例如 `step: "reviewing"` 但 staging 是空的 → 狀態不一致，回報使用者）
 3. 依 `step` 從對應步驟續跑：
 
@@ -44,7 +44,7 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 | `fixing` | review 有 🔴、修正中被斷 | 讀 `run/<run_id>.review-st<id>-r<N>.md` 的落檔審查報告續修（`<id>`＝該 in_progress sub_task 的 id，`<N>` 取現存檔名中最大者＝最新一輪，語義不變；**無落檔報告＝該輪審查未發生**，重跑步驟 3）；依落檔 `checked_by` 決定重派對象（同 `reviewing` 列：checker 輪→重派 `task-verifier`；升級輪→重派 `code-reviewer`）；修正後回步驟 3 重審 |
 | `verifying` | （舊版 run 的現場）task-verifier 曾一度退役（2026-07-25），**現已復活為 checker——審查層預設位（2026-09-05 起，退役敘述作廢）** | 重跑循環步驟 3（依落檔 `checked_by` 決定重派 checker 或 reviewer，同 `reviewing` 列；舊版無落檔或無 `checked_by` 尾註者，依新制預設派 checker） |
 | `testing` | 本地測試中被斷 | 重跑循環步驟 5（`local_test_passed` 為 `false` 一律重測，不採信中斷前的口頭結果） |
-| `scoring` | （舊版 run 的相容值）評分階段已移除 | 視同 testing 完成，直接進 step 6 收尾順序（歸檔 → 清除 eval_state → git add → commit） |
+| `scoring` | （舊版 run 的相容值）評分階段已移除 | 視同 testing 完成，直接進 step 6 收尾順序（歸檔 → 清除 eval_state → 回寫 token 用量 → commit；溯源檔不 `git add`，見 eval-flow SKILL.md step 6 子項②） |
 | `done` | 該 sub_task 已收完 | 狀態應為 `passed`；不是 → 修正狀態後進下一個 sub_task |
 
 4. 續跑的修正輪數以審查落檔 `run/<run_id>.review-st<id>-r<N>.md` 的最大 `<N>` 接續計算（2 輪上限照算，不歸零）

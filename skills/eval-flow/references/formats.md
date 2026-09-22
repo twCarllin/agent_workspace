@@ -4,7 +4,7 @@
 
 ## Run Manifest 格式（`run/<run_id>.json`）
 
-冷溯源檔。前置 0 建立，各前置步驟回填路徑，commit 時隨 code 進 git、**永不清除**。
+冷溯源檔。前置 0 建立，各前置步驟回填路徑，**留在工作目錄、永不清除；不進版控**（處置的單一枚舉點住 eval-flow SKILL.md step 6 子項②）。
 
 ```json
 {
@@ -110,7 +110,7 @@
 
 ## run/<run_id>.events.jsonl 格式
 
-**冷溯源檔**（與本文件開頭「run manifest」節的分類相同：commit 時隨 manifest 同批 `git add`、永不清除）。
+**冷溯源檔**（與本文件開頭「run manifest」節的分類相同：留在工作目錄、永不清除；不進版控）。
 
 - 每個會寫入狀態的子命令（`init`／`add-subtask`／`set-step`／`set-files`／`set-test`／`set-status`／`set-review`／`set-verify`／`add-verification`／`archive`）成功寫入（`save()` 之後）append 一行 JSON：`{"ts": "<ISO8601>", "cmd": "<子命令>", "args": {...}}`；唯讀的 `list-files` 不記
 - `args` 鍵全記（`func` 與子命令 dest `command` 除外），字串值 >200 字元截斷並標 `…[truncated]`
@@ -121,7 +121,7 @@
 
 ## run/tier0.jsonl 格式
 
-**冷溯源檔**（單一共用檔、append-only、永不清除；Tier 0 本身不 commit，隨使用者或下一個 run 的 commit 進 git）。Tier 0 改完回報時 append 一行：
+**冷溯源檔**（單一共用檔、append-only、永不清除；留在工作目錄、不進版控。Tier 0 本身不 commit 的規則不變，見 CLAUDE.md Router）。Tier 0 改完回報時 append 一行：
 
 - 指令：`python3 .claude/hooks/eval_state.py tier0 --summary "<一句>" --files "<逗號分隔清單>" --lines <int：git diff 增＋刪>`
 - 行形狀：`{"ts": "<ISO8601 UTC>", "summary": "...", "files": [...], "lines": <int>}`
@@ -148,7 +148,7 @@
 - **本地測試通過後（step 5）**：將該 sub_task 的 `local_test_passed` 設為 `true`、`local_test_evidence` 填入驗證證據（指令＋結果摘要；Tier 2 若更新過既有測試，一併註明 Spec／task 依據）。預設 `false`／`null`；hook 於 commit 時檢查歸檔檔中所有 sub_task 兩欄皆已填
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`
 - **同一 sub_task 修正 2 輪後 reviewer 仍有 🔴**：`status` 設為 `"failed"`，`warning` 設為 `true`，回報使用者（詳見循環 step 4 修正迭代上限；checker 輪與升級本身不計入此 2 輪，裁示 #9）
-- **全部完成且通過**：**先歸檔為 `run/<run_id>.eval.json`**（保留評分歷史與扣分原因）、清除 `eval_state.json`、manifest `status` 設為 `"completed"`，**再** commit（歸檔檔與 manifest 同批進 git；順序由 hook 強制——`eval_state.json` 尚存在時 commit 會被擋）
+- **全部完成且通過**：**先歸檔為 `run/<run_id>.eval.json`**（保留評分歷史與扣分原因）、清除 `eval_state.json`、manifest `status` 設為 `"completed"`，**再** commit（歸檔檔與 manifest 同為冷溯源檔，留在工作目錄不進版控；順序仍由 hook 強制——`eval_state.json` 尚存在時 commit 會被擋，歸檔檔不存在時亦擋）
 - **有任一 failed**：manifest 的 `status` 設為 `"failed"`，並在 manifest 的 `failed_reason` 寫一句話死因（哪個 sub_task、卡在哪步、為什麼），回報使用者
   - **失敗收尾**：staging area 保持原狀（已通過 sub_task 的變更留在 staged），**不自行 unstage、不部分 commit、不清除 `eval_state.json`**，由使用者裁決後續（續跑、部分 commit 或放棄）
   - 失敗收尾時 hook 會擋下 Claude 端的任何 `git commit`（`eval_state.json` 尚存在），屬預期行為；使用者要部分 commit 可在自己的終端執行（hook 只攔 Claude 的 Bash 工具）

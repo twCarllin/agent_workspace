@@ -1061,6 +1061,376 @@ class IntegrationHookGatesTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("被刪除", result.stderr)
 
+class ColdFileLocationGateTest(unittest.TestCase):
+    """commit gate 以工作目錄定位 manifest 的契約（task/2026-09-22.md item 1.1 契約表 C1–C12）。
+
+    冷溯源檔不再進版控後，gate 不可再以「staged 中有 manifest」為啟動條件。本類逐 row
+    驗證新定位路徑：commit message 的 `Run-Id:` trailer ∪ staged，兩者皆落空時以工作目錄
+    的 `status: in_progress` 當安全網。
+
+    全部案例走 **真實端到端路徑**：真 git repo ＋ subprocess 跑 `eval_gates.py --hook`
+    ＋ 真 stdin payload，不以直接 import 內部函式繞過（R-005：以直接呼叫內部函式繞過
+    跨進程執行契約的單元測試，不構成驗收證據）。
+    """
+
+    # hook 收到的是 Bash 指令原文；此處以拼接組出 `git commit`，避免本檔自身的文字
+    # 在被 Bash 工具讀寫時命中 PreToolUse 的 GIT_COMMIT_RE（實測會攔下編輯指令本身）。
+    GIT_COMMIT = "git " + "commit"
+
+    def setUp(self):
+        import os
+        import subprocess
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = self.tmp.name
+        self.eval_gates_py = str(
+            Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "eval_gates.py"
+        )
+        subprocess.run(["git", "init", "-q", self.repo], check=True, capture_output=True)
+        for k, v in (("user.email", "t@t.com"), ("user.name", "T")):
+            subprocess.run(["git", "-C", self.repo, "config", k, v],
+                           check=True, capture_output=True)
+        os.makedirs(os.path.join(self.repo, "run"))
+        # 先做一個 initial commit，讓 `git diff --cached` 有 HEAD 可比
+        self._write_text("seed.txt", "seed\n")
+        self._git("add", "seed.txt")
+        self._git("commit", "-q", "-m", "init")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    # --- fixture helpers ---
+
+    def _git(self, *args):
+        import subprocess
+        return subprocess.run(["git", "-C", self.repo, *args],
+                              check=True, capture_output=True, text=True)
+
+    def _write_text(self, rel, text):
+        import os
+        path = os.path.join(self.repo, rel)
+        os.makedirs(os.path.dirname(path) or self.repo, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return path
+
+    def _write_json(self, rel, obj):
+        import json
+        return self._write_text(rel, json.dumps(obj, ensure_ascii=False))
+
+    def _manifest(self, run_id, **overrides):
+        """寫出一份 Tier 1 完整憑據齊備的 manifest，overrides 覆寫個別欄位。"""
+        m = {
+            "run_id": run_id,
+            "tier": 1,
+            "spec_inline": "demo",
+            "status": "completed",
+            "local_test_passed": True,
+            "local_test_evidence": "unittest -> 3 passed",
+            "review_reds": 0,
+            "verify_passed": True,
+        }
+        m.update(overrides)
+        self._write_json(f"run/{run_id}.json", m)
+        return m
+
+    def _stage_code(self):
+        """staged 一個與溯源無關的程式碼檔，模擬正常收尾 commit 的 staging 內容。"""
+        self._write_text("app.py", "x = 1\n")
+        self._git("add", "app.py")
+
+    def _run_hook(self, command, cwd=None, project_dir=None):
+        """以 subprocess 跑 eval_gates.py --hook，回傳 CompletedProcess。"""
+        import json
+        import os
+        import subprocess
+        payload = {"tool_name": "Bash", "tool_input": {"command": command}}
+        if cwd is not None:
+            payload["cwd"] = cwd
+        env = {**os.environ, "CLAUDE_PROJECT_DIR": project_dir or self.repo}
+        return subprocess.run(
+            [sys.executable, self.eval_gates_py, "--hook"],
+            input=json.dumps(payload), env=env, capture_output=True, text=True,
+        )
+
+    def _commit_cmd(self, run_id=None):
+        """組出 commit 指令原文；run_id 非 None 時附 `Run-Id:` trailer（含收尾引號，
+        與實際指令形狀一致——trailer 解析必須耐受行尾殘留的 shell 語法）。"""
+        if run_id is None:
+            return f'{self.GIT_COMMIT} -m "ADD: demo"'
+        return f'{self.GIT_COMMIT} -m "ADD: demo\n\nRun-Id: {run_id}"'
+
+    # --- C1 ---
+    def test_c1_trailer_locates_completed_manifest_passes(self):
+        """C1：trailer 指向的 manifest 存在、completed、四欄憑據齊（未 staged）→ 放行。"""
+        self._manifest("2026-09-22-c1")
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd("2026-09-22-c1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_c1_manifest_is_not_staged(self):
+        """C1 的前提坐實：manifest 確實不在 staged 清單內（否則測的是舊路徑）。"""
+        self._manifest("2026-09-22-c1b")
+        self._stage_code()
+        out = self._git("diff", "--cached", "--name-only").stdout
+        self.assertNotIn("run/2026-09-22-c1b.json", out)
+        self.assertIn("app.py", out)
+
+    # --- C2 ---
+    def test_c2_trailer_locates_inprogress_manifest_blocks(self):
+        """C2：trailer 指向的 manifest 未 staged 且仍 in_progress → block。"""
+        self._manifest("2026-09-22-c2", status="in_progress")
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd("2026-09-22-c2"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("status 非 completed", result.stderr)
+
+    # --- C3 ---
+    def test_c3_trailer_located_manifest_missing_credential_blocks(self):
+        """C3：trailer 定位到的 Tier 1 manifest 憑據不齊 → block，訊息指名缺的欄位。"""
+        self._manifest("2026-09-22-c3", local_test_passed=None)
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd("2026-09-22-c3"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("local_test_passed", result.stderr)
+
+    def test_c3_empty_evidence_blocks(self):
+        """C3 補強：`local_test_evidence` 空字串同樣 block（憑據不可只填旗標）。"""
+        self._manifest("2026-09-22-c3b", local_test_evidence="   ")
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd("2026-09-22-c3b"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("local_test_evidence", result.stderr)
+
+    # --- C4 ---
+    def test_c4_trailer_pointing_at_missing_manifest_does_not_block(self):
+        """C4：trailer 指向不存在的 manifest → 不因 trailer 而 block（落回安全網判定）。"""
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd("2026-09-22-nonexistent"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_c4_trailer_path_traversal_is_rejected(self):
+        """C4 邊界：trailer 內容含路徑逃逸樣式時不得解析出 run/ 以外的路徑。"""
+        self._stage_code()
+        result = self._run_hook(
+            f'{self.GIT_COMMIT} -m "x\n\nRun-Id: ../../etc/passwd"'
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    # --- C5 ---
+    def test_c5_inprogress_manifest_on_disk_blocks_without_trailer(self):
+        """C5（本次改造的核心 RED 錨點）：無 trailer、manifest 未 staged，但工作目錄有
+        in_progress 的 run → block。改造前此情境 exit 0 且無任何訊息（靜默放行）。"""
+        self._manifest("2026-09-22-c5", status="in_progress")
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd())
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("run/2026-09-22-c5.json", result.stderr)
+        self.assertIn("in_progress", result.stderr)
+
+    def test_c5_remedy_names_aborted_path(self):
+        """C5 訊息可操作性：補救指示須點出 aborted 留痕路徑，而非叫人刪檔。"""
+        self._manifest("2026-09-22-c5c", status="in_progress")
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd())
+        self.assertIn("aborted", result.stderr)
+        self.assertIn("failed_reason", result.stderr)
+
+    # --- C6 ---
+    def test_c6_no_trailer_no_manifest_passes(self):
+        """C6：無 trailer、無 staged manifest、工作目錄無 in_progress run → 放行。"""
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd())
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_c6_completed_manifest_on_disk_does_not_block(self):
+        """C6 邊界：工作目錄只有已收尾（completed）的舊 run → 安全網不得誤攔。"""
+        self._manifest("2026-09-22-c6old")
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd())
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_c6_aborted_manifest_on_disk_does_not_block(self):
+        """C6 邊界：aborted 的 run 不算佔用，安全網不得誤攔。"""
+        self._manifest("2026-09-22-c6ab", status="aborted", failed_reason="放棄")
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd())
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    # --- C7 ---
+    def test_c7_staged_manifest_legacy_path_passes(self):
+        """C7：manifest 被 staged（舊專案仍把 run/ 納入版控）→ 行為與改造前一致（放行）。"""
+        self._manifest("2026-09-22-c7")
+        self._stage_code()
+        self._git("add", "run/2026-09-22-c7.json")
+        result = self._run_hook(self._commit_cmd())
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_c7_staged_inprogress_manifest_still_blocks(self):
+        """C7 反向：staged 的 manifest 仍 in_progress → 照舊 block（舊路徑不得被放寬）。"""
+        self._manifest("2026-09-22-c7b", status="in_progress")
+        self._git("add", "run/2026-09-22-c7b.json")
+        result = self._run_hook(self._commit_cmd())
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("status 非 completed", result.stderr)
+
+    def test_c7_staged_manifest_missing_intent_blocks(self):
+        """C7 反向：staged manifest 的 spec_path／spec_inline 皆空 → intent gate 照舊攔。"""
+        self._manifest("2026-09-22-c7c", spec_inline=None)
+        self._git("add", "run/2026-09-22-c7c.json")
+        result = self._run_hook(self._commit_cmd())
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("intent gate", result.stderr)
+
+    # --- C8 ---
+    def test_c8_tier2_archive_on_disk_not_staged_passes(self):
+        """C8：Tier 2 經 trailer 定位，歸檔檔存在於工作目錄但未 staged → 放行。
+        改造前此情境會 block（歸檔判定只認 staged 成員資格）。"""
+        self._manifest("2026-09-22-c8", tier=2)
+        self._write_json("run/2026-09-22-c8.eval.json", {
+            "run_id": "2026-09-22-c8",
+            "sub_tasks": [{
+                "id": 1, "name": "s1", "status": "passed",
+                "local_test_passed": True, "local_test_evidence": "ok",
+                "review_reds": 0, "verify_passed": True,
+            }],
+        })
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd("2026-09-22-c8"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_c8_tier2_missing_archive_blocks(self):
+        """C8 反向：Tier 2 定位到但歸檔檔不存在 → block，訊息不得再要求 git add。"""
+        self._manifest("2026-09-22-c8b", tier=2)
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd("2026-09-22-c8b"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("run/2026-09-22-c8b.eval.json", result.stderr)
+        self.assertNotIn("git add run/2026-09-22-c8b.eval.json", result.stderr)
+
+    def test_c8_tier2_archive_run_id_mismatch_blocks(self):
+        """C8 不變量：歸檔檔 run_id 與 manifest 不符 → 照舊 block。"""
+        self._manifest("2026-09-22-c8c", tier=2)
+        self._write_json("run/2026-09-22-c8c.eval.json",
+                         {"run_id": "someone-else", "sub_tasks": []})
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd("2026-09-22-c8c"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("不一致", result.stderr)
+
+    # --- C9 ---
+    def test_c9_test_lint_runs_when_located_via_trailer(self):
+        """C9：僅靠 trailer 定位到 manifest 時，假測試 lint 仍須啟動。
+        改造前 lint 掛在「staged 有 manifest」，manifest 不進版控後會整條失效。"""
+        self._manifest("2026-09-22-c9")
+        self._write_text("tests/test_fake.py",
+                         "def test_nothing():\n    assert True\n")
+        self._git("add", "tests/test_fake.py")
+        result = self._run_hook(self._commit_cmd("2026-09-22-c9"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("假測試 lint", result.stderr)
+
+    def test_c9_test_lint_not_run_without_any_manifest(self):
+        """C9 邊界：完全沒有 run 在進行時（非 flow commit），lint 不介入。"""
+        self._write_text("tests/test_fake.py",
+                         "def test_nothing():\n    assert True\n")
+        self._git("add", "tests/test_fake.py")
+        result = self._run_hook(self._commit_cmd())
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    # --- C10（R-008 要求的組合測試：放行型 vs 攔截型的相互遮蔽）---
+    def test_c10_narrow_exception_wins_over_inprogress_safety_net(self):
+        """C10：staged 恰一個 aborted manifest（窄例外三條件全中），同時工作目錄另有一個
+        in_progress 的 run → 維持放行。
+
+        這是刻意的排序決定：窄例外的成立條件是「staged 只有一個 manifest、不含任何 code」，
+        該 commit 純為留痕放棄的 run，不該被另一個未收尾的 run 卡死。兩者的 status 條件
+        （aborted／failed vs in_progress）互斥，不存在攔截型被永久遮蔽的情境。
+        """
+        self._manifest("2026-09-22-c10busy", status="in_progress")
+        self._manifest("2026-09-22-c10", status="aborted", failed_reason="使用者決定不做了")
+        self._git("add", "run/2026-09-22-c10.json")
+        result = self._run_hook(self._commit_cmd())
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_c10_narrow_exception_requires_sole_staged_file(self):
+        """C10 邊界：窄例外一旦多 staged 一個 code 檔即不成立，該 commit 照常受 gate 管轄。
+
+        此時 staged 內已有 manifest，故走的是既有 staged 路徑（`check_manifest` 以
+        `status 非 completed` 攔下 aborted 那份），安全網不會執行——安全網只在「一個
+        manifest 都定位不到」時才是兜底。斷言鎖定「窄例外沒有生效」這件事本身。
+        """
+        self._manifest("2026-09-22-c10busy2", status="in_progress")
+        self._manifest("2026-09-22-c10b", status="aborted", failed_reason="放棄")
+        self._git("add", "run/2026-09-22-c10b.json")
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd())
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("run/2026-09-22-c10b.json", result.stderr)
+        self.assertIn("status 非 completed", result.stderr)
+
+    # --- C11 ---
+    def test_c11_manifest_deletion_still_blocks(self):
+        """C11：1b 防刪除 gate 不受本次改造影響，且仍排在所有放行型判定之前。"""
+        self._manifest("2026-09-22-c11")
+        self._git("add", "run/2026-09-22-c11.json")
+        self._git("commit", "-q", "-m", "keep")
+        self._git("rm", "-q", "run/2026-09-22-c11.json")
+        result = self._run_hook(self._commit_cmd())
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("被刪除", result.stderr)
+
+    # --- C12 ---
+    def test_c12_non_git_repo_fails_open(self):
+        """C12：非 git repo → fail-open（exit 0），安全網不得把 gate 變成硬失敗。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as plain:
+            result = self._run_hook(self._commit_cmd(), project_dir=plain)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    # --- 既有不變量：eval_state.json 仍優先攔截 ---
+    def test_eval_state_still_blocks_before_locator(self):
+        """不變量：`eval_state.json` 存在時仍先 block，定位路徑不得把它繞過。"""
+        self._write_json("eval_state.json", {"run_id": "x", "sub_tasks": []})
+        self._manifest("2026-09-22-es")
+        self._stage_code()
+        result = self._run_hook(self._commit_cmd("2026-09-22-es"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("eval_state.json", result.stderr)
+
+
+class RunIdTrailerRegexTest(unittest.TestCase):
+    """`RUN_ID_TRAILER_RE` 的解析邊界：對象是 Bash 指令原文，行尾可能殘留 shell 語法。"""
+
+    def parse(self, command):
+        m = eval_gates.RUN_ID_TRAILER_RE.search(command)
+        return m.group(1) if m else None
+
+    def test_trailing_quote_is_not_captured(self):
+        """`-m "…"` 的收尾引號不得被捲進 run_id（捲進去會靜默退化成定位不到）。"""
+        self.assertEqual(self.parse('x -m "m\n\nRun-Id: 2026-09-22-a"'), "2026-09-22-a")
+
+    def test_heredoc_terminator_line_does_not_break_parse(self):
+        self.assertEqual(self.parse("m\n\nRun-Id: 2026-09-22-b\nEOF\n)\""), "2026-09-22-b")
+
+    def test_leading_and_trailing_whitespace_tolerated(self):
+        self.assertEqual(self.parse("  Run-Id:\t2026-09-22-c  "), "2026-09-22-c")
+
+    def test_absent_trailer_returns_none(self):
+        self.assertIsNone(self.parse("ADD: something without a trailer"))
+
+    def test_inline_mention_without_line_start_is_not_matched(self):
+        """行首錨點：散文中提到 Run-Id 不構成 trailer。"""
+        self.assertIsNone(self.parse("see the Run-Id: 2026-09-22-d for details"))
+
+    def test_path_separator_is_not_captured(self):
+        """run_id 字元集排除 `/`，路徑逃逸樣式無法組出 run/ 以外的路徑。"""
+        self.assertEqual(self.parse("Run-Id: ../../etc/passwd"), "..")
+
+    def test_first_trailer_wins(self):
+        self.assertEqual(self.parse("Run-Id: 2026-09-22-e\nRun-Id: 2026-09-22-f"),
+                         "2026-09-22-e")
+
 
 if __name__ == "__main__":
     unittest.main()
