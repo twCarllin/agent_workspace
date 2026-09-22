@@ -1,18 +1,18 @@
 ---
 name: task-decomposition
 version: 1.0
-description: 依「使用情境報告」與 Spec，把工作拆成可執行、可平行、可驗收的 task 與 item，並強制拆分粒度（每 task ≤ 5 個 item、每 item ≤ 300 行 code）。觸發語：「把這個 Spec 拆成 task」、「分拆 task」、「這個功能怎麼拆」、「拆 sub_tasks」。不適用於：尚未產出使用情境報告前（先跑 usage-scenario-analysis）、單檔 ≤10 行的 UI 微調（走難易度分級直接改）。
+description: 依 Spec（若曾具名問題觸發 usage-analyzer／impact-analyzer，答案已併入 Spec）把工作拆成可執行、可平行、可驗收的 task 與 item，並強制拆分粒度（每 task ≤ 5 個 item、每 item ≤ 300 行 code）。觸發語：「把這個 Spec 拆成 task」、「分拆 task」、「這個功能怎麼拆」、「拆 sub_tasks」。不適用於：Spec 尚未確立前、單檔 ≤10 行的 UI 微調（走難易度分級直接改）。
 ---
 
 # Task 分拆框架
 
-> 本 skill 由 **`task-decomposer` subagent** 載入使用（Eval Flow 前置 3）。主 flow 不直接跑此 skill，而是委派該 agent，由 agent 涵蓋本 skill 作為指令內容。
+> 本 skill 由 **`task-decomposer` subagent** 載入使用（Eval Flow 前置 1，條件派工超門檻時呼叫；≤2 tasks 且 ≤8 items 含界由主 flow 直建，不派此 agent）。主 flow 不直接跑此 skill，而是委派該 agent，由 agent 涵蓋本 skill 作為指令內容。
 >
 > 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
 
 **把 Spec 拆成「小到可以一次寫對、獨立可驗收」的單位。粒度失控是 eval flow 失敗與 scope 偏移的頭號成因。**
 
-輸入：run manifest `run/<run_id>.json`（由 `eval_state.json.run_id` 定位）的 `usage_report_path`（已被使用者確認的**使用情境報告**）與 `spec_path`（**Spec**）。**一律從 manifest 讀路徑，不自行以日期 / 檔名重組**——`usage_report_path` 為 `null` 代表 usage 尚未完成，此時直接中止並回報。
+輸入：run manifest `run/<run_id>.json`（由 `eval_state.json.run_id` 定位）的 `spec_path`（**Spec**）。**一律從 manifest 讀路徑，不自行以日期 / 檔名重組**。`usage_report_path` 改具名問題觸發後長期維持 `null` 屬正常（2026-09-22 起，D2）——**不再**以此欄為 `null` 中止；若主 flow 曾具名問題觸發 `usage-analyzer`／`impact-analyzer`，答案已併入 Spec，拆分時一併參考。
 輸出：`task/YYYY-MM-DD.md` 內的 task 清單，每個 task 展開為 ≤5 個 item，每個 item 對映一個使用情境、可獨立 `git diff` 審查。
 
 ---

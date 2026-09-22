@@ -64,14 +64,14 @@
 
 ## Eval Flow 執行（Tier 1／2）
 
-- Router 判為 **Tier 1 或 Tier 2** 時，**必須先載入 `eval-flow` skill**，依其內容執行（前置 0–3、循環 1–7（code-writer → review（含完成度節）→ 本地測試 → commit）、Tier 1 精簡路徑、manifest／eval_state 格式與操作規則都住在該 skill，本文件不重述）
+- Router 判為 **Tier 1 或 Tier 2** 時，**必須先載入 `eval-flow` skill**，依其內容執行（前置 0–1（風險分析已刪除不設替代、使用情境／影響面盤點改具名問題觸發）、循環 1–7（code-writer → review（per-task，含完成度節）→ 本地測試 → commit）、Tier 1 精簡路徑、manifest／eval_state 格式與操作規則都住在該 skill，本文件不重述）
 - **skill 內容不在 context 就不可憑印象跑**：執行中若對流程細節不確定（例如 context 被 compact 後、或接手他人的 run）→ **重新載入 `eval-flow` skill**（檔案在 `skills/eval-flow/SKILL.md`），並以 manifest／`eval_state.json` 的檔案狀態為準，不靠記憶
 - 各 gate 由 PreToolUse hook（`.claude/hooks/gate-check.sh` → `eval_gates.py`）強制攔截：擋亂序的 subagent 呼叫與不合規的 `git commit`。被擋時依 stderr 訊息補齊狀態後重試；實際防線以 hook 為準
 - **中斷恢復**：先前的 run 被中斷要續跑時，依 `eval-flow-resume` skill 的確定性程序恢復，不靠記憶或猜測
 
 ## Task Principle
 
-- 產出物目錄慣例（`task/YYYY-MM-DD.md`、`usage/`／`risk/`／`impact/` 以 run_id 命名、`run/<run_id>.json` 冷溯源留在工作目錄、不進版控）住 `eval-flow` skill 各前置節與 `references/formats.md`，不在此重列
+- 產出物目錄慣例（`task/YYYY-MM-DD.md`、`run/<run_id>.json` 冷溯源留在工作目錄、不進版控）住 `eval-flow` skill 各前置節與 `references/formats.md`，不在此重列。`usage/`／`impact/`／`risk/` 三目錄的既有歷史報告保留不刪（冷溯源），但 2026-09-22 起不再是任何步驟的預設輸出目標（風險分析已刪除、usage／impact 改具名問題觸發、答案寫進 Spec），不再列入產出物目錄慣例
 - **產出物自足性（換手的前提）**：Spec、usage 報告、task 檔、風險報告必須**不依賴對話上下文**即可讀懂——不得出現「如上所述」「依先前討論」等指涉對話的內容；task item 必須寫明確檔案路徑與 DoD。標準是：任何未參與對話的 AI／工程師讀檔即可接手。**引用其他 run 產出檔（spec／usage／impact 路徑＋節次）不算依賴對話**——應指向式引用、不重述內容
 - 每次新增或讀取任務時，使用**當天日期**的檔案（例如 `task/2026-04-18.md`）
 - 呼叫 subagent 完成任務（例外：Tier 1 小 item 的主 flow 直寫捷徑，見 eval-flow skill）

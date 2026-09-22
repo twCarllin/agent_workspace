@@ -58,12 +58,14 @@ TEST_FILE_NAME_RE = re.compile(r"^(test_.*|.*_test)\.py$")
 TEST_DIR_NAMES = {"test", "tests", "__tests__", "spec"}
 
 # phase 狀態機：manifest.phase 依前置步驟推進，subagent 呼叫需達到對應 phase
-PHASES = ["init", "risk_done", "usage_confirmed", "decomposed", "completed"]
+# 2026-09-22 tier2-slimming（Spec §3.2）：5→3 值域收斂，risk_done／usage_confirmed 兩值
+# 移除；舊 manifest 讀到這兩值時由 manifest_phase() 映射為 init（向後相容，見該函式）。
+PHASES = ["init", "decomposed", "completed"]
 AGENT_MIN_PHASE = {
-    "usage-analyzer": "risk_done",      # 前置 1（風險分析）完成才可跑前置 2
-    "impact-analyzer": "usage_confirmed",  # 前置 2 使用者確認後才可跑前置 2.5
-    "task-decomposer": "usage_confirmed",  # 前置 2 使用者確認後才可分拆
-    "code-writer": "decomposed",        # 前置 3 完成才可進循環
+    "usage-analyzer": "init",   # 具名問題隨時可觸發（前置 2 改觸發式，Spec §3.1 D2）
+    "impact-analyzer": "init",  # 具名問題隨時可觸發（前置 2.5 改觸發式，Spec §3.1 D2）
+    "task-decomposer": "init",  # 分拆隨時可做（前置 3 改條件派工，Spec §3.1）
+    "code-writer": "decomposed",  # 前置 3（task 分拆）完成才可進循環
 }
 
 
@@ -121,6 +123,14 @@ def _validate_credentials(obj, source):
 
 
 def validate_state(state, source, require_passed=False):
+    """逐筆驗 sub_task 的 status 與四項憑據。
+
+    **一筆代表什麼，2026-09-22 起改變**（Q2）：新 run 的一筆＝一個 **task**（審查與測試
+    都以 task 為單位）；既有 19 份 `run/*.eval.json` 歸檔的一筆＝一個 **item**（舊語義）。
+    兩者的欄位在**同一層**（status／憑據四欄都在頂層），故本函式對新舊形狀共用同一套判定、
+    無需分支——差別只在「一筆代表什麼」，那影響的是 `stats.py` 的分母語義，不是這裡。
+    `eval_state` 不存 item 層資料（Q10），故本函式也不該新增任何 `items` 相關判定。
+    """
     # rounds 品質不變量已隨 eval-scorer 移除；舊格式歸檔（含 rounds）寬容放行
     if not state.get("run_id"):
         block(f"{source} 缺 run_id")
@@ -176,14 +186,24 @@ def check_manifest(manifest_path, staged):
 
 
 def manifest_phase(manifest):
-    """讀 manifest.phase；舊 manifest 無此欄時由既有欄位推導（向後相容）。"""
+    """讀 manifest.phase；舊 manifest 無此欄時由既有欄位推導（向後相容）。
+
+    2026-09-22 tier2-slimming（Spec §3.2 向後相容，硬性）：舊值域含 risk_done／
+    usage_confirmed，新值域（PHASES）已移除這兩值。顯式值分支與推導分支都必須把
+    這兩值映射為 init，且映射須發生在 PHASES.index()（見 check_task_gate）之前——
+    不可用 try/except 兜底：吞例外會讓 phase 判定靜默走偏，等同 gate 不套用
+    （R-005 同型事故：worktree gate 曾因未執行到的路徑靜默放行）。
+    推導分支的 usage_report_path 非空不再視為 usage_confirmed（該值已離開值域，
+    且 usage_report_path 語義已改為「具名問題觸發，長期 null 屬正常」，Spec §3.1 D2）——
+    無顯式 phase 且無 task_file 時一律落回 init。
+    """
     phase = manifest.get("phase")
+    if phase in ("risk_done", "usage_confirmed"):
+        return "init"
     if phase in PHASES:
         return phase
     if manifest.get("task_file"):
         return "decomposed"
-    if manifest.get("usage_report_path"):
-        return "usage_confirmed"
     return "init"
 
 
@@ -411,22 +431,14 @@ def check_task_gate(tool_input):
             f"目前為 {phase}。請先完成缺少的前置步驟並更新 manifest.phase"
         )
 
-    if agent == "task-decomposer":
-        urp = manifest.get("usage_report_path")
-        if not urp:
-            block(f"{manifest_path} usage_report_path 為空：前置 2 未經使用者確認，不可分拆 task")
-        if urp == "skipped":
-            block("Tier 1（usage_report_path: skipped）不呼叫 task-decomposer，由主 flow 直接建 task 檔")
+    # task-decomposer 的 usage_report_path 擋人判定已移除（2026-09-22 tier2-slimming
+    # Spec §3.2 末：前置 2 改具名問題觸發後，該欄長期 null 屬正常，不再是分拆前置條件）。
 
     if agent == "code-writer":
         if not manifest.get("task_file"):
             block(f"{manifest_path} task_file 為空：前置 3 未完成，不可呼叫 code-writer")
-        # risk_analysis.blocking 遍歷：僅在 state 存在（Tier 2）時執行，Tier 1 無 sub_tasks 可遍歷
-        if state is not None:
-            for st in state.get("sub_tasks", []):
-                if (st.get("risk_analysis") or {}).get("blocking") is True:
-                    name = st.get("name") or st.get("id")
-                    block(f"sub_task「{name}」風險分析 blocking=true（🔴），須先修改 Spec 重新分析")
+        # risk_analysis.blocking 遍歷已移除（Q8：前置 1 風險分析連同本刪除，生產者消失、
+        # 此 gate 永遠不觸發；`risk_analysis` 欄位寫入路徑同步自 eval_state.py 移除）。
 
     sys.exit(0)
 

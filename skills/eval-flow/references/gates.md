@@ -24,10 +24,10 @@
    - **Tier 1 分支**：若 `run/<run_id>.eval.json` 不存在，改驗 manifest 自身四欄（`local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`），全過放行、豁免歸檔檔；歸檔檔存在時走原路徑（Tier 2 現行，Tier 1 向後相容）
 5. **假測試 lint gate**：**定位到 manifest**（flow 收尾 commit）時，staged 的 Python 測試檔跑 `test_lint.py`——啟動條件隨上方定位改變，不再只認 staged manifest，否則溯源檔不進版控後本 gate 會整條失效，檢出 if-guard 藏斷言／無斷言／恆真斷言 → 擋（誤報以行尾 `# testlint: allow` 豁免並留痕，見 test-strategy skill）
 6. **不變量驗證**：歸檔檔 `run_id` 與 manifest 不一致 → 擋
-7. **phase 狀態機（subagent 呼叫攔截）**：依 `eval_state.json.run_id` 定位 manifest，檢查 `phase` 是否達到該 agent 的最低要求，未達 → 擋呼叫：
-   - `usage-analyzer` 需 `phase >= risk_done`（前置 1 未完不可跑前置 2）
-   - `task-decomposer` 需 `phase >= usage_confirmed` 且 `usage_report_path` 非空；為 `"skipped"`（Tier 1）也擋
-   - `code-writer` 需 `phase >= decomposed` 且 `task_file` 非空；任一 sub_task `risk_analysis.blocking: true` 也擋
+7. **phase 狀態機（subagent 呼叫攔截）**：依 `eval_state.json.run_id` 定位 manifest，檢查 `phase` 是否達到該 agent 的最低要求，未達 → 擋呼叫（`PHASES` 值域 2026-09-22 起收斂為 `init` → `decomposed` → `completed`，見 `references/formats.md`）：
+   - `usage-analyzer`／`impact-analyzer`／`task-decomposer` 皆需 `phase >= init`（等同「manifest 已建即可呼叫」）——前置 1 風險分析已刪除（Q1）、usage／impact 改具名問題觸發、task-decomposer 改條件派工，三者 `AGENT_MIN_PHASE` 收斂為 `init`；`task-decomposer` **不再**要求 `usage_report_path` 非空
+   - `code-writer` 需 `phase >= decomposed` 且 `task_file` 非空。`risk_analysis.blocking` 遍歷判定已移除（Q8）——`risk_analysis` 欄位隨前置 1 刪除不再寫入，該判定恆為死碼，一併清除，不留孤兒條文
+   - **舊值相容**：既有 manifest 的 `phase` 為 `risk_done`／`usage_confirmed` 時，`manifest_phase()` 在比對值域前先映射為 `init`，不因值域收斂而拋例外（DoD 2，細節見 `references/formats.md`）
    - **共通前提**：intent gate 通過且 manifest 存在。`eval_state.json` 存在時依其 `run_id` 定位 manifest
    - **Tier 1 分支**：`eval_state.json` 不存在時，掃 `run/` 找唯一一個 `tier: 1` 且 `status: "in_progress"` 的 manifest 作為當前 run 依據（找到唯一一個 → 繼續後續 gate；找不到或多個 → 擋，原訊息語義）
    - `check_other_runs` 在兩條路徑下都執行（Tier 1 單一 run 原則不因豁免而失效）

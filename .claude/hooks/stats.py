@@ -9,7 +9,10 @@
   waive 率         驗證豁免有沒有變質為常態後門
   HITL 打回率      歷史指標，僅供對照——人閘門的價值信號改看裁示數（實測：打回率 0% 的 HITL 單場出 5 條裁示）
   rework 率（首輪即有 🔴）  幾成 sub_task 首輪就有 review_reds >= 1（需要第二輪）；
-                            legacy 歸檔無頂層 review_reds 時 fallback len(rounds) >= 2
+                            legacy 歸檔無頂層 review_reds 時 fallback len(rounds) >= 2；
+                            **分母語義斷點（PER_TASK_CUTOFF）**：2026-09-22 起一筆歸檔＝一個 task，
+                            此前一筆＝一個 item（Q2/Q9）——兩期分母意義不同，report() 分開顯示、
+                            不合併成單一趨勢（R-010：每次輸出都須明示此斷點，不得只在有新資料時才顯示）
   維度分佈         哪個品質維度問題最多（改進 writer prompt 的依據）；
                    優先讀 review_dimensions（維度→問題數）；
                    legacy 的 deduction_reasons（points_lost 加權）併入，標「含 legacy 扣分權重」
@@ -26,7 +29,8 @@
   checker 升級率   修剪審查後 checker 是否真的擋住問題、升級頻率多高；
                    讀 eval.json sub_tasks 的 checked_by 欄（checker／reviewer:碼／null）；
                    null 或缺鍵＝無記錄不入分母；未知值原樣歸「其他」桶顯示，不驗證；
-                   reviewer:boundary（邊界直派，非升級）另計不入分母
+                   reviewer:boundary（邊界直派，非升級）另計不入分母；
+                   同 rework 率的分母語義斷點，report() 分開顯示新舊兩期
   全套測試次數     每 run 收尾全套（--strike-key full_suite）跑了幾次——重跑是收尾停止規則的證據；
                    讀 events 的 verify_cmd／add-verification 事件 args.verify_command；舊事件無此鍵計 0
   前置/循環成本比  前置流程（Spec／風險／影響）相對執行循環的 token 成本結構；
@@ -48,6 +52,32 @@ import sys
 from collections import Counter
 
 MANIFEST_RE = re.compile(r"^(?P<run_id>[^/]+?)(?<!\.eval)(?<!\.test_baseline)\.json$")
+
+# Q2/Q9（2026-09-22 起）：eval.json 歸檔一筆＝一個 task；此前一筆＝一個 item。
+# rework 率／checker 升級率的分母意義因此在此日期切換，兩期不可直接比較（見 stats.py 模組 docstring）。
+PER_TASK_CUTOFF = "2026-09-22"
+
+# 分母斷點標籤：`append_rework_rate` 與 `append_checker_escalation` 共用。
+# 這是**載重文案**——兩處必須逐字一致，否則讀者會把兩種分母的數字誤讀成同一條趨勢。
+# 抽成單一常數即為此：一處改字不會讓另一處默默分岔（2026-09-22 審查 🟡）。
+_BREAKPOINT_LABEL = (
+    f"　｜　斷點 {PER_TASK_CUTOFF} 起"
+    "（分母＝task 數，此前分母＝item 數，兩期不可直接比較）："
+)
+_RUN_ID_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:-|$)")
+
+
+def _period(run_id):
+    """依 run_id 的日期前綴（`YYYY-MM-DD-slug` 慣例）判該筆歸檔屬新期或舊期。
+    無法解析日期時保守歸類為「舊」——不把未知值當新制，避免稀釋新分母語義（R-010）。"""
+    m = _RUN_ID_DATE_RE.match(run_id or "")
+    if not m:
+        return "old"
+    try:
+        d = datetime.date.fromisoformat(m.group(1))
+    except ValueError:
+        return "old"
+    return "new" if d >= datetime.date.fromisoformat(PER_TASK_CUTOFF) else "old"
 
 
 def load(path):
@@ -111,7 +141,11 @@ def collect(run_dir="run"):
     data = {
         "runs": [], "tiers": Counter(), "statuses": Counter(),
         "waived": 0, "hitl_confirmed": 0, "hitl_rejections": 0,
+        # sub_tasks／rework／checked_by_*：分母語義斷點（PER_TASK_CUTOFF）——本組無 `_new` 後綴的鍵
+        # 代表「舊期」（2026-09-22 前，一筆＝一個 item）；`_new` 後綴代表「新期」（一筆＝一個 task）。
+        # 兩期絕不相加成單一數字（R-010／DoD③），report() 分開顯示。
         "sub_tasks": 0, "rework": 0,
+        "sub_tasks_new": 0, "rework_new": 0,
         "scores": [], "dim_counter": Counter(), "has_legacy_dims": False,
         "baseline": [],  # (run_id, stable)
         "verif_runs": 0, "verif_cmds": 0,
@@ -120,6 +154,8 @@ def collect(run_dir="run"):
         "hitl_rulings": [], "hitl_rulings_missing": 0,
         "checked_by_direct": 0, "checked_by_escalated": 0,
         "checked_by_dist": Counter(), "checked_by_none": 0, "checked_by_boundary": 0,
+        "checked_by_direct_new": 0, "checked_by_escalated_new": 0,
+        "checked_by_dist_new": Counter(), "checked_by_none_new": 0, "checked_by_boundary_new": 0,
         "subagent_usage": [], "subagent_usage_missing": 0,  # (run_id, prep, loop)，僅實測 run
         "subagent_usage_main": [],  # (run_id, main) 選填鍵，主 flow 用量（實測 run）
         "subagent_usage_legacy": 0,  # 有 subagent_usage 無 token_usage：舊制自報，不併計
@@ -171,16 +207,26 @@ def collect(run_dir="run"):
 
         archive = load(os.path.join(run_dir, f"{m['run_id']}.eval.json"))
         if isinstance(archive, dict):
+            period = _period(m["run_id"])  # "old"（一筆＝item）或 "new"（一筆＝task，Q2/Q9）
             for st in archive.get("sub_tasks", []):
                 rounds = st.get("rounds", [])
-                data["sub_tasks"] += 1
+                if period == "new":
+                    data["sub_tasks_new"] += 1
+                else:
+                    data["sub_tasks"] += 1
                 # rework：優先讀頂層 review_reds；legacy 歸檔（無頂層 review_reds）fallback rounds 數
+                is_rework = False
                 top_reds = st.get("review_reds")
                 if top_reds is not None:
                     if isinstance(top_reds, int) and not isinstance(top_reds, bool) and top_reds >= 1:
-                        data["rework"] += 1
+                        is_rework = True
                 else:
                     if len(rounds) >= 2:
+                        is_rework = True
+                if is_rework:
+                    if period == "new":
+                        data["rework_new"] += 1
+                    else:
                         data["rework"] += 1
                 # legacy quality_score
                 for rnd in rounds:
@@ -197,14 +243,27 @@ def collect(run_dir="run"):
                 # 其餘任何值（reviewer:碼 或未知值，不驗證）＝升級，計入分佈
                 checked_by = st.get("checked_by")
                 if checked_by == "checker":
-                    data["checked_by_direct"] += 1
+                    if period == "new":
+                        data["checked_by_direct_new"] += 1
+                    else:
+                        data["checked_by_direct"] += 1
                 elif checked_by == "reviewer:boundary":
-                    data["checked_by_boundary"] += 1
+                    if period == "new":
+                        data["checked_by_boundary_new"] += 1
+                    else:
+                        data["checked_by_boundary"] += 1
                 elif checked_by:
-                    data["checked_by_escalated"] += 1
-                    data["checked_by_dist"][checked_by] += 1
+                    if period == "new":
+                        data["checked_by_escalated_new"] += 1
+                        data["checked_by_dist_new"][checked_by] += 1
+                    else:
+                        data["checked_by_escalated"] += 1
+                        data["checked_by_dist"][checked_by] += 1
                 else:
-                    data["checked_by_none"] += 1
+                    if period == "new":
+                        data["checked_by_none_new"] += 1
+                    else:
+                        data["checked_by_none"] += 1
 
                 review_dims = st.get("review_dimensions")
                 if isinstance(review_dims, dict):
@@ -278,22 +337,43 @@ def append_hitl_rulings(out, data):
         out.append("HITL 裁示數：無記錄（需要 hitl_rulings）")
 
 
-def append_checker_escalation(out, data):
-    direct = data["checked_by_direct"]
-    escalated = data["checked_by_escalated"]
+def append_rework_rate(out, data):
+    # 舊期（此前）：與改版前完全相同的字面格式，既有斷言相容
+    line = f"rework 率（首輪即有 🔴）：{pct(data['rework'], data['sub_tasks'])}"
+    # 新期（斷點起）：R-010，每次都明示斷點存在，不因新期無資料而省略
+    line += _BREAKPOINT_LABEL + pct(data["rework_new"], data["sub_tasks_new"])
+    out.append(line)
+
+
+def _checker_escalation_segment(direct, escalated, none_cnt, boundary_cnt, dist):
+    """算一期（新或舊）的 checker 升級率文字段。抽出供 append_checker_escalation 兩期共用。"""
     total = direct + escalated
-    if total:
-        dist = dict(data["checked_by_dist"].most_common())
-        line = (
-            f"checker 升級率：{pct(escalated, total)}"
-            f"（直過 {direct}／升級 {escalated}；reviewer 分佈 {dist}）"
-            f"　無記錄：{data['checked_by_none']} 個 sub_task"
-        )
-        if data["checked_by_boundary"]:
-            line += f"　邊界直派：{data['checked_by_boundary']} 個 sub_task"
-        out.append(line)
-    else:
-        out.append("checker 升級率：無記錄（需要 checked_by）")
+    if not total:
+        return "無記錄（需要 checked_by）"
+    seg = (
+        f"{pct(escalated, total)}"
+        f"（直過 {direct}／升級 {escalated}；reviewer 分佈 {dict(dist.most_common())}）"
+        f"　無記錄：{none_cnt} 個 sub_task"
+    )
+    if boundary_cnt:
+        seg += f"　邊界直派：{boundary_cnt} 個 sub_task"
+    return seg
+
+
+def append_checker_escalation(out, data):
+    # 舊期（此前）：與改版前完全相同的字面格式，既有斷言相容
+    old_seg = _checker_escalation_segment(
+        data["checked_by_direct"], data["checked_by_escalated"],
+        data["checked_by_none"], data["checked_by_boundary"], data["checked_by_dist"],
+    )
+    line = "checker 升級率：" + old_seg
+    # 新期（斷點起）：R-010，每次都明示斷點存在，不因新期無資料而省略
+    new_seg = _checker_escalation_segment(
+        data["checked_by_direct_new"], data["checked_by_escalated_new"],
+        data["checked_by_none_new"], data["checked_by_boundary_new"], data["checked_by_dist_new"],
+    )
+    line += _BREAKPOINT_LABEL + new_seg
+    out.append(line)
 
 
 def append_subagent_usage(out, data):
@@ -344,7 +424,7 @@ def report(data):
     hitl_total = data["hitl_confirmed"] + data["hitl_rejections"]
     out.append(f"HITL 打回率：{pct(data['hitl_rejections'], hitl_total)}（歷史指標，價值信號看裁示數）")
     append_hitl_rulings(out, data)
-    out.append(f"rework 率（首輪即有 🔴）：{pct(data['rework'], data['sub_tasks'])}")
+    append_rework_rate(out, data)
     append_checker_escalation(out, data)
     if data["scores"]:
         out.append(f"quality_score（legacy）：平均 {sum(data['scores']) / len(data['scores']):.1f}（{len(data['scores'])} rounds）")

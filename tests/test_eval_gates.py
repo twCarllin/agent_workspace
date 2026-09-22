@@ -111,15 +111,34 @@ class ValidateStateTest(unittest.TestCase):
 
 
 class ManifestPhaseTest(unittest.TestCase):
-    def test_explicit_phase_wins(self):
-        self.assertEqual(eval_gates.manifest_phase({"phase": "risk_done"}), "risk_done")
+    # 2026-09-22 tier2-slimming（Spec §3.2）：PHASES 5→3，risk_done／usage_confirmed
+    # 兩值移除。舊 manifest 顯式帶這兩值時必須映射為 init（向後相容，不可拋例外）。
+    def test_explicit_legacy_phase_maps_to_init(self):
+        self.assertEqual(eval_gates.manifest_phase({"phase": "risk_done"}), "init")
+
+    def test_explicit_legacy_usage_confirmed_maps_to_init(self):
+        self.assertEqual(eval_gates.manifest_phase({"phase": "usage_confirmed"}), "init")
+
+    def test_explicit_phase_in_new_domain_wins(self):
+        self.assertEqual(eval_gates.manifest_phase({"phase": "decomposed"}), "decomposed")
+
+    def test_explicit_legacy_phase_takes_priority_over_task_file_derivation(self):
+        """item 3.2 mutation self-check 坐實點：顯式 legacy phase 值必須一律映射 init，
+        不得因 task_file 存在而被推導覆蓋為 decomposed。若映射邏輯被搬到推導判斷之後
+        （或搬到 check_task_gate 的 PHASES.index() 之後才用 try/except 兜底），此案例會
+        因 task_file 存在而誤回 decomposed，斷言即失敗——這是本測試存在的意義。"""
+        self.assertEqual(
+            eval_gates.manifest_phase({"phase": "risk_done", "task_file": "task/x.md"}),
+            "init",
+        )
 
     def test_legacy_derivation_from_task_file(self):
         self.assertEqual(eval_gates.manifest_phase({"task_file": "task/x.md"}), "decomposed")
 
-    def test_legacy_derivation_from_usage_report(self):
+    def test_legacy_derivation_from_usage_report_no_longer_confirmed(self):
+        # 推導分支不再回 usage_confirmed（已離開值域）；無顯式 phase 時一律落 init。
         self.assertEqual(
-            eval_gates.manifest_phase({"usage_report_path": "usage/x.md"}), "usage_confirmed"
+            eval_gates.manifest_phase({"usage_report_path": "usage/x.md"}), "init"
         )
 
     def test_default_is_init(self):
@@ -133,7 +152,7 @@ class ManifestPhaseTest(unittest.TestCase):
         without = eval_gates.manifest_phase({"phase": "risk_done"})
         with_parent = eval_gates.manifest_phase({"phase": "risk_done", "parent_run_id": "P"})
         self.assertEqual(without, with_parent)
-        self.assertEqual(with_parent, "risk_done")
+        self.assertEqual(with_parent, "init")
 
     def test_legacy_task_file_path_unaffected_by_parent_run_id(self):
         without = eval_gates.manifest_phase({"task_file": "task/x.md"})
@@ -237,7 +256,12 @@ class GitCommitRegexTest(unittest.TestCase):
 
 
 class ImpactAnalyzerGateTest(unittest.TestCase):
-    """測試 check_task_gate() 對 impact-analyzer 的 phase 前置檢查。"""
+    """測試 check_task_gate() 對 impact-analyzer／code-writer 的 phase 前置檢查。
+
+    2026-09-22 tier2-slimming（Spec §3.2）：AGENT_MIN_PHASE 改 init 後，impact-analyzer
+    在新值域內已無「低於門檻」的可能（init 是最低值）；新語義為「init 即放行」，且舊值
+    risk_done 映射為 init 後同樣滿足。code-writer 仍要求 decomposed，故用它坐實
+    [組合] 契約：舊 manifest phase=risk_done 映射 init，init < decomposed 仍 block。"""
 
     def setUp(self):
         import os
@@ -266,17 +290,26 @@ class ImpactAnalyzerGateTest(unittest.TestCase):
         with open("eval_state.json", "w", encoding="utf-8") as f:
             json.dump({"run_id": "test-run", "sub_tasks": []}, f)
 
-    def test_phase_below_usage_confirmed_blocks(self):
-        self._write_state_and_manifest("risk_done")
-        with self.assertRaises(SystemExit) as ctx:
-            eval_gates.check_task_gate({"subagent_type": "impact-analyzer"})
-        self.assertEqual(ctx.exception.code, 2)
-
-    def test_phase_usage_confirmed_passes(self):
-        self._write_state_and_manifest("usage_confirmed")
+    def test_impact_analyzer_passes_at_init_phase(self):
+        self._write_state_and_manifest("init")
         with self.assertRaises(SystemExit) as ctx:
             eval_gates.check_task_gate({"subagent_type": "impact-analyzer"})
         self.assertEqual(ctx.exception.code, 0)
+
+    def test_impact_analyzer_passes_with_legacy_risk_done_phase(self):
+        # 舊值 risk_done 映射為 init，init >= init（AGENT_MIN_PHASE 新語義）→ 放行。
+        self._write_state_and_manifest("risk_done")
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "impact-analyzer"})
+        self.assertEqual(ctx.exception.code, 0)
+
+    def test_code_writer_blocked_by_legacy_phase_mapped_to_init(self):
+        # 契約 [組合]：舊 manifest phase=risk_done 呼叫 code-writer → 映射 init，
+        # init < decomposed → block exit 2（assertRaises(SystemExit) 亦坐實未拋 ValueError）。
+        self._write_state_and_manifest("risk_done")
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "code-writer"})
+        self.assertEqual(ctx.exception.code, 2)
 
 
 class ParentRunIdCompatTest(unittest.TestCase):
@@ -1399,6 +1432,131 @@ class ColdFileLocationGateTest(unittest.TestCase):
         self.assertIn("eval_state.json", result.stderr)
 
 
+class LegacyPhaseCompatibilityTest(unittest.TestCase):
+    """item 3.2（task/2026-09-22.md）：舊 manifest phase 值域（risk_done／usage_confirmed）
+    與 check_task_gate()／manifest_phase() 的向後相容（Spec §3.2、DoD 2）。
+
+    全部案例走**真實端到端路徑**：真 subprocess 跑 `eval_gates.py --hook`、真實
+    `tool_name: "Task"` payload，不以直接 import 內部函式繞過（R-005：以直接呼叫內部
+    函式繞過跨進程執行契約的單元測試，不構成驗收證據——本類與 ColdFileLocationGateTest
+    同一防線標準）。manifest 欄位組合取自既有真實 Tier 2 run
+    （`run/2026-08-20-obs-hardening.json`）的實際 key 組合，只覆寫 phase 為舊值——
+    這是遷移前的真實瞬時狀態：前置 1／2 完成當下 manifest.phase 曾經是
+    risk_done／usage_confirmed，只是該瞬間從未被單獨歸檔留存。
+    """
+
+    # 欄位組合取自 run/2026-08-20-obs-hardening.json（真實 Tier 2 manifest 形狀）
+    LEGACY_FIELD_SHAPE = {
+        "tier": 2,
+        "spec_path": "spec/demo.md",
+        "spec_inline": None,
+        "risk_report_path": "risk/demo.md",
+        "usage_report_path": "usage/demo.md",
+        "impact_report_path": None,
+        "task_file": None,
+        "status": "in_progress",
+        "failed_reason": None,
+        "local_test_passed": None,
+        "local_test_evidence": None,
+        "verification_commands": [],
+        "review_reds": None,
+        "verify_passed": None,
+    }
+
+    def setUp(self):
+        import os
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = self.tmp.name
+        self.eval_gates_py = str(
+            Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "eval_gates.py"
+        )
+        os.makedirs(os.path.join(self.repo, "run"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_json(self, rel, obj):
+        import json
+        import os
+        path = os.path.join(self.repo, rel)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(obj, f)
+
+    def _write_legacy_manifest(self, run_id, phase):
+        m = {"run_id": run_id, **self.LEGACY_FIELD_SHAPE, "phase": phase}
+        self._write_json(f"run/{run_id}.json", m)
+        return m
+
+    def _write_eval_state(self, run_id):
+        self._write_json("eval_state.json", {"run_id": run_id, "sub_tasks": []})
+
+    def _run_subagent_gate(self, subagent_type):
+        """以 subprocess 跑 eval_gates.py --hook，payload 模擬 PreToolUse 攔 Task 呼叫。"""
+        import json
+        import os
+        import subprocess
+        payload = {"tool_name": "Task", "tool_input": {"subagent_type": subagent_type}}
+        env = {**os.environ, "CLAUDE_PROJECT_DIR": self.repo}
+        return subprocess.run(
+            [sys.executable, self.eval_gates_py, "--hook"],
+            input=json.dumps(payload), env=env, capture_output=True, text=True,
+        )
+
+    # --- DoD ①：真實舊 manifest 形狀端到端過 check_task_gate／manifest_phase()，不拋例外 ---
+
+    def test_risk_done_manifest_passes_impact_analyzer_gate_e2e(self):
+        """AGENT_MIN_PHASE 改 init 後，舊值 risk_done 映射 init，init>=init → 放行 exit 0。"""
+        self._write_legacy_manifest("2026-09-22-legacy-risk-done", "risk_done")
+        self._write_eval_state("2026-09-22-legacy-risk-done")
+        result = self._run_subagent_gate("impact-analyzer")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_usage_confirmed_manifest_passes_task_decomposer_gate_e2e(self):
+        """舊值 usage_confirmed 映射 init，task-decomposer 新門檻 init → 放行 exit 0；
+        擋人兩條（usage_report_path 空/skipped）已隨 §3.2 末移除，非空亦不再判定。"""
+        self._write_legacy_manifest("2026-09-22-legacy-usage-confirmed", "usage_confirmed")
+        self._write_eval_state("2026-09-22-legacy-usage-confirmed")
+        result = self._run_subagent_gate("task-decomposer")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_usage_confirmed_manifest_blocks_code_writer_not_valueerror_e2e(self):
+        """契約 [組合]：舊 manifest phase=usage_confirmed 呼叫 code-writer → 映射 init，
+        init < decomposed（code-writer 門檻）→ block exit 2；stderr 不含 Traceback，
+        坐實映射未讓 PHASES.index() 對離域值拋 ValueError（R-005 同型防線，DoD 2）。"""
+        self._write_legacy_manifest("2026-09-22-legacy-block", "usage_confirmed")
+        self._write_eval_state("2026-09-22-legacy-block")
+        result = self._run_subagent_gate("code-writer")
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("phase 狀態機", result.stderr)
+
+    def test_no_explicit_phase_with_usage_report_path_derivation_e2e(self):
+        """item 3.2 mutation self-check 坐實點（sabotage 2：刪除推導分支的映射修正）：
+        推導分支的舊行為（usage_report_path 非空 → 回 usage_confirmed，已離開新值域）
+        已移除；無顯式 phase 鍵、但 usage_report_path 非空的 legacy manifest 走推導分支時，
+        若該修正被撤銷，manifest_phase() 會回傳離域值，check_task_gate() 的
+        PHASES.index(phase) 隨即拋 ValueError（未被捕捉，非 exit 2、R-005 同型靜默失效）；
+        本測試斷言 exit 0 且 stderr 無 Traceback，坐實推導分支已正確映射。"""
+        m = {"run_id": "2026-09-22-legacy-derive", **self.LEGACY_FIELD_SHAPE}
+        self._write_json("run/2026-09-22-legacy-derive.json", m)  # 無 phase 鍵
+        self._write_eval_state("2026-09-22-legacy-derive")
+        result = self._run_subagent_gate("impact-analyzer")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    # --- DoD ②：新值 ⊂ 舊值域（雙向相容，H-err2）---
+
+    def test_new_phases_are_subset_of_legacy_domain(self):
+        """新 PHASES（3 值）皆存在於舊 5 值域內——新 hook 讀舊 manifest（上方 e2e 案例）、
+        舊 hook 讀新 manifest（新值本就是舊值域子集，語義未變）皆相容。"""
+        legacy_domain = {"init", "risk_done", "usage_confirmed", "decomposed", "completed"}
+        self.assertTrue(set(eval_gates.PHASES).issubset(legacy_domain))
+        self.assertEqual(set(eval_gates.PHASES), {"init", "decomposed", "completed"})
+
+
 class RunIdTrailerRegexTest(unittest.TestCase):
     """`RUN_ID_TRAILER_RE` 的解析邊界：對象是 Bash 指令原文，行尾可能殘留 shell 語法。"""
 
@@ -1430,6 +1588,239 @@ class RunIdTrailerRegexTest(unittest.TestCase):
     def test_first_trailer_wins(self):
         self.assertEqual(self.parse("Run-Id: 2026-09-22-e\nRun-Id: 2026-09-22-f"),
                          "2026-09-22-e")
+
+class PerTaskSubTaskChainTest(unittest.TestCase):
+    """item 4.4：per-task sub_task 全鏈整合 ＋ 舊歸檔形狀相容（Q2／Q8／Q10）。
+
+    2026-09-22 起 `eval_state.sub_tasks` 的一筆＝一個 **task**（此前一筆＝一個 item）。
+    欄位位置未變，故新舊形狀共用同一套 `validate_state`；本類鎖定三件事：
+      ①新形狀全鏈（建立→各 set-*→驗證→gate）串得通
+      ②既有 19 份 `run/*.eval.json` 歸檔（舊 per-item 語義、帶已移除的 `risk_analysis`
+        與 legacy `rounds` 鍵）仍能通過驗證，不崩也不誤擋
+      ③不得回頭加 item 層——skeleton 鍵集與 `validate_state` 都不該出現 `items`
+    """
+
+    # 取自真實歸檔 run/2026-07-16-floor-audit-gates.eval.json 的實際鍵組合。
+    # 刻意保留 risk_analysis（Q8 已移除的欄位）與 rounds（eval-scorer 時代的 legacy 鍵）
+    # ——這正是相容性要驗的東西：讀取端移除後，舊檔多帶的鍵不得造成任何判定變化。
+    LEGACY_ARCHIVE_SUBTASK = {
+        "id": 1,
+        "name": "舊語義：這一筆代表一個 item",
+        "status": "passed",
+        "step": "done",
+        "files": ["src/a.py"],
+        "warning": False,
+        "local_test_passed": True,
+        "local_test_evidence": "pytest -q -> 12 passed",
+        "review_reds": 0,
+        "verify_passed": True,
+        "risk_analysis": {"technical": "🟡 舊前置 1 留下的面向映射"},
+        "rounds": [{"score": 9}],
+    }
+
+    def setUp(self):
+        import os
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+
+    def tearDown(self):
+        import os
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    def _eval_state_cli(self, *args):
+        import subprocess
+        script = str(
+            Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "eval_state.py"
+        )
+        return subprocess.run(
+            [sys.executable, script, *args], capture_output=True, text=True
+        )
+
+    def _read_state(self):
+        import json
+        with open("eval_state.json", encoding="utf-8") as f:
+            return json.load(f)
+
+    # --- DoD① 新形狀全鏈 ---
+
+    def test_per_task_chain_reaches_valid_state(self):
+        """建立→set-files→set-review→set-verify→set-test→set-status→validate_state 全鏈通過。
+
+        每一步都以 **task id** 定址（Q2／Q10：無 item 層定位入口）。
+        """
+        self.assertEqual(self._eval_state_cli("init", "--run-id", "r-chain").returncode, 0)
+        self.assertEqual(
+            self._eval_state_cli("add-subtask", "--id", "1", "--name", "Task 1").returncode, 0
+        )
+        for args in (
+            ("set-files", "1", "src/a.py", "src/b.py"),
+            ("set-review", "1", "0", "--checked-by", "checker"),
+            ("set-verify", "1"),
+            ("set-test", "1", "--passed", "--evidence", "unittest -> 380 passed"),
+            ("set-status", "1", "passed"),
+        ):
+            self.assertEqual(self._eval_state_cli(*args).returncode, 0, args)
+
+        state = self._read_state()
+        # 不拋例外＝通過（validate_state 以 block()/SystemExit 表示失敗）
+        eval_gates.validate_state(state, "chain", require_passed=True)
+
+        st = state["sub_tasks"][0]
+        self.assertEqual(st["files"], ["src/a.py", "src/b.py"])
+        self.assertEqual(st["review_reds"], 0)
+        self.assertIs(st["verify_passed"], True)
+        self.assertIs(st["local_test_passed"], True)
+
+    def test_incomplete_task_still_blocked(self):
+        """反向：憑據不齊的 task 仍被擋（per-task 化不得放寬既有不變量）。"""
+        self._eval_state_cli("init", "--run-id", "r-chain2")
+        self._eval_state_cli("add-subtask", "--id", "1", "--name", "Task 1")
+        self._eval_state_cli("set-status", "1", "passed")
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.validate_state(self._read_state(), "chain2", require_passed=True)
+        self.assertEqual(ctx.exception.code, 2)
+
+    # --- DoD② 舊歸檔形狀相容 ---
+
+    def test_legacy_archive_shape_passes_validation(self):  # testlint: allow — 斷言的是「不拋例外」
+        """既有 19 份歸檔（舊 per-item 語義，帶 risk_analysis 與 rounds）仍通過驗證。
+
+        Q8 移除 `risk_analysis` 的是**寫入端**；讀取端移除後，舊檔多帶該鍵不得造成任何
+        判定變化——否則 19 份歷史歸檔會在下一次被讀取時集體失效。
+        """
+        state = {"run_id": "legacy", "sub_tasks": [dict(self.LEGACY_ARCHIVE_SUBTASK)]}
+        # validate_state 失敗時以 block()→SystemExit 表示，成功時回 None——無回傳值可斷言，
+        # 「不拋例外」即為斷言本體（沿 ValidateStateTest 既有慣例）。
+        eval_gates.validate_state(state, "legacy", require_passed=True)
+
+    def test_legacy_archive_missing_credential_still_blocked(self):
+        """反向：舊形狀的寬容不得變成放行——憑據真的缺時照樣擋。"""
+        bad = dict(self.LEGACY_ARCHIVE_SUBTASK)
+        bad["verify_passed"] = False
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.validate_state(
+                {"run_id": "legacy", "sub_tasks": [bad]}, "legacy", require_passed=True
+            )
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_legacy_archive_has_no_items_key(self):
+        """坐實 fixture 的前提：舊歸檔確實沒有 items 鍵（否則本類測的不是相容性）。"""
+        self.assertNotIn("items", self.LEGACY_ARCHIVE_SUBTASK)
+
+    # --- DoD③ 不得回頭加 item 層 ---
+
+    def test_validate_state_does_not_require_items_key(self):
+        """sabotage 哨兵：若有人讓 `validate_state` 要求 `items` 鍵存在，本測試會紅。
+
+        Q10 裁示 `eval_state` 不存 item 層資料（single source＝task 檔）。新舊兩種形狀
+        都沒有 `items`，故任何依賴該鍵的判定都會同時打爛現行 run 與 19 份歷史歸檔。
+        """
+        self._eval_state_cli("init", "--run-id", "r-noitems")
+        self._eval_state_cli("add-subtask", "--id", "1", "--name", "Task 1")
+        self._eval_state_cli("set-review", "1", "0")
+        self._eval_state_cli("set-verify", "1")
+        self._eval_state_cli("set-test", "1", "--passed", "--evidence", "ok")
+        self._eval_state_cli("set-status", "1", "passed")
+        state = self._read_state()
+        self.assertNotIn("items", state["sub_tasks"][0])
+        eval_gates.validate_state(state, "noitems", require_passed=True)
+
+
+class CrossHookFullChainTest(unittest.TestCase):
+    """item 5.3①：跨 hook 整合——新 phase manifest ＋新 per-task eval_state 串
+    `manifest_phase` → `check_task_gate` → `validate_state` → `stats.collect` 端到端自洽。
+
+    run_id 刻意用 2026-09-22 起的日期前綴，坐實 stats.py 把它算進「新期」分母
+    （task 數），與 PerTaskSubTaskChainTest（無 stats 消費）互補、不重複斷言同一行為
+    （R-007：validate_state 鏈已由該類覆蓋，本類只鎖跨檔案自洽這一新增行為）。
+    """
+
+    RUN_ID = "2026-09-22-fullchain-test"
+
+    def setUp(self):
+        import os
+        import sys as _sys
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        _sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".claude" / "hooks"))
+        global stats
+        import stats  # noqa: E402
+
+    def tearDown(self):
+        import os
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    def _eval_state_cli(self, *args):
+        import subprocess
+        script = str(Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "eval_state.py")
+        return subprocess.run([sys.executable, script, *args], capture_output=True, text=True)
+
+    def _write_manifest(self, **overrides):
+        import json
+        import os
+        os.makedirs("run", exist_ok=True)
+        manifest = {
+            "run_id": self.RUN_ID, "spec_inline": "test spec",
+            "status": "in_progress", "phase": "decomposed",
+            "task_file": "task/2026-09-22.md",
+        }
+        manifest.update(overrides)
+        with open(f"run/{self.RUN_ID}.json", "w", encoding="utf-8") as f:
+            json.dump(manifest, f)
+        return manifest
+
+    def _read_state(self):
+        import json
+        with open("eval_state.json", encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_full_chain_self_consistent_and_counted_as_new_period(self):
+        self._write_manifest()
+        self.assertEqual(self._eval_state_cli("init", "--run-id", self.RUN_ID).returncode, 0)
+        self.assertEqual(
+            self._eval_state_cli("add-subtask", "--id", "1", "--name", "Task 1").returncode, 0
+        )
+
+        # ① manifest_phase → check_task_gate：decomposed 滿足 code-writer 門檻 → 放行
+        with self.assertRaises(SystemExit) as ctx:
+            eval_gates.check_task_gate({"subagent_type": "code-writer"})
+        self.assertEqual(ctx.exception.code, 0)
+
+        # 走完循環，憑據齊全
+        for args in (
+            ("set-files", "1", "src/a.py"),
+            ("set-review", "1", "0", "--checked-by", "checker"),
+            ("set-verify", "1"),
+            ("set-test", "1", "--passed", "--evidence", "unittest -> ok"),
+            ("set-status", "1", "passed"),
+        ):
+            self.assertEqual(self._eval_state_cli(*args).returncode, 0, args)
+
+        # ② validate_state：不拋例外＝通過
+        state = self._read_state()
+        eval_gates.validate_state(state, "fullchain", require_passed=True)
+
+        # 歸檔（archive 內部也呼叫 validate_state，二次坐實）＋收尾 manifest
+        self.assertEqual(self._eval_state_cli("archive").returncode, 0)
+        self._write_manifest(status="completed", phase="completed")
+
+        # check_manifest：歸檔檔存在於工作目錄（未 staged）仍應通過，不 block
+        eval_gates.check_manifest(f"run/{self.RUN_ID}.json", staged=set())
+
+        # ③ stats.collect：新期（run_id >= PER_TASK_CUTOFF）分母＝task 數，正確累計且不崩
+        data = stats.collect("run")
+        self.assertEqual(data["sub_tasks_new"], 1)
+        self.assertEqual(data["rework_new"], 0)         # review_reds=0
+        self.assertEqual(data["checked_by_direct_new"], 1)  # checked_by=checker
+        self.assertEqual(data["sub_tasks"], 0)           # 舊期分母不受污染
+        text = stats.report(data)
+        self.assertIn(stats.PER_TASK_CUTOFF, text)       # 斷點標示出現在輸出中
 
 
 if __name__ == "__main__":

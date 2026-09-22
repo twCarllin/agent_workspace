@@ -104,6 +104,54 @@ class EvalStateHelperTest(unittest.TestCase):
         self.assertIsNone(st["review_reds"])
         self.assertFalse(st["verify_passed"])
 
+    # --- per-task 改構（Q2／Q9／Q10，2026-09-22）---
+
+    def test_add_subtask_skeleton_key_set_is_exact(self):
+        """R-004 加嚴：skeleton 是寫出留痕欄位的函式，逐鍵斷言完整鍵集而非只驗存在性。
+
+        Q10 裁示 `eval_state` 不存 item 層資料（item 的 DoD／契約表 single source
+        ＝task 檔），故鍵集**不得**含 `items`；Q8 裁示 `risk_analysis` 移除，亦不得出現。
+        鍵集寫死是刻意的——新增欄位會使本測試紅，強制改動者回來確認該欄位真的該進 skeleton。
+        """
+        self.bootstrap()
+        st = self.read_state()["sub_tasks"][0]
+        self.assertEqual(set(st.keys()), {
+            "id", "name", "status", "step", "files", "warning",
+            "local_test_passed", "local_test_evidence", "verification_commands",
+            "review_reds", "review_dimensions", "checked_by", "verify_passed",
+        })
+
+    def test_add_subtask_skeleton_has_no_item_layer(self):
+        """Q10：確認 skeleton 不含 items（曾於 2026-09-22 短暫加入後依裁示移除）。"""
+        self.bootstrap()
+        self.assertNotIn("items", self.read_state()["sub_tasks"][0])
+
+    def test_legacy_flat_subtask_with_extra_keys_still_operable(self):
+        """向後相容：既有 19 份歸檔與進行中的舊 eval_state 帶 `risk_analysis` 等已移除的鍵，
+        子命令仍須能對其操作（本 run 自身即為此形狀，改構期間不得把自己鎖死）。"""
+        self.bootstrap()
+        # setUp 已 chdir 到 tmpdir，"eval_state.json" 即該 run 的實際狀態檔（同 read_state 慣例）
+        state = self.read_state()
+        state["sub_tasks"][0]["risk_analysis"] = {"technical": "舊欄位"}
+        with open("eval_state.json", "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False)
+        run_cli("set-review", "1", "0")
+        st = self.read_state()["sub_tasks"][0]
+        self.assertEqual(st["review_reds"], 0)
+        self.assertEqual(st["risk_analysis"], {"technical": "舊欄位"})
+
+    def test_set_review_writes_task_layer_reds_with_zero(self):
+        """Q9 契約 row 2：set-review id=1 reds=0 → sub_tasks[0].review_reds == 0（task 層憑據）。"""
+        self.bootstrap()
+        run_cli("set-review", "1", "0")
+        self.assertEqual(self.read_state()["sub_tasks"][0]["review_reds"], 0)
+
+    def test_set_files_reflects_in_task_layer_union(self):
+        """Q9 契約 row 3：set-files 寫入反映在 task 層 files 聯集。"""
+        self.bootstrap()
+        run_cli("set-files", "1", "src/a.py", "src/b.py")
+        self.assertEqual(self.read_state()["sub_tasks"][0]["files"], ["src/a.py", "src/b.py"])
+
     def test_set_review_writes_reds(self):
         self.bootstrap()
         run_cli("set-review", "1", "3")

@@ -13,7 +13,7 @@
   "framework_version": "2026.07.15",
   "tier": 2,
   "tier_rationale": "多角色 + 觸及金流 → 強制 Tier 2",
-  "phase": "init | risk_done | usage_confirmed | decomposed | completed",
+  "phase": "init | decomposed | completed",
   "spec_path": "spec/2026-07-06-partial-settlement.md",
   "spec_inline": null,
   "test_command": null,
@@ -34,12 +34,13 @@
 
 - `framework_version`：前置 0 從 `.claude/hooks/VERSION` 讀入——事後鑑識「這個 run 是在哪一版流程規則下跑的」（部署健檢用 `python3 .claude/hooks/doctor.py`）
 - `hitl_rejections`：HITL gate 被使用者**打回**的累計次數（usage 報告退回重寫、計畫被否決都算）。打回當下 +1。餵 `stats.py` 的打回率——**歷史指標**（2026-09-06 起降級：人閘門的價值信號是裁示數不是打回率，見 `hitl_rulings`；舊「趨近 0% 即蓋章候選降級」警告已自 stats.py 移除）
-- `hitl_rulings`：HITL 確認當下的**裁示條數**（int，選填；無裁示填 0）。Tier 2 前置 2 與 Tier 1 輕量 HITL 同名同義（寫入時機見 eval-flow SKILL.md 對應節）；消費端 `stats.py` 裁示數分佈
+- `hitl_rulings`：HITL 確認當下的**裁示條數**（int，選填；無裁示填 0）。Tier 2 的 HITL gate（Spec 開放問題裁示＋task 計畫確認）與 Tier 1 輕量 HITL 同名同義（寫入時機見 eval-flow SKILL.md 對應節）；消費端 `stats.py` 裁示數分佈
 - `tier` / `tier_rationale`：Router 判定後寫入（供審計；Tier 1 若升級 Tier 2 須更新）
-- `phase`：流程狀態機欄位，hook 憑此攔亂序的 subagent 呼叫（見「Gate 的硬性執行」gate 7）
-  - 轉移時機：前置 0 建立 `"init"` → 前置 1 無 🔴（或依 SKILL.md 前置 1 執行條件跳過）`"risk_done"` → 前置 2 使用者確認 `"usage_confirmed"` → 前置 3 審查通過 `"decomposed"` → step 6 收尾 `"completed"`。Tier 1 於輕量 HITL 確認後直接設 `"decomposed"`
-  - 舊 manifest 無此欄時 hook 以 `task_file` / `usage_report_path` 推導（向後相容）
-- `spec_path` / `spec_inline`：Tier 2 用 `spec_path`（Spec 檔）；Tier 1 用 `spec_inline`（需求原文一句話）。**兩者至少一個非空**，皆空不可往下（intent gate）
+- `phase`：流程狀態機欄位，值域 2026-09-22 起收斂為 `init` → `decomposed` → `completed`（原 `risk_done`／`usage_confirmed` 兩值隨前置 1 風險分析刪除、usage 前置改具名問題觸發而移除，Q1／D2），hook 憑此攔亂序的 subagent 呼叫（見「Gate 的硬性執行」gate 7）
+  - 轉移時機：前置 0 建立 `"init"` → 前置 1 分拆完成 `"decomposed"` → step 6 收尾 `"completed"`。Tier 1 於輕量 HITL 確認後直接設 `"decomposed"`
+  - **舊值相容（硬性，DoD 2）**：既有 run 的 manifest 可能仍是 `"risk_done"`／`"usage_confirmed"`——`manifest_phase()` 在與新值域比對前**必須先**把這兩值映射為 `"init"`，不得因值域收斂而對舊值拋例外（55 個既有 run 的 resume 依賴此映射；不可用 try/except 吞例外兜底，映射須發生在 `PHASES.index()` 之前）
+  - 舊 manifest 無此欄時 hook 以 `task_file` 推導（向後相容）；原本可用 `usage_report_path` 非空推導出 `"usage_confirmed"` 的分支已隨值域收斂移除，推導結果一律回 `"init"`
+- `spec_path` / `spec_inline`：Tier 2 用 `spec_path`（Spec 檔）；Tier 1 用 `spec_inline`（需求原文一句話）。**兩者至少一個非空**，皆空不可往下（intent gate）。`spec_path` 指向的 `spec/<run_id>.md` **進版控**（與本文件開頭「run manifest」等冷溯源檔不同類；分類的單一枚舉點住 eval-flow SKILL.md step 6 子項②）
 - `test_command`：本專案的**全套測試指令**（test-strategy script 省略 `--cmd` 時的預設來源，single source of truth——保證 baseline 與 check 範圍一致）。前置 0 可先 `null`，**第一次 step 5 前必須寫入**；同專案的後續 run 沿用前一個 manifest 的值；Tier B 於 DoD 驗證時寫入
 - `hitl_confirmed_at`：HITL gate 的留痕——使用者確認當下寫入「時間 ＋ 確認範圍一句話」（例：`"2026-07-15 14:30 — 確認 usage 報告 v1（3 情境、2 開放問題已裁示）"`；Tier 1 記輕量計畫確認：`"… — 確認 1 task／3 items 計畫"`）
   - resume／換手時，接手者憑此驗證確認 gate 真的過過，不只信 `phase` 欄位。Tier B 記選型確認
@@ -50,9 +51,9 @@
 - `executor_notes`：**選填**。list[str]，每 item 一句 `item <id>: 直寫｜派工 — <理由>`——主 flow 直寫捷徑（eval-flow SKILL.md Tier 1 第 4 點）的執行者選擇留痕；2026-09-21 起取代舊的固定行數硬門檻，判斷依據是「交接是否划算」，本欄供事後審計。純記錄欄位，無 gate 消費
 - `dirty_tree_ruling`：**選填**。前置 0 進場檢查（見 eval-flow SKILL.md）發現 dirty tree 時，使用者對孤兒變更歸屬的裁決一句（納入本 run／擱置不動）；乾淨樹免記（欄位缺席＝進場乾淨或舊 run 無此制）
 - `scout_report_path`：**已廢止**（前置 1.5 scout 已移除，蒐證職責併回 usage-analyzer／impact-analyzer 自掃）。舊 manifest 仍有此欄者不需回填移除——hook 對此欄無任何依賴，留著不影響任何 gate
-- `risk_report_path`：Tier 2 前置 1 存檔後寫入 `risk/<run_id>.md`；理由碼無邊界類而跳過時為 `"skipped: 理由碼無邊界類"`（執行條件住 eval-flow SKILL.md 前置 1，此處不重列）；Tier 1 固定為 `"skipped"`
-- `usage_report_path`：Tier 2 前置 2 使用者確認後寫入（`null` → 不可分拆 task）；Tier 1 固定為 `"skipped"`
-- `impact_report_path`：Tier 2 前置 2.5 impact-analyzer 產出後寫入路徑（或 `"skipped: <理由>"`）；Tier 1 固定為 `"skipped"`
+- `risk_report_path`：**已隨前置 1（多面向風險分析）刪除而停用**（Q1，2026-09-22，不設替代機制）。不再有任何步驟寫入此欄，新 run 長期維持 `null`；欄位保留於 schema 只為讀舊 manifest（既有 5 份 `risk/*.md` 報告為冷溯源，保留不刪）
+- `usage_report_path`：**改具名問題觸發後長期維持 `null` 屬正常**（D2，2026-09-22）——`usage-analyzer` 不再是 Tier 2 預設前置步驟，觸發後答案寫進 Spec、不產獨立報告檔、不回寫此欄；無任何 gate 再依賴此欄非空（`task-decomposer` 原本的擋人判定已移除）
+- `impact_report_path`：語義同上——`impact-analyzer` 改具名問題觸發，答案寫進 Spec、不回寫此欄，新 run 長期維持 `null` 屬正常
 - `task_file`：分拆／建 task 後寫入
 - `status`：step 6 收尾時（commit 前）填 `"completed"`
   - `"aborted"`＝使用者或主 flow **決定不做了**（與 `"failed"`＝流程內判定失敗區分開）；標 `aborted` 時 `failed_reason` 必填（1d 窄例外 gate 為此的機械強制點，見「Gate 的硬性執行」）
@@ -69,6 +70,14 @@
 熱評分 scratchpad。靠 `run_id` 關聯 manifest；commit 後歸檔為 `run/<run_id>.eval.json` 再清除。
 
 > 下方範例是**欄位形狀骨架**，數值為佔位符、非通過所有不變量的自洽樣本（例如 `review_reds: null` 配非空 `rounds`、全 0 的 `dimensions` 在真實歸檔檔中都會被 hook 擋）；合法組合見「操作規則」與「Gate 的硬性執行」。
+
+**一筆＝一個 task**（2026-09-22 起，Q2 裁決；此前一筆＝一個 item）：審查與測試都改以 task 為單位（§3.3），故狀態與憑據全記在這一層。
+
+- **欄位**：`id`／`name`／`status`／`step`／`files`（該 task 全部 item 的聯集）／`warning`／`local_test_passed`／`local_test_evidence`／`verification_commands`／`review_reds`／`review_dimensions`／`checked_by`／`verify_passed`
+- **不存 item 層資料**（Q10 裁決）：item 的 DoD 與契約表**只住 task 檔**，`eval_state` 不複製一份——兩份必漂移（R-007）。`find_subtask` 只認頂層 task id，不設 item 層定位入口
+- **Q5 的「全數就緒才進 step 3」無 hook 強制**，由主 flow 對照 task 檔判斷（規則住 eval-flow SKILL.md 循環 step 3）。此為 Q10 的已知代價：換得零額外記帳
+- **`risk_analysis` 欄位已移除**（Q8，隨前置 1 風險分析刪除）——不再有任何面向映射或 `blocking` 判定
+- **向後相容**：既有 19 份 `run/*.eval.json` 歸檔檔的每一筆代表一個 item（舊語義），且多帶 `risk_analysis` 鍵。欄位位置與新形狀相同，故子命令與 `validate_state` 對其照常可操作；差別只在「一筆代表什麼」，這影響的是 `stats.py` 的分母語義（見該 script 的新舊雙吃）
 
 ```json
 {
@@ -88,16 +97,8 @@
       ],
       "review_reds": null,
       "review_dimensions": null,
-      "verify_passed": false,
-      "risk_analysis": {
-        "technical": "🟢 無風險 | 🟡 ... | 🔴 ...",
-        "security": "...",
-        "data": "...",
-        "performance": "...",
-        "deployment": "...",
-        "business_maintenance": "...",
-        "blocking": false
-      }
+      "checked_by": null,
+      "verify_passed": false
     }
   ]
 }
@@ -133,8 +134,9 @@
 - **一律用 helper script 更新，不手動 Edit**：`python3 .claude/hooks/eval_state.py`（`init`／`add-subtask`／`set-step`／`set-files`／`set-test`／`set-status`／`set-review`／`set-verify`／`add-verification`／`list-files`／`archive`）
   - 理由：實測單一 run 手動 Edit 30+ 次是高錯誤面；helper 在寫入前驗證不變量（archive 驗全數 passed），錯誤在落盤前就擋下
 - **前置 0（初始化）**：建立 manifest `run/<run_id>.json`（填 `run_id`、`created_at`、`spec_path`，其餘 `null`，`status: "in_progress"`）與 `eval_state.json`（填 `run_id` ＋ 空 `sub_tasks`）。manifest 的 `spec_path` 未填不可往下
-- **使用情境分析完成後 / 分拆 task 完成後**：`usage_report_path` 與 `task_file` 分別由 `usage-analyzer`、`task-decomposer` 於各自步驟回寫（時機與條件見 agent 定義）。前者為 `null` 時不可進入分拆 task
-- **風險分析完成後**：將 6 大面向結果填入對應 sub_task 的 `risk_analysis`，若有 🔴 設 `blocking: true`，必須修正 Spec 後重新分析
+- **分拆 task 完成後**：`task_file` 由主 flow（直建，≤2 tasks 且 ≤8 items 含界）或 `task-decomposer`（超門檻條件派工）回寫（時機與條件見 eval-flow SKILL.md 前置 1）；`phase` 隨之更新為 `"decomposed"`
+- **具名問題觸發 usage-analyzer／impact-analyzer 時**（D2，2026-09-22）：答案寫進 Spec，**不**回寫 `usage_report_path`／`impact_report_path`（兩欄長期維持 `null` 屬正常），無 gate 依賴此二欄
+- **風險分析已刪除**（Q1，2026-09-22，不設替代機制）：不再有步驟填寫 sub_task 的 `risk_analysis`，該欄位與其 `blocking` 判定已從本 schema 與 `eval_gates.py` 的擋人邏輯移除
 - **循環進度記錄（write-ahead，中斷恢復的關鍵）**：每個循環步驟**開始前**先把該 sub_task 的 `step` 寫入 `eval_state.json`，步驟完成後再更新為下一步
   - `step` 值序：`writing`→`reviewing`（並發 review＋verify 階段）→`fixing`（有 🔴 時）→`testing`→`done`；`verifying`／`scoring` 為舊版 run 的相容值，新路徑不寫入
   - code-writer 交付後立刻把本 sub_task 涉及的檔案清單寫入 `files`（修正時同步增補）——staged 變更與 sub_task 的對應關係只准活在這裡，不准只活在對話裡

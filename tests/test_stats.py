@@ -682,6 +682,90 @@ class StatsCollectTest(unittest.TestCase):
         self.assertIn("checker 升級率：無記錄（需要 checked_by）", text)
         self.assertIn("前置/循環成本比：無實測記錄（需要 token_usage.py --write）", text)
 
+    # --- item 5.1：PER_TASK_CUTOFF 分母語義斷點（Q2/Q9，2026-09-22 起一筆＝task）---
+
+    def test_period_helper_classifies_by_run_id_date_prefix(self):
+        """_period()：日期 >= cutoff 歸新期，< cutoff 或無法解析歸舊期（保守，R-010）。"""
+        self.assertEqual(stats._period("2026-09-22-tier2-slimming"), "new")
+        self.assertEqual(stats._period("2026-09-23-some-slug"), "new")
+        self.assertEqual(stats._period("2026-09-21-some-slug"), "old")
+        self.assertEqual(stats._period("no-date-slug"), "old")
+        self.assertEqual(stats._period("bogus-date-2026"), "old")
+        self.assertEqual(stats._period(""), "old")
+
+    def test_new_period_archive_counts_review_reds_and_checked_by_correctly(self):
+        """新 per-task 歸檔（review_reds 在 task 層）→ rework／checked_by 正確累計進 `_new` 桶。"""
+        write(os.path.join(self.run_dir, "2026-09-22-newtask.json"),
+              {"run_id": "2026-09-22-newtask", "tier": 2, "status": "completed"})
+        write(os.path.join(self.run_dir, "2026-09-22-newtask.eval.json"), {
+            "run_id": "2026-09-22-newtask", "sub_tasks": [
+                {"id": 1, "review_reds": 1, "checked_by": "checker"},   # rework、直過
+                {"id": 2, "review_reds": 0, "checked_by": "reviewer:①"},  # 不算 rework、升級
+            ],
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["sub_tasks_new"], 2)
+        self.assertEqual(data["rework_new"], 1)
+        self.assertEqual(data["checked_by_direct_new"], 1)
+        self.assertEqual(data["checked_by_escalated_new"], 1)
+        self.assertEqual(data["checked_by_dist_new"]["reviewer:①"], 1)
+        # 舊期分母完全不受影響（沒有任何舊歸檔）
+        self.assertEqual(data["sub_tasks"], 0)
+        self.assertEqual(data["rework"], 0)
+
+    def test_new_period_missing_review_reds_and_checked_by_counted_as_no_record(self):
+        """[邊界] 新形狀缺 review_reds／checked_by 鍵 → 計「無記錄」（checked_by_none_new），
+        不誤判為 rework 或升級。"""
+        write(os.path.join(self.run_dir, "2026-09-22-bare.json"),
+              {"run_id": "2026-09-22-bare", "tier": 2, "status": "completed"})
+        write(os.path.join(self.run_dir, "2026-09-22-bare.eval.json"), {
+            "run_id": "2026-09-22-bare", "sub_tasks": [{"id": 1}],  # 無 review_reds、無 checked_by
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["sub_tasks_new"], 1)
+        self.assertEqual(data["rework_new"], 0)  # 無 review_reds、rounds 也空 → 不算 rework
+        self.assertEqual(data["checked_by_none_new"], 1)
+        self.assertEqual(data["checked_by_direct_new"], 0)
+        self.assertEqual(data["checked_by_escalated_new"], 0)
+
+    def test_mixed_old_and_new_archives_both_counted_and_breakpoint_labeled(self):
+        """[組合] 新舊混合 run/ 目錄 → both 統計、分母語義照各自的 task/item 數；
+        collect 不崩、report() 明確標示斷點（DoD④：fixture 坐實斷點標示出現在輸出中）。
+        舊期與新期刻意取不同 rework 率（100% vs 50%），坐實兩期未被合併成單一趨勢——
+        若程式誤合併分子分母，輸出會出現 2/3（67%）而非分別的 1/1 與 1/2。"""
+        # 舊期：19 份真實歸檔的典型 flat 形狀（無頂層 review_reds → fallback rounds 數）；1/1 rework
+        write(os.path.join(self.run_dir, "2026-07-16-old-item.json"),
+              {"run_id": "2026-07-16-old-item", "tier": 2, "status": "completed"})
+        write(os.path.join(self.run_dir, "2026-07-16-old-item.eval.json"), {
+            "run_id": "2026-07-16-old-item", "sub_tasks": [
+                {"id": 1, "rounds": [{"round": 1}, {"round": 2}], "checked_by": "checker"},
+            ],
+        })
+        # 新期：per-task 歸檔，2 個 task 只 1 個 rework → 1/2
+        write(os.path.join(self.run_dir, "2026-09-22-new-task.json"),
+              {"run_id": "2026-09-22-new-task", "tier": 2, "status": "completed"})
+        write(os.path.join(self.run_dir, "2026-09-22-new-task.eval.json"), {
+            "run_id": "2026-09-22-new-task", "sub_tasks": [
+                {"id": 1, "review_reds": 1, "checked_by": "reviewer:②"},
+                {"id": 2, "review_reds": 0, "checked_by": "checker"},
+            ],
+        })
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["sub_tasks"], 1)       # 舊期分母＝item 數
+        self.assertEqual(data["rework"], 1)
+        self.assertEqual(data["sub_tasks_new"], 2)   # 新期分母＝task 數
+        self.assertEqual(data["rework_new"], 1)
+
+        text = stats.report(data)
+        self.assertIn(stats.PER_TASK_CUTOFF, text)  # 斷點日期出現在輸出中
+        self.assertIn("此前分母＝item 數", text)
+        self.assertIn("分母＝task 數", text)
+        # 不得混算成單一趨勢：舊期 1/1（100%）與新期 1/2（50%）須分別可見，
+        # 且不得出現誤合併的 2/3（67%）
+        self.assertIn(stats.pct(1, 1), text)   # 舊期 rework：1/1
+        self.assertIn(stats.pct(1, 2), text)   # 新期 rework：1/2
+        self.assertNotIn(stats.pct(2, 3), text)  # 誤合併的錯誤值不得出現
+
 
 # --- 2.4：整合測試（跨 item）——真實 eval_state.py 子命令序列 → events.jsonl → stats 消費 ---
 

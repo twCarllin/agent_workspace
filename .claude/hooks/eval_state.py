@@ -108,6 +108,9 @@ def record_session(run_id):
 
 
 def find_subtask(state, sid):
+    """頂層 id＝task id（Q2，2026-09-22 起 sub_tasks 一筆＝一個 task，此前一筆＝一個 item）。
+    `eval_state` 不存 item 層資料（Q10 裁示）——item 的 DoD／契約表 single source 是 task 檔，
+    故無 item 層定位入口，也不該在此新增一個。"""
     for st in state.get("sub_tasks", []):
         if st.get("id") == sid:
             return st
@@ -124,6 +127,11 @@ def cmd_init(args):
 
 
 def cmd_add_subtask(args):
+    """一筆＝一個 task（Q2，2026-09-22 起）。status／step／files 與憑據四欄
+    （local_test_passed／local_test_evidence／review_reds／verify_passed）全記在這一層——
+    審查與測試都以 task 為單位，故無 per-item 欄位。item 的 DoD／契約表不在此重複存放
+    （Q10：single source＝task 檔）；`risk_analysis` 已隨前置 1 刪除而移除（Q8）。
+    鍵集由 tests/test_eval_state.py 的 skeleton 測試逐鍵鎖定，增刪欄位會使該測試紅。"""
     state = load()
     if any(st.get("id") == args.id for st in state["sub_tasks"]):
         fail(f"id={args.id} 已存在")
@@ -133,7 +141,7 @@ def cmd_add_subtask(args):
         "local_test_passed": False, "local_test_evidence": None,
         "verification_commands": [],
         "review_reds": None, "verify_passed": False,
-        "risk_analysis": None, "review_dimensions": None, "checked_by": None,
+        "review_dimensions": None, "checked_by": None,
     })
     save(state)
     append_event(state.get("run_id"), "add-subtask", args)

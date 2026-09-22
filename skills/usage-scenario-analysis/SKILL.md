@@ -1,26 +1,26 @@
 ---
 name: usage-scenario-analysis
 version: 1.0
-description: 從 Spec 盤點一個功能「會被如何使用」，產出使用情境報告：列出使用者角色、核心 happy path、邊界／異常情境、每個情境的輸入輸出契約與副作用、與現有功能的互動點，並把待釐清的歧義集中成「開放問題」供使用者在 HITL gate 確認。報告的情境 id 供後續 task-decomposition 對映。觸發語：「盤點使用情境」、「這個功能會怎麼被用」、「產使用情境報告」、「usage scenario 分析」。不適用於：尚未有 Spec／spec_inline（先完成前置 0）、Router 判為 Tier 0／1（已跳過此步）。
+description: 依主 flow 提出的**具名問題**（如「這功能有哪些角色會用？」），從 Spec 盤點使用者角色、核心 happy path、邊界／異常情境、每個情境的輸入輸出契約與副作用、與現有功能的互動點，並把待釐清的歧義集中成「開放問題」。答案**併入 Spec**（2026-09-22 起，D2），不再產獨立報告檔。情境 id 供後續 task-decomposition 對映。觸發語：「盤點使用情境」、「這個功能會怎麼被用」、「usage scenario 分析」。不適用於：尚未有 Spec／spec_inline、無具名問題原文（只點名不合格）、Router 判為 Tier 0／1（已跳過此步，Tier 1 另有點名 advisor 路徑）。
 ---
 
 # 使用情境分析框架
 
-> 本 skill 由 **`usage-analyzer` subagent** 載入使用（Eval Flow 前置 2）。主 flow 不直接跑此 skill，而是委派該 agent，由 agent 涵蓋本 skill 作為指令內容。
+> 本 skill 由 **`usage-analyzer` subagent** 載入使用——**具名問題觸發**（2026-09-22 起，D2；不再是 Tier 2 的預設前置步驟）：主 flow 寫得出要回答的具名問題（附問題原文）才呼叫，只點名 agent 不附問題原文＝不合格。主 flow 不直接跑此 skill，而是委派該 agent，由 agent 涵蓋本 skill 作為指令內容。
 >
 > 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
 
 **在寫任何 code、拆任何 task 之前，先窮舉「這個功能會被誰、在什麼情況下、怎麼用」。使用情境沒盤全，後面拆出來的 task 就是殘缺的；歧義沒攤開，就會拿錯誤的假設一路寫下去。**
 
-這份報告有兩個下游責任：（1）它的**情境 id** 是 `task-decomposition` 每個 item 對映的錨點；（2）它是**唯一的前置 HITL gate**——使用者在此確認情境與假設，確認後才准分拆。因此報告要為「使用者快速確認」而寫，把不確定的地方主動攤成開放問題，而不是替使用者假設。
+這份分析有兩個下游責任：（1）它的**情境 id** 是 `task-decomposition` 每個 item 對映的錨點；（2）它產出的「開放問題」與「正確性假設清單」併入 Spec，供使用者在**分拆完成後的 HITL gate**（Spec 開放問題裁示＋task 計畫確認，合為一次）逐條裁示——本 skill 本身**不再**是獨立的 HITL 卡點。因此分析結果要為「使用者快速確認」而寫，把不確定的地方主動攤成開放問題，而不是替使用者假設。
 
 ---
 
 ## 輸入 / 輸出
 
-- **輸入**：run manifest `run/<run_id>.json`（由 `eval_state.json.run_id` 定位）的 `spec_path` 指向的 **Spec**。`spec_path` 與 `spec_inline` 皆空 → 中止並回報（前置 0 未完成）。
-- **輸出**：使用情境報告存檔於 `usage/<run_id>.md`；使用者確認後，把該路徑寫回 manifest 的 `usage_report_path`。
-- **HITL gate（硬性）**：報告產出後**必須回報使用者確認**，特別是「開放問題」要逐條得到裁示。未確認前，`usage_report_path` 維持 `null`，不可進入分拆 task。
+- **輸入**：主 flow 提出的**具名問題原文**＋ run manifest `run/<run_id>.json`（由 `eval_state.json.run_id` 定位）的 `spec_path` 指向的 **Spec**。`spec_path` 與 `spec_inline` 皆空 → 中止並回報（前置 0 未完成）。
+- **輸出**：答案**寫進 Spec**（2026-09-22 起，D2）——**不**產獨立報告檔 `usage/<run_id>.md`、**不**回寫 manifest 的 `usage_report_path`（此欄長期維持 `null` 屬正常）。下方 Step 1–6 與「輸出格式」節描述的盤點方法論與情境結構不變，只是產出載體從獨立檔案改為併入 Spec 的段落
+- **確認時機**：答案併入 Spec 後，隨分拆完成後的合併 HITL gate 一次確認（不再有本 skill 專屬的獨立確認 gate）
 
 ---
 
@@ -116,7 +116,7 @@ description: 從 Spec 盤點一個功能「會被如何使用」，產出使用�
 
 ---
 
-## 輸出格式（寫入 `usage/<run_id>.md`）
+## 輸出格式（併入 Spec，2026-09-22 起不再獨立存檔於 `usage/<run_id>.md`；結構不變，只是產出載體改變）
 
 ```
 # 使用情境報告 — <Spec 名稱>  (run_id: <run_id>)

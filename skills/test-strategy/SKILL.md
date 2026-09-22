@@ -36,9 +36,7 @@ python3 .claude/hooks/test_baseline.py mine --strike-key <sub_task 標識>
 - **範圍推導原理**：每 sub_task 結尾 commit ⇒ writer 開工時樹乾淨 ⇒ 當下 git 未提交變更（staged＋unstaged＋untracked）全屬該 writer，其中的測試檔即其管轄範圍——機械推導，零判斷
 - **抓不到的破壞是 by design**：writer 改 source 弄壞既有測試但沒碰測試檔時 mine 不會抓到——這類失敗由 step 5 的 check 現形（baseline 在其開工前是乾淨的，歸因必然準確），主 flow 拿具體失敗清單回派修正
 - **`[P]` item 的 mine 模式均適用**：`[P]` item 在 fan-out（各開 worktree，隔離樹）或門檻不足的循序退回（逐個執行）下，mine 範圍推導**均成立**（未提交變更只屬當前 item）；兩路徑均無多 writer 並發共樹，舊「指定測試檔清單」workaround 不再需要
-- **執行留痕（震盪稽核）**：mine 每次執行 append 一筆到 `run/<run_id>.mine_log.json`（seq、strike_key、失敗集合、測試檔內容 hash），script 端零 token。
-  - writer 交付時主 flow 對照工作報告的「仲裁記錄」稽核：執行次數異常多＋測試檔 hash 在失敗未清時反覆變動＋失敗集合遊走＝「改測試湊綠」的機器指紋（震盪在最終 diff 裡是隱形的，只有這裡照得出來）
-  - 此檔為熱 scratchpad，收尾隨 eval_state 清除、不進 git
+- **mine_log 落檔稽核已刪除**（D1，2026-09-22）：mine 每次執行不再 append 落檔 `run/<run_id>.mine_log.json`（script 端零 token 的震盪指紋機制隨之停用）。writer 的 mine 模式測試自驗**本身保留**——writer 交付時主 flow 仍對照工作報告的「仲裁記錄」稽核（見上）；改測試湊綠的退路改由 checker 核對「契約 row 逐條有對應測試斷言」現形，不再靠落檔指紋
 - writer 端的行為約束（先實作後測試、範圍外失敗照抄不修、仲裁三選一先判再動手、2 次上限帶失敗交付）住在 `.claude/agents/code-writer.md` 的「測試管轄規則」節，不在此重述
 
 ## 前端／UI 實機驗證的定位（best-effort，非阻塞）

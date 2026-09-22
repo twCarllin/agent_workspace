@@ -490,8 +490,9 @@ class MineSubcommandTest(unittest.TestCase):
         got = sentinel.read_text(encoding="utf-8").strip()
         self.assertIn("tests/test_foo.py", got)
 
-    def test_mine_appends_run_log_each_execution(self):
-        """每次 mine 執行 append 一筆留痕：seq 遞增、失敗集合與測試檔 hash 都記錄。"""
+    def test_mine_no_log_file_created_after_removal(self):
+        """D1（mine_log 落檔刪除）：mine 執行後不產生 run/<run_id>.mine_log.json（B 類自驗本體照常
+        PASS/BLOCK，僅落檔行為被移除）。"""
         (self.dir / "tests").mkdir()
         tf = self.dir / "tests" / "test_foo.py"
         tf.write_text(
@@ -501,7 +502,6 @@ class MineSubcommandTest(unittest.TestCase):
         r1 = self.run_script("mine", "--cmd", "python3 -m unittest discover -s tests",
                              "--strike-key", "sub_task_1")
         self.assertEqual(r1.returncode, 2)
-        # 修好測試再跑一次 → 第二筆，hash 應改變、fails 清空
         tf.write_text(
             "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self): pass\n",
             encoding="utf-8",
@@ -509,15 +509,7 @@ class MineSubcommandTest(unittest.TestCase):
         r2 = self.run_script("mine", "--cmd", "python3 -m unittest discover -s tests",
                              "--strike-key", "sub_task_1")
         self.assertEqual(r2.returncode, 0, r2.stderr)
-        self.assertIn("第 2 次執行", r2.stdout)
-        log = json.loads((self.dir / "run" / "t.mine_log.json").read_text(encoding="utf-8"))
-        self.assertEqual([r["seq"] for r in log["runs"]], [1, 2])
-        self.assertEqual(log["runs"][0]["strike_key"], "sub_task_1")
-        self.assertTrue(log["runs"][0]["fails"])   # 第一次有失敗
-        self.assertEqual(log["runs"][1]["fails"], [])  # 修好後清空
-        h1 = log["runs"][0]["test_hashes"]["tests/test_foo.py"]
-        h2 = log["runs"][1]["test_hashes"]["tests/test_foo.py"]
-        self.assertNotEqual(h1, h2)  # 測試檔在兩次之間被改過 → 稽核可見
+        self.assertFalse((self.dir / "run" / "t.mine_log.json").exists())
 
     def test_mine_no_test_files_exits_0_with_message(self):
         """變更中無測試檔 → exit 0、stdout 含「無測試檔」。"""

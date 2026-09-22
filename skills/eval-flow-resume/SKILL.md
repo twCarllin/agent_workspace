@@ -18,36 +18,42 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 
 ## Step 2：依 manifest `phase` 定位前置進度
 
+**2026-09-22 起（Q4）**：`phase` 值域收斂為 `init` → `decomposed` → `completed`；risk_done／usage_confirmed 兩個舊值與依 `usage/<run_id>.md`、`impact_report_path` 判斷卡點的舊邏輯已移除（前置 1 風險分析已刪除、usage／impact 改具名問題觸發，兩者都不再是必經的前置 gate）。改依 **`task_file`**（已建＝分拆完成）與 **`hitl_confirmed_at`**（已記＝HITL 已過）兩個欄位定位前置進度：
+
 | phase | 代表已完成 | 恢復動作 |
 |---|---|---|
-| `init` | 前置 0（manifest + eval_state 已建） | 檢查 `risk_report_path`：為 `risk/` 路徑 → 風險分析做了一半但未過門檻，讀 `risk/<run_id>.md` 續跑前置 1；為 `null` → 依 eval-flow SKILL.md 前置 1 的**執行條件**（理由碼機械推導）重derive：判必跑 → 從前置 1 開頭跑；判跳過 → 記 `"skipped: 理由碼無邊界類"`、設 `risk_done` 進前置 2；為 `skipped: ...` → 跳過已記但 phase 未設，補設 `risk_done` 續走 |
-| `risk_done` | 前置 1（無 🔴，或依執行條件跳過） | 檢查 `usage/<run_id>.md` 是否已存在：存在但 `usage_report_path` 為 `null` → 報告已產出、卡在 HITL 確認，把報告摘要與開放問題重新呈給使用者裁示；不存在 → 呼叫 usage-analyzer 跑前置 2 |
-| `usage_confirmed` | 前置 2（使用者已確認） | 先檢查 `impact_report_path`：為 `null` → 先呼叫 `impact-analyzer` 跑前置 2.5，產出後再繼續（Tier 1 不會停在此 phase，且其值固定 `"skipped"` 非 `null`）；非 `null` → 檢查 `task_file`：為 `null` → 呼叫 task-decomposer 跑前置 3；非空但 `phase` 未達 `decomposed` → task 檔已產出但 phase 未設，主 flow 核對 task-decomposer 自檢結論後設 phase |
-| `decomposed` | 前置 3（可進循環） | 進 Step 3（循環內恢復） |
+| `init` | 前置 0（manifest + eval_state 已建） | 檢查 `task_file`：非空 → 分拆已完成但 `phase` 未更新，核對 task 檔內容後補設 `"decomposed"`；為 `null` → 檢查 `hitl_confirmed_at`：已記 → HITL 已過但分拆未完成或未觸發，回報現況請使用者決定重新分拆（直建或派 task-decomposer）；未記 → 尚未進入分拆，從前置 1（分拆 task）開始，依 SKILL.md 條件派工門檻（**≤2 tasks 且 ≤8 items，含界**）判斷主 flow 直建或派 task-decomposer |
+| `decomposed` | 前置 1（分拆完成，HITL 已確認） | 進 Step 3（循環內恢復） |
 | `completed` | 全部完成 | 無事可做；若 `eval_state.json` 竟仍存在 → 收尾被中斷，補歸檔流程（step 6 收尾順序） |
 
-- 舊 manifest 無 `phase` 欄 → 依 `task_file`／`usage_report_path` 是否非空推導（與 hook 的向後相容邏輯一致）
-- Tier 1 的 run（`tier: 1`）：`phase` 只會是 `init` 或 `decomposed`；`init` 代表卡在輕量 HITL 確認前，重新回報「1 task／N items」計畫請使用者確認
+- **舊 manifest 的 `phase` 為 `risk_done`／`usage_confirmed`**（2026-09-22 前寫入的既有 run）→ hook 的 `manifest_phase()` 已將其映射為 `"init"`，本表按 `init` 列的恢復動作處置——`risk/<run_id>.md`、`usage/<run_id>.md` 即使存在，新流程不再讀它們判斷卡點，只看 `task_file`／`hitl_confirmed_at`
+- 舊 manifest 無 `phase` 欄 → 依 `task_file` 是否非空推導（與 hook 的向後相容邏輯一致；原本可用 `usage_report_path` 推導出 `usage_confirmed` 的分支已隨值域收斂移除）
+- Tier 1 的 run（`tier: 1`）：`phase` 只會是 `init` 或 `decomposed`；`init` 代表卡在輕量 HITL 確認前，重新回報「N tasks／M items」計畫請使用者確認（**≤2 tasks 且 ≤8 items 含界**為主 flow 直建門檻，與 Tier 2 前置 1 條件派工一致）
 
 ## Step 3：循環內恢復（phase = decomposed）
 
-1. 讀 `eval_state.json`，找 `status: "in_progress"` 的 sub_task（正常只有一個）
-   - 一個都沒有且尚有未開始的 sub_task → 從下一個未開始的 sub_task 的步驟 1（code-writer）開跑
+1. 讀 `eval_state.json`，找 `status: "in_progress"` 的 sub_task（**頂層 task id**，Q2——一個 task 一筆，item 降為該筆內的 `items` 清單；正常只有一個 in_progress task）
+   - 一個都沒有且尚有未開始的 task → 從下一個未開始的 task 的步驟 1（code-writer）開跑
    - 全部 `passed` → 收尾被中斷，執行 step 6 收尾順序（歸檔 → 清除 eval_state → 回寫 token 用量 → commit；溯源檔不 `git add`，見 eval-flow SKILL.md step 6 子項②）
-2. 讀該 sub_task 的 `step` 與 `files`，用 `git diff --cached -- <files>` 還原工作現場（確認 staged 內容與 `step` 相符：例如 `step: "reviewing"` 但 staging 是空的 → 狀態不一致，回報使用者）
+2. 讀該 task 的 `step` 與 `files`，用 `git diff --cached -- <files>` 還原工作現場（確認 staged 內容與 `step` 相符：例如 `step: "reviewing"` 但 staging 是空的 → 狀態不一致，回報使用者）
 3. 依 `step` 從對應步驟續跑：
 
 | step | 含義 | 從哪續跑 |
 |---|---|---|
 | `writing` | code-writer 執行中被斷 | 重跑循環步驟 1（code-writer；prompt 附上已 staged 的部分成果供其接續） |
-| `reviewing` | 審查中被斷 | **先對賬再認定**：確認該輪審查落檔 `run/<run_id>.review-st<id>-r<N>.md` 是否存在——存在＝該輪審查真的發生過，讀落檔的 `checked_by` 決定重派對象（`checked_by: checker` → 重跑循環步驟 3、重派 `task-verifier`；`checked_by: reviewer(escalated:…)` → 重派 `code-reviewer`）；**不存在＝該步只是意圖、未發生**（step 欄是 write-ahead 記的意圖，不是動作證明），無落檔時依新制**預設派 checker**（`task-verifier`），重跑循環步驟 3（兩節報告） |
-| `fixing` | review 有 🔴、修正中被斷 | 讀 `run/<run_id>.review-st<id>-r<N>.md` 的落檔審查報告續修（`<id>`＝該 in_progress sub_task 的 id，`<N>` 取現存檔名中最大者＝最新一輪，語義不變；**無落檔報告＝該輪審查未發生**，重跑步驟 3）；依落檔 `checked_by` 決定重派對象（同 `reviewing` 列：checker 輪→重派 `task-verifier`；升級輪→重派 `code-reviewer`）；修正後回步驟 3 重審 |
-| `verifying` | （舊版 run 的現場）task-verifier 曾一度退役（2026-07-25），**現已復活為 checker——審查層預設位（2026-09-05 起，退役敘述作廢）** | 重跑循環步驟 3（依落檔 `checked_by` 決定重派 checker 或 reviewer，同 `reviewing` 列；舊版無落檔或無 `checked_by` 尾註者，依新制預設派 checker） |
+| `reviewing` | 審查中被斷 | **審查落檔已刪除（D1），Q6 裁決**：不追究上一輪發生過什麼，**一律重跑該輪、重派 checker**（`task-verifier`），從循環步驟 3 開始（兩節報告） |
+| `fixing` | review 有 🔴、修正中被斷 | 同 `reviewing`：**一律重跑該輪、重派 checker**（Q6，無落檔可讀、不試圖還原修正進度） |
+| `verifying` | （舊版 run 的現場）task-verifier 曾一度退役（2026-07-25），**現已復活為 checker——審查層預設位（2026-09-05 起，退役敘述作廢）** | 同 `reviewing`：一律重跑該輪、重派 checker |
 | `testing` | 本地測試中被斷 | 重跑循環步驟 5（`local_test_passed` 為 `false` 一律重測，不採信中斷前的口頭結果） |
 | `scoring` | （舊版 run 的相容值）評分階段已移除 | 視同 testing 完成，直接進 step 6 收尾順序（歸檔 → 清除 eval_state → 回寫 token 用量 → commit；溯源檔不 `git add`，見 eval-flow SKILL.md step 6 子項②） |
-| `done` | 該 sub_task 已收完 | 狀態應為 `passed`；不是 → 修正狀態後進下一個 sub_task |
+| `done` | 該 task 已收完 | 狀態應為 `passed`；不是 → 修正狀態後進下一個 task |
 
-4. 續跑的修正輪數以審查落檔 `run/<run_id>.review-st<id>-r<N>.md` 的最大 `<N>` 接續計算（2 輪上限照算，不歸零）
+4. **輪數判定（取代原落檔 `<N>` 接續，Q6）**：讀該 task 的 `review_reds`——**無值＝首輪**（重派 checker 視為首輪執行）；**有值＝已跑過至少一輪**（重派 checker 後若再有 🔴，依循環 step 3／4 的四類升級觸發改派 code-reviewer）
+5. **Q6 已知缺陷（使用者已知情裁決接受，不另設補償機制）**：
+   1. 中斷發生在「升級 reviewer 輪」時，恢復會誤降回 checker——`review_reds` 有無值只能判斷「跑過至少一輪」，讀不出上一輪究竟是 checker 輪還是已升級的 reviewer 輪
+   2. 2 輪修正上限的計數可能歸零——同樣因為只知「有無跑過」不知精確輪數，理論上某次恢復可能讓已修正過的輪被重新算為首輪，使該 task 突破 2 輪上限而不被攔下
+
+   此二者為刪除審查落檔（D1）換取記帳收斂的直接代價，接手者續跑後**輪數可能被低估**，須知情；不自行發明補償機制。
 
 ## 恢復守則
 

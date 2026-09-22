@@ -188,7 +188,7 @@ class ResidualAndDoctorIssuesCombinedTest(unittest.TestCase):
 
     def test_residual_and_doctor_issue_both_present(self):
         make_manifest(os.path.join(self.cwd, "run"), "combo-run",
-                       status="in_progress", phase="risk_done")
+                       status="in_progress", phase="init")
         # 假 HOME 只放一個假 skill，觸發真實 doctor 的 skills 同步／缺核心 skill 異常
         fake_home = os.path.join(self.tmp.name, "fake_home_one_issue")
         deploy_skills = os.path.join(fake_home, ".claude", "skills")
@@ -237,7 +237,7 @@ class WorktreeCwdHonoredTest(unittest.TestCase):
         )
         os.makedirs(os.path.join(self.worktree, "run"))
         make_manifest(os.path.join(self.worktree, "run"), "worktree-run",
-                       status="in_progress", phase="risk_done")
+                       status="in_progress", phase="init")
 
     def tearDown(self):
         self.tmp_base.cleanup()
