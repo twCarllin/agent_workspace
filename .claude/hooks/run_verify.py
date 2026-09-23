@@ -19,6 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import eval_state  # noqa: E402
+import verification_snapshot  # noqa: E402
 
 
 def main():
@@ -43,6 +44,14 @@ def main():
     exit_code = proc.returncode
 
     record = {"command": args.cmd, "exit_code": exit_code}
+    with open(manifest_path, encoding="utf-8") as stream:
+        evidence_schema = json.load(stream).get("evidence_schema")
+    if exit_code == 0 and evidence_schema == 2:
+        try:
+            record["snapshot"] = verification_snapshot.snapshot()
+        except (OSError, subprocess.CalledProcessError) as error:
+            print(f"[run-verify] 無法取得驗證快照：{error}", file=sys.stderr)
+            sys.exit(2)
     try:
         if use_state:
             state = eval_state.load()

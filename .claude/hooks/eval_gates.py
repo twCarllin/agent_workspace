@@ -61,6 +61,7 @@ TEST_DIR_NAMES = {"test", "tests", "__tests__", "spec"}
 # 2026-09-22 tier2-slimming（Spec §3.2）：5→3 值域收斂，risk_done／usage_confirmed 兩值
 # 移除；舊 manifest 讀到這兩值時由 manifest_phase() 映射為 init（向後相容，見該函式）。
 PHASES = ["init", "decomposed", "completed"]
+PENDING_STATUSES = {"in_progress", "ready_to_commit"}
 AGENT_MIN_PHASE = {
     "usage-analyzer": "init",   # 具名問題隨時可觸發（前置 2 改觸發式，Spec §3.1 D2）
     "impact-analyzer": "init",  # 具名問題隨時可觸發（前置 2.5 改觸發式，Spec §3.1 D2）
@@ -122,6 +123,22 @@ def _validate_credentials(obj, source):
               f"→ 補救：Tier 2 `python3 .claude/hooks/eval_state.py set-verify <id>`（無 --passed 旗標）；Tier 1 直接填 manifest 同名欄")
 
 
+def _validate_evidence_snapshot(manifest, source):
+    if manifest.get("evidence_schema") != 2 or manifest.get("tier") in ("B", "hotfix"):
+        return  # Existing runs keep their original evidence contract.
+    commands = manifest.get("verification_commands") or []
+    latest = commands[-1] if commands else {}
+    if latest.get("exit_code") != 0 or not latest.get("snapshot"):
+        block(f"{source} 缺通過的全套驗證快照；用 run_verify.py 重新驗證")
+    try:
+        import verification_snapshot
+        current = verification_snapshot.snapshot()
+    except (OSError, subprocess.CalledProcessError) as error:
+        block(f"{source} 無法核對驗證快照：{error}")
+    if current != latest["snapshot"]:
+        block(f"{source} 驗證後程式樹已變更；請重新驗證")
+
+
 def validate_state(state, source, require_passed=False):
     """逐筆驗 sub_task 的 status 與四項憑據。
 
@@ -143,14 +160,16 @@ def validate_state(state, source, require_passed=False):
             _validate_credentials(st, f"{source} sub_task「{name}」")
 
 
-def check_manifest(manifest_path, staged):
+def check_manifest(manifest_path, staged, allow_in_progress=False):
     m = load_json(manifest_path)
     run_id = MANIFEST_RE.match(manifest_path).group("run_id")
 
     if not (m.get("spec_path") or m.get("spec_inline")):
         block(f"{manifest_path} intent gate 未過：spec_path 與 spec_inline 皆空")
-    if m.get("status") != "completed":
-        block(f"{manifest_path} status 非 completed（{m.get('status')}），不可 commit")
+    allowed_statuses = ("in_progress", "ready_to_commit", "completed") if allow_in_progress else ("ready_to_commit", "completed")
+    if m.get("status") not in allowed_statuses:
+        block(f"{manifest_path} status 非 completed/ready_to_commit（{m.get('status')}），不可 commit")
+    _validate_evidence_snapshot(m, manifest_path)
 
     if m.get("tier") == "hotfix":
         if not isinstance(m.get("debt"), list):
@@ -231,9 +250,9 @@ def check_other_runs(current_run_id):
                 f"{path} 有未清欠帳 debt={other.get('debt')}（hotfix 遺留）："
                 f"須先還清（補 risk 分析／回歸測試／retro，還一項移除一項）才可啟動新 run"
             )
-        if other_id != current_run_id and other.get("status") == "in_progress":
+        if other_id != current_run_id and other.get("status") in PENDING_STATUSES:
             block(
-                f"本工作區已有另一個 in_progress 的 run（{path}）："
+                f"本工作區已有另一個未完成的 run（{path}）："
                 f"一個 worktree 同時只允許一個 run。先收尾／封存該 run，"
                 f"要並行請開 git worktree，中斷續跑依 eval-flow-resume skill"
             )
@@ -339,12 +358,31 @@ def check_inprogress_runs():
         m = load_json_quiet(path)
         if not isinstance(m, dict):
             continue
-        if m.get("status") == "in_progress":
+        if m.get("status") in PENDING_STATUSES:
             block(
-                f"{path} 仍為 in_progress：該 run 尚未收尾，不可 commit\n"
-                f"→ 補救：走完 eval-flow step 5／6（填四欄憑據、status 設 completed）後再 commit；"
+                f"{path} 仍為 {m.get('status')}：該 run 尚未完成，不可在缺 Run-Id 的情況下 commit\n"
+                f"→ 補救：走完 eval-flow step 5／6（填四欄憑據、status 設 ready_to_commit），並於 commit message 加 Run-Id；"
                 f"若決定放棄該 run，改標 status: \"aborted\" 並填 failed_reason（不要刪檔）"
             )
+
+
+def _managed_commit_hook_available():
+    """The Git commit-msg hook validates the final message when command text cannot."""
+    try:
+        configured = subprocess.run(
+            ["git", "config", "--get", "core.hooksPath"], capture_output=True, text=True
+        )
+        if configured.returncode == 0:
+            return False  # An external hooksPath has not been wired by our installer.
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-path", "hooks/commit-msg"],
+            capture_output=True, text=True, check=True,
+        )
+        path = result.stdout.strip()
+        with open(path, encoding="utf-8") as stream:
+            return "agent-workspace managed commit message gate" in stream.read()
+    except (OSError, subprocess.CalledProcessError):
+        return False
 
 
 def is_test_file(path):
@@ -391,7 +429,7 @@ def _find_unique_tier1_inprogress():
 
 
 def check_task_gate(tool_input):
-    agent = tool_input.get("subagent_type", "")
+    agent = tool_input.get("subagent_type") or tool_input.get("agent_type") or ""
     required = AGENT_MIN_PHASE.get(agent)
     if not required:
         sys.exit(0)  # 非流程管制的 agent，不擋
@@ -468,7 +506,10 @@ def _resolve_root(payload):
     """解析 run_hook() 應 chdir 的工作區根目錄。H1 最小偏離設計：只有確認
     cwd 與 CLAUDE_PROJECT_DIR 屬不同 git worktree 時才改變行為，其餘一律回 CPD。
     """
-    cpd = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    cpd_env = os.environ.get("CLAUDE_PROJECT_DIR")
+    if not cpd_env:
+        return _git_toplevel(payload.get("cwd") or os.getcwd()) or os.getcwd()
+    cpd = cpd_env
     cwd = payload.get("cwd")
 
     # H1: 無 cwd 鍵 → 嚴格回 CPD（不落到 os.getcwd()；CPD 為 None 時已於上行退路）
@@ -550,6 +591,10 @@ def run_hook():
     # 亦即該次 commit 不含任何 code、只為留痕放棄的 run；那條逃生門不該被另一個未收尾的 run
     # 卡死。兩者的 status 條件（aborted／failed vs in_progress）互斥，不存在互相遮蔽的情境。
     if not manifests:
+        if _managed_commit_hook_available() and "--no-verify" not in command and "core.hooksPath" not in command:
+            # Git's commit-msg hook receives the final message, including -F and editor input.
+            # The tool hook still blocks an unarchived scratchpad above.
+            return
         check_inprogress_runs()
 
     for path in manifests:

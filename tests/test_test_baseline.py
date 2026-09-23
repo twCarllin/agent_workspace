@@ -392,6 +392,47 @@ class BuildMineCmdTest(unittest.TestCase):
     def test_is_test_file_skips_skip_dirs(self):
         self.assertFalse(is_test_file(".venv/tests/test_foo.py"))
 
+    # --- 2026-09-22 bugfix：點開頭目錄下的 test_*.py 被誤判為測試模組 ---
+
+    def test_is_test_file_excludes_dot_prefixed_dirs(self):
+        """點開頭的目錄一律排除——Python module 路徑不可含這種段。
+
+        本框架自己的 `.claude/hooks/` 下就有兩支名為 `test_*.py` 的 hook script。
+        修正前它們被判為測試檔，`build_mine_argv` 轉出 `.claude.hooks.test_baseline`，
+        首段為空，`python3 -m unittest` 以 `ValueError: Empty module name` 讓整個
+        suite 判失敗——改到這兩支 script 時必中。
+        """
+        self.assertFalse(is_test_file(".claude/hooks/test_baseline.py"))
+        self.assertFalse(is_test_file(".claude/hooks/test_lint.py"))
+        self.assertFalse(is_test_file(".config/test_anything.py"))
+
+    def test_is_test_file_keeps_normal_paths_after_dot_dir_fix(self):
+        """反向：修正不得誤殺正常路徑（點只出現在檔名或副檔名時照常判定）。"""
+        self.assertTrue(is_test_file("tests/test_stats.py"))
+        self.assertTrue(is_test_file("src/foo_test.py"))
+        self.assertTrue(is_test_file("a/b/tests/helper.py"))
+
+    def test_build_mine_argv_never_emits_empty_module_segment(self):
+        """坐實後果面：經 is_test_file 過濾後的檔案，轉出的 module 路徑無空段。
+
+        這是 bug 的實際爆點——斷言 argv 本身，而非只斷言分類結果（R-004 加嚴：
+        寫出／轉換的內容要逐項核，不能只驗上游判定）。
+        """
+        candidates = [
+            ".claude/hooks/test_baseline.py",
+            "tests/test_stats.py",
+            "src/foo_test.py",
+        ]
+        kept = [f for f in candidates if is_test_file(f)]
+        argv = build_mine_argv("python3 -m unittest discover -s tests", kept)
+        modules = argv[3:]
+        self.assertNotIn(".claude.hooks.test_baseline", modules)
+        for m in modules:
+            self.assertFalse(
+                m.startswith(".") or ".." in m,
+                f"module 路徑含空段：{m!r}",
+            )
+
     def test_is_test_file_excludes_flow_spec_dir(self):
         # spec/ 是 eval-flow 自產的產出物目錄，不是測試目錄（L8 教訓：曾被當測試檔餵 pytest）
         self.assertFalse(is_test_file("spec/2026-07-21-phase-c.md"))

@@ -258,6 +258,17 @@ def main():
     if not isinstance(manifest, dict):
         manifest = {}
 
+    if manifest.get("harness") == "codex":
+        # Codex transcript format is not a stable metering interface. Keep the
+        # measurement unknown instead of scanning Claude sessions and reporting zero.
+        print("[token-usage] Codex 用量：未知（未提供穩定的逐 agent transcript 計量介面）")
+        if args.write and manifest_path and os.path.isfile(manifest_path):
+            manifest["token_usage_status"] = "unknown_codex"
+            with open(manifest_path, "w", encoding="utf-8") as stream:
+                json.dump(manifest, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
+        return
+
     events_path = os.path.join(args.dir, f"{args.run_id}.events.jsonl")
     lo, hi = get_window(events_path, args.full_session)
 

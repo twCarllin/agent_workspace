@@ -1,6 +1,6 @@
 # agent_workspace
 
-一套讓 AI agent（Claude Code）寫程式**可控、可審計**的工作流程模板。把規範（CLAUDE.md）、流程（skills）、防線（hooks）、subagent 定義打包在一個 repo，執行 `./init.sh` 就能部署到任何專案，讓 agent 照同一套紀律工作。
+一套讓 Claude Code 與 Codex 寫程式**可控、可審計**的工作流程模板。Router、skills、gate 與角色職責由這個 repo 維護；Claude Code 用 `./init.sh` 部署，Codex 用 `./init.sh --p codex --target <專案路徑>` 部署。
 
 ## 要解決什麼問題
 
@@ -18,7 +18,7 @@
 
 ### 1. 投入跟風險成比例（Router 分級）
 
-不是每個需求都值得跑完整流程——改一行文案就開規格書是浪費，但碰金流的改動跳過風險分析是災難。所以每個需求進來的第一步是**判 tier**：
+不是每個需求都值得跑完整流程——改一行文案就開規格書是浪費，碰金流機制本身的改動則需要完整審查。所以每個需求進來的第一步是**判 tier**：
 
 | Tier | 什麼樣的需求 | 走什麼路 |
 |---|---|---|
@@ -31,27 +31,27 @@
 
 ### 2. 先收斂認知，再動手寫（Tier 2 的前置）
 
-完整流程在寫任何 code 之前有四個前置步驟，順序是刻意的：
+完整流程在寫 code 前先完成：
 
 1. **初始化**：建立 run manifest（這次工作的溯源檔）
-2. **風險分析**：先看這個需求會碰到什麼——有 blocking 風險就停在這裡，不浪費後面的工
-3. **使用情境盤點**：從規格推「會被怎麼用」，把歧義集中成開放問題，**停下來等使用者確認**（HITL gate）——歧義在這裡解決，比寫完 code 才發現便宜一個數量級
-4. **分拆 task**：拆成可驗收的小單位（每 task ≤5 item、每 item 約 ≤300 行），拆完經交付前自檢才開工
+2. **具名問題盤點**：需要情境或影響面資料時，提出具體問題並派 advisor；答案寫回 Spec
+3. **分拆 task**：拆成可驗收的小單位；小範圍由主 flow 直接建立，較大範圍派 task-decomposer
+4. **確認計畫**：提報 Spec 的開放問題與 task 計畫，留存使用者裁示
 
-之後進入實作循環：**寫 → 審查 → 驗證完成度 → 本地測試 → commit**（審查有抓到重大問題時，修正後才追加獨立評分——審查一次過的評分是零信號，直接省掉）。每個環節由不同的 subagent 負責（code-writer 不自己審自己的 code），測試 gate 的標準是「無新增穩定失敗」而不是「全綠」——存量的爛測試不該擋新工作，但你不能留下新的坑。
+之後進入實作循環：**寫 → checker 核對憑據（必要時 reviewer 審 diff）→ 本地測試 → commit**。邊界類變更直接派 reviewer。測試 gate 的標準是「無新增穩定失敗」；新 run 的最後驗證另綁定程式樹快照，提交前若程式碼改變就重驗。
 
 Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改哪、多大、碰不碰高風險）在找到根因之前都不知道。
 
 ### 3. 文件是說明，hook 才是防線
 
-流程寫在文件裡，agent 就可能「忘記」或繞過。所以關鍵 gate 由 PreToolUse hook **確定性攔截**：亂序呼叫 subagent（前置沒跑完就開寫）、不合規的 `git commit`（測試沒過、歸檔沒做、留著欠帳開新工作）都會被硬擋，stderr 告訴 agent 缺什麼、怎麼補。三者有出入時，**以 hook 行為為準**。
+關鍵 gate 由工具 hook 攔截亂序派工與不合規的提交；Git `commit-msg` hook 再核對實際提交訊息。提交前 manifest 是 `ready_to_commit`，成功後才記 SHA 與 `completed`。三者有出入時，以 gate 行為為準。
 
-同樣的邏輯：**狀態全在檔案，不在對話**。每個 run 的規格、風險報告、task 清單、manifest 都落地成檔，而且要求「不依賴對話上下文即可讀懂」——對話隨時可拋，中斷後照 `eval-flow-resume` 的程序從檔案還原現場，換一個 agent（或換一個人）接手也讀檔就能繼續。
+**狀態全在檔案。** 每個 run 的規格、task 清單與 manifest 都可從檔案還原；中斷後依 `eval-flow-resume` 接手。
 
 ### 4. 流程要能學習，也要能瘦身
 
 - **學習**：每次 review 抓到的問題，由 retro agent 歸因寫進 `retro/RETRO.md`，下一輪直接貼進 code-writer 的硬性約束——同一個坑不踩第二次。
-- **瘦身**：每個 run 留下結構化溯源，`stats.py` 彙總成指標（gate 命中率、HITL 打回率、評分的獨立貢獻…）。從不觸發的 gate、打回率趨近零的人工閘門，都是砍掉的候選。**沒有這些數字，流程只會單向長大**——每次出事加一條規則，最後把自己壓死。
+- **瘦身**：每個 run 留下結構化溯源，`stats.py` 彙總 tier 分佈、gate 命中、HITL 裁示與執行成本，用實際資料審查流程步驟。
 
 ## 怎麼套用到你的專案
 
@@ -63,11 +63,13 @@ Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改
    cd agent_workspace && ./init.sh
    ```
 
-2. `init.sh` 做的事：CLAUDE.md／subagents／hooks 覆蓋部署到上一層，hook 設定合併進 `.claude/settings.json`（不動其他鍵、重跑冪等），skills 同步到 `~/.claude/skills/`（repo 為準強制覆蓋），RETRO seed 只在不存在時建立（**專案累積的教訓絕不覆蓋**）。
+2. `init.sh` 會部署 Claude 規則、subagents、hooks，並將 skills 同步到 `~/.claude/skills/`；RETRO seed 只在不存在時建立。
 
 3. 重新載入 Claude Code session（hook 部署後才生效，首次會請你確認信任）。可跑 `python3 .claude/hooks/doctor.py` 健檢部署是否齊全。
 
-之後的日常使用就是**把需求直接丟給 agent**——判級、走流程、被 gate 擋、補狀態，都是 agent 自己的事。你會被叫到的時機只有幾個：確認使用情境的開放問題（Tier 2 的 HITL gate）、確認 Tier 1 的輕量計畫（1 task／N items）、決定何時 commit（Tier 0）、以及明示豁免本地驗證（agent 不可自行認定）。
+Codex 安裝：在本 repo 目錄執行 `./init.sh --p codex --target /path/to/my-project`。安裝器將 Router 複製到 `.agent-flow/ROUTER.md`、skills 複製到 `.agents/skills/`、角色設到 `.codex/agents/`，並合併 `AGENTS.md` 與 `.codex/hooks.json`；Git 沒有既有 `commit-msg` hook 時安裝提交訊息 gate。重新開啟 Codex 後，在 `/hooks` 檢查並信任專案 hook 定義。
+
+日常使用就是把需求交給 agent，依 Router 判級並走對應流程。Tier 1／2 提交前執行 `python3 .claude/hooks/run_commit.py prepare <run_id>`；成功 commit 後執行 `python3 .claude/hooks/run_commit.py finalize <run_id>`。
 
 後續更新：改本 repo 後重跑 `./init.sh` 即可全量覆蓋部署（skills 只覆蓋不刪除，移除的舊檔需手動清理目標端）。
 
@@ -76,7 +78,7 @@ Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改
 | 主題 | 位置 |
 |---|---|
 | 分級表全文、防濫用規則 | `CLAUDE.md` |
-| 完整流程（前置 0–3、循環 1–8、manifest 格式） | `skills/eval-flow/` |
+| 完整流程與 manifest 格式 | `skills/eval-flow/` |
 | 測試 gate（baseline、flaky 過濾、豁免窗口） | `skills/test-strategy/` |
 | 中斷恢復程序 | `skills/eval-flow-resume/` |
 | 多需求並行（worktree 隔離） | `skills/parallel-run/` |

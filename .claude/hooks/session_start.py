@@ -40,7 +40,7 @@ def _residual_run_id_and_phase():
             if not eval_gates.MANIFEST_RE.match(path):
                 continue
             m = eval_gates.load_json_quiet(path)
-            if isinstance(m, dict) and m.get("status") == "in_progress":
+            if isinstance(m, dict) and m.get("status") in eval_gates.PENDING_STATUSES:
                 run_id = m.get("run_id") or eval_gates.MANIFEST_RE.match(path).group("run_id")
                 break
     if run_id is None:
@@ -68,7 +68,7 @@ def _doctor_brief_lines():
     return [line for line in out.splitlines() if line]
 
 
-def build_output():
+def build_output(codex=False):
     lines = []
     residual = _residual_run_id_and_phase()
     if residual is not None:
@@ -77,7 +77,8 @@ def build_output():
             f"有未收尾的 run：{run_id}（phase={phase}），"
             f"依 eval-flow-resume skill 從檔案恢復，不靠記憶；或標 aborted 收尾"
         )
-    lines.extend(_doctor_brief_lines())
+    if not codex:
+        lines.extend(_doctor_brief_lines())
     return lines[:MAX_OUTPUT_LINES]
 
 
@@ -93,7 +94,7 @@ def main():
     # 解析 worktree 根後才 chdir（BUGLOG 2026-07-28 worktree-root gate 靜默失效同源修正）。
     os.chdir(eval_gates._resolve_root(payload))
 
-    lines = build_output()
+    lines = build_output(codex=bool(payload.get("model")))
     if lines:
         print("\n".join(lines))
     sys.exit(0)

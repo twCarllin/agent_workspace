@@ -5,6 +5,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PARENT_DIR="$(dirname "$SCRIPT_DIR")"
 USER_SKILLS_DIR="$HOME/.claude/skills"
 
+PLATFORM=claude
+TARGET_DIR="$PARENT_DIR"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --p|--platform) PLATFORM="$2"; shift 2 ;;
+    --target) TARGET_DIR="$2"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+case "$PLATFORM" in
+  claude|codex|both) ;;
+  *) echo "Unknown platform: $PLATFORM" >&2; exit 2 ;;
+esac
+if [ "$PLATFORM" = codex ]; then
+  exec python3 "$SCRIPT_DIR/install_codex.py" --target "$TARGET_DIR"
+fi
+PARENT_DIR="$TARGET_DIR"
+
 echo "==> Source:  $SCRIPT_DIR"
 echo "==> Parent:  $PARENT_DIR"
 echo "==> Skills:  $USER_SKILLS_DIR"
@@ -116,3 +134,9 @@ else
 fi
 echo
 echo "Done."
+if [ -f "$SCRIPT_DIR/install_codex.py" ]; then
+  python3 "$SCRIPT_DIR/install_codex.py" --git-hook-only --target "$TARGET_DIR"
+fi
+if [ "$PLATFORM" = both ]; then
+  python3 "$SCRIPT_DIR/install_codex.py" --target "$TARGET_DIR"
+fi

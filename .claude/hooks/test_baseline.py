@@ -315,6 +315,13 @@ def is_test_file(path):
     name = parts[-1]
     if any(p in SKIP_DIRS for p in parts):
         return False
+    # 以點開頭的目錄（.claude/hooks、.venv…）一律排除：Python module 路徑不可含
+    # 這種段，build_mine_argv 轉出的 ".claude.hooks.test_baseline" 首段為空，
+    # unittest 會以 ValueError: Empty module name 整個 suite 判失敗。
+    # 觸發條件是「改到 .claude/hooks/ 下名為 test_*.py 的 script」——本框架自己就有
+    # test_baseline.py 與 test_lint.py 兩支，改它們時必中（2026-09-22 實測）。
+    if any(p.startswith(".") and p not in (".", "..") for p in parts[:-1]):
+        return False
     if os.path.splitext(name)[1] not in TEST_CODE_EXTS:
         return False  # 非測試語言副檔名（.md/.json fixture 等）不餵 runner
     in_test_dir = any(p in TEST_DIR_NAMES for p in parts[:-1])

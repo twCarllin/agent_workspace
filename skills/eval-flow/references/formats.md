@@ -22,7 +22,7 @@
   "usage_report_path": null,
   "impact_report_path": null,
   "task_file": null,
-  "status": "in_progress | completed | failed | aborted",
+  "status": "in_progress | ready_to_commit | completed | failed | aborted",
   "failed_reason": null,
   "local_test_passed": null,
   "local_test_evidence": null,
@@ -47,6 +47,7 @@
 - `estimated_active_minutes`／`actual_active_minutes`：**選填**。Router 判級時的預估主動工時與收尾補記的實際值（估實分記，agentflow 慣例；消費端為判級校準，缺欄＝無記錄）
 - `subagent_usage`：**選填**。step 6 子項②收尾時由 `python3 .claude/hooks/token_usage.py <run_id> --write` **實測回寫**的 tokens 彙總 `{"prep": int, "loop": int, "main": int}`——三鍵皆為 transcript 四欄（`input_tokens`／`cache_creation_input_tokens`／`cache_read_input_tokens`／`output_tokens`）加總；`prep`＝usage-analyzer／task-decomposer／impact-analyzer 的 subagent 合計、`loop`＝其餘 subagent 合計、`main`＝主 flow 自身。舊制「依 Agent 工具回執自報、`main` 憑印象估」**廢止**（實測 2026-09-14 run：自報 loop 68161，transcript 實測主 flow cache 讀 10.09M——估計法系統性低估流程稅，2026-09-19）。消費端 `stats.py`：prep／loop 缺一或非 int → 整筆計無記錄；`main` 非 int → 只跳過 main、prep/loop 照收
 - `token_usage`：**選填**。與 `subagent_usage` 同時由 `token_usage.py --write` 寫入的明細：`{"session_id", "window": [lo, hi]|null, "main": {四欄＋turns}, "subagents": [{"agent_type", "description", 四欄＋turns}]}`；`window` 取自 `events.jsonl` 首尾 `ts`（init 之前的判級／載 skill 用量不在窗內，屬已知低估面）。純記錄，無 gate 消費
+- `harness`：Codex run 設為 `"codex"`；Claude run 可省略。`token_usage.py --write` 遇 Codex 時只寫 `token_usage_status: "unknown_codex"`，不把 Claude transcript 當作 Codex 用量
 - `session_id`／`config_dir`：**選填**。init 事件（Tier 2 `init --run-id`、Tier 1 `event <run_id> init`）由 `eval_state.py` 自 `CLAUDE_CODE_SESSION_ID`／`CLAUDE_CONFIG_DIR` 環境變數自動寫入，已有值不覆寫（resume 換 session 保留首次）；`token_usage.py` 憑此開 `<config_dir>/projects/<cwd 編碼>/<session_id>.jsonl`。舊 run 缺欄＝該腳本走 fallback 掃描 `~/.claude*/projects/*/` 含 run_id 的 transcript
 - `executor_notes`：**選填**。list[str]，每 item 一句 `item <id>: 直寫｜派工 — <理由>`——主 flow 直寫捷徑（eval-flow SKILL.md Tier 1 第 4 點）的執行者選擇留痕；2026-09-21 起取代舊的固定行數硬門檻，判斷依據是「交接是否划算」，本欄供事後審計。純記錄欄位，無 gate 消費
 - `dirty_tree_ruling`：**選填**。前置 0 進場檢查（見 eval-flow SKILL.md）發現 dirty tree 時，使用者對孤兒變更歸屬的裁決一句（納入本 run／擱置不動）；乾淨樹免記（欄位缺席＝進場乾淨或舊 run 無此制）
@@ -55,9 +56,9 @@
 - `usage_report_path`：**改具名問題觸發後長期維持 `null` 屬正常**（D2，2026-09-22）——`usage-analyzer` 不再是 Tier 2 預設前置步驟，觸發後答案寫進 Spec、不產獨立報告檔、不回寫此欄；無任何 gate 再依賴此欄非空（`task-decomposer` 原本的擋人判定已移除）
 - `impact_report_path`：語義同上——`impact-analyzer` 改具名問題觸發，答案寫進 Spec、不回寫此欄，新 run 長期維持 `null` 屬正常
 - `task_file`：分拆／建 task 後寫入
-- `status`：step 6 收尾時（commit 前）填 `"completed"`
+- `status`：step 6 先由 `run_commit.py prepare` 設為 `"ready_to_commit"`；commit 成功後由 `run_commit.py finalize` 設為 `"completed"`，並回填 `commit_sha`。新 run 在 manifest 設 `"evidence_schema": 2`，以 `run_verify.py` 記最後一次全套驗證的快照到 manifest `verification_commands`；提交前 gate 會比對目前程式樹，變動後須重驗
   - `"aborted"`＝使用者或主 flow **決定不做了**（與 `"failed"`＝流程內判定失敗區分開）；標 `aborted` 時 `failed_reason` 必填（1d 窄例外 gate 為此的機械強制點，見「Gate 的硬性執行」）
-  - manifest↔commit 的對應不記 `commit_sha`，改由 commit message 的 `Run-Id: <run_id>` trailer 反查（`git log --grep`）
+  - manifest↔commit 由 `Run-Id: <run_id>` trailer 與 `commit_sha` 雙向核對
 - `failed_reason`：`status` 設為 `"failed"` 或 `"aborted"` 時必填，一句話寫死因（哪個 sub_task、卡在哪一步、為什麼；`aborted` 則寫放棄理由），讓接手者不用翻對話記錄
 - **`aborted`／`failed` 的 manifest 永不清除**：與本節開頭「冷溯源檔……永不清除」同一條規則，不因狀態放棄／失敗而被刪除或清空——防刪除 gate（見「Gate 的硬性執行」）機械強制此點
 - **已知限制**：上述防線只攔 `git` 的刪除與 commit 面；Claude 用 Write／Edit 工具直接覆寫 manifest 內容（含把 `status`／`failed_reason` 改寫或清空）的路徑不在 hook matcher（`Bash|Task|Agent`）內，本版不攔（記入風險報告，不修）
@@ -150,8 +151,7 @@
 - **本地測試通過後（step 5）**：將該 sub_task 的 `local_test_passed` 設為 `true`、`local_test_evidence` 填入驗證證據（指令＋結果摘要；Tier 2 若更新過既有測試，一併註明 Spec／task 依據）。預設 `false`／`null`；hook 於 commit 時檢查歸檔檔中所有 sub_task 兩欄皆已填
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`
 - **同一 sub_task 修正 2 輪後 reviewer 仍有 🔴**：`status` 設為 `"failed"`，`warning` 設為 `true`，回報使用者（詳見循環 step 4 修正迭代上限；checker 輪與升級本身不計入此 2 輪，裁示 #9）
-- **全部完成且通過**：**先歸檔為 `run/<run_id>.eval.json`**（保留評分歷史與扣分原因）、清除 `eval_state.json`、manifest `status` 設為 `"completed"`，**再** commit（歸檔檔與 manifest 同為冷溯源檔，留在工作目錄不進版控；順序仍由 hook 強制——`eval_state.json` 尚存在時 commit 會被擋，歸檔檔不存在時亦擋）
+- **全部完成且通過**：先歸檔為 `run/<run_id>.eval.json`、清除 `eval_state.json`；`run_commit.py prepare <run_id>` 設 `ready_to_commit` 後 commit，成功後 `run_commit.py finalize <run_id>` 回填 `completed` 與 SHA。歸檔檔與 manifest 是工作目錄冷溯源檔，不進版控
 - **有任一 failed**：manifest 的 `status` 設為 `"failed"`，並在 manifest 的 `failed_reason` 寫一句話死因（哪個 sub_task、卡在哪步、為什麼），回報使用者
   - **失敗收尾**：staging area 保持原狀（已通過 sub_task 的變更留在 staged），**不自行 unstage、不部分 commit、不清除 `eval_state.json`**，由使用者裁決後續（續跑、部分 commit 或放棄）
-  - 失敗收尾時 hook 會擋下 Claude 端的任何 `git commit`（`eval_state.json` 尚存在），屬預期行為；使用者要部分 commit 可在自己的終端執行（hook 只攔 Claude 的 Bash 工具）
-
+  - 失敗收尾時工具 hook 會擋下 agent 的 `git commit`（`eval_state.json` 尚存在）；使用者若決定部分 commit，需先依裁決處置現場狀態
