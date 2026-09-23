@@ -154,6 +154,22 @@ def main():
         destination = hooks_dir / path.name
         if path.resolve() != destination.resolve():
             shutil.copy2(path, destination)
+    version_source = SOURCE / ".claude" / "hooks" / "VERSION"
+    version_target = hooks_dir / "VERSION"
+    if version_source.resolve() != version_target.resolve():
+        shutil.copy2(version_source, version_target)
+    retro_dir = target / "retro"
+    retro_dir.mkdir(parents=True, exist_ok=True)
+    retro = retro_dir / "RETRO.md"
+    if not retro.exists():
+        shutil.copy2(SOURCE / "seed" / "RETRO.seed.md", retro)
+    buglog = retro_dir / "BUGLOG.md"
+    if not buglog.exists():
+        source_buglog = (SOURCE / "retro" / "BUGLOG.md").read_text(encoding="utf-8")
+        header, separator, _ = source_buglog.partition("\n---\n")
+        if not separator:
+            raise ValueError("source BUGLOG.md lacks the header separator")
+        buglog.write_text(header + separator, encoding="utf-8")
     skills_root = target / ".agents" / "skills"
     skills_root.mkdir(parents=True, exist_ok=True)
     source_skill_names = {skill.name for skill in (SOURCE / "skills").iterdir() if skill.is_dir() and skill.name != "_deprecated"}

@@ -98,6 +98,24 @@ class CodexFlowTest(unittest.TestCase):
         reviewer = tomllib.loads((self.project / ".codex" / "agents" / "code-reviewer.toml").read_text(encoding="utf-8"))
         self.assertNotEqual(writer["model"], reviewer["model"])
 
+    def test_install_seeds_support_files_without_overwriting_project_history(self):
+        version = self.project / ".claude" / "hooks" / "VERSION"
+        retro = self.project / "retro" / "RETRO.md"
+        buglog = self.project / "retro" / "BUGLOG.md"
+        self.assertEqual(version.read_text(encoding="utf-8"), (ROOT / ".claude" / "hooks" / "VERSION").read_text(encoding="utf-8"))
+        self.assertEqual(retro.read_text(encoding="utf-8"), (ROOT / "seed" / "RETRO.seed.md").read_text(encoding="utf-8"))
+        self.assertTrue(buglog.read_text(encoding="utf-8").startswith("# BUGLOG"))
+        self.assertNotIn("2026-07-22", buglog.read_text(encoding="utf-8"))
+
+        retro.write_text("project retro\n", encoding="utf-8")
+        buglog.write_text("project buglog\n", encoding="utf-8")
+        version.write_text("old version\n", encoding="utf-8")
+        again = run(self.project, "bash", str(ROOT / "init.sh"), "--p", "codex", "--target", str(self.project))
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(version.read_text(encoding="utf-8"), (ROOT / ".claude" / "hooks" / "VERSION").read_text(encoding="utf-8"))
+        self.assertEqual(retro.read_text(encoding="utf-8"), "project retro\n")
+        self.assertEqual(buglog.read_text(encoding="utf-8"), "project buglog\n")
+
 
 if __name__ == "__main__":
     unittest.main()
