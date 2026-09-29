@@ -296,5 +296,106 @@ class TokenUsageTest(unittest.TestCase):
         self.assertEqual(before, after)
 
 
+def dispatch_line(role, backend="claude", ts="2026-09-29T02:00:00+00:00", **usage):
+    """`run/<run_id>.dispatch.jsonl` 一行（鍵集依 Spec 2026-09-29 §3.4；未給的四欄為 0）。"""
+    line = {"ts": ts, "role": role, "backend": backend, "session_id": "s", "resumed": False,
+            "model": "m", "turns": 2, "input_tokens": 0, "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0, "output_tokens": 0, "cost_usd": None,
+            "duration_ms": 1, "exit_code": 0, "envelope": "ok"}
+    line.update(usage)
+    return json.dumps(line)
+
+
+class DispatchRecordsTest(unittest.TestCase):
+    """item 1.4（task/2026-09-29.md）契約 T1–T4：headless 派工留痕併入 subagents。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.run_dir = os.path.join(self.tmp.name, "run")
+        self.projects_root = os.path.join(self.tmp.name, "projects")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _manifest_with_empty_main(self, run_id):
+        write(os.path.join(self.run_dir, f"{run_id}.json"),
+              {"run_id": run_id, "tier": 1, "session_id": f"sess-{run_id}"})
+        # 主 flow transcript 存在但無訊息 → main 全 0，不干擾 prep/loop 斷言
+        write_raw(os.path.join(self.projects_root, f"sess-{run_id}.jsonl"), "")
+
+    def test_t1_dispatch_records_become_subagents_prep_and_loop(self):
+        """T1：兩行（task-decomposer、code-writer）、無 transcript subagents → stdout 各印一行；
+        --write 後 prep／loop＝各行四欄和；token_usage.subagents 兩筆逐鍵相符。"""
+        run_id = "r-dispatch"
+        self._manifest_with_empty_main(run_id)
+        write_jsonl(os.path.join(self.run_dir, f"{run_id}.dispatch.jsonl"), [
+            dispatch_line("task-decomposer", input_tokens=10, cache_creation_input_tokens=20,
+                          cache_read_input_tokens=30, output_tokens=40),
+            dispatch_line("code-writer", input_tokens=1, cache_creation_input_tokens=2,
+                          cache_read_input_tokens=3, output_tokens=4),
+        ])
+        result = run_cli(self.run_dir, run_id, "--projects-root", self.projects_root, "--write")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("task-decomposer dispatch:claude:", result.stdout)
+        self.assertIn("code-writer dispatch:claude:", result.stdout)
+        manifest = load(os.path.join(self.run_dir, f"{run_id}.json"))
+        self.assertEqual(manifest["subagent_usage"]["prep"], 10 + 20 + 30 + 40)
+        self.assertEqual(manifest["subagent_usage"]["loop"], 1 + 2 + 3 + 4)
+        self.assertEqual(manifest["token_usage"]["subagents"], [
+            {"agent_type": "task-decomposer", "description": "dispatch:claude", "input_tokens": 10,
+             "cache_creation_input_tokens": 20, "cache_read_input_tokens": 30, "output_tokens": 40, "turns": 2},
+            {"agent_type": "code-writer", "description": "dispatch:claude", "input_tokens": 1,
+             "cache_creation_input_tokens": 2, "cache_read_input_tokens": 3, "output_tokens": 4, "turns": 2},
+        ])
+
+    def test_t2_transcript_and_dispatch_sources_union(self):
+        """T2 [組合]：transcript subagents 一筆 ＋ dispatch 一筆 → subagents 恰 2 筆、loop 為兩者和。"""
+        run_id = "r-union"
+        self._manifest_with_empty_main(run_id)
+        sub_dir = os.path.join(self.projects_root, f"sess-{run_id}", "subagents")
+        write_jsonl(os.path.join(sub_dir, "agent-1.jsonl"), [
+            assistant_line("2026-09-29T02:00:00+00:00", {"input_tokens": 7, "output_tokens": 1}),
+        ])
+        write(os.path.join(sub_dir, "agent-1.meta.json"), {"agentType": "code-writer", "description": "d"})
+        write_jsonl(os.path.join(self.run_dir, f"{run_id}.dispatch.jsonl"),
+                    [dispatch_line("task-verifier", input_tokens=5, output_tokens=6)])
+        result = run_cli(self.run_dir, run_id, "--projects-root", self.projects_root, "--write")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = load(os.path.join(self.run_dir, f"{run_id}.json"))
+        self.assertEqual(len(manifest["token_usage"]["subagents"]), 2)
+        self.assertEqual(manifest["subagent_usage"]["loop"], (7 + 1) + (5 + 6))
+
+    def test_t3_missing_file_unchanged_and_bad_line_skipped(self):
+        """T3 [邊界]：無 dispatch.jsonl → subagents 空（與改造前一致）；含一行壞 JSON → 跳過、其餘照計、exit 0。"""
+        run_id = "r-badline-dispatch"
+        self._manifest_with_empty_main(run_id)
+        result = run_cli(self.run_dir, run_id, "--projects-root", self.projects_root, "--write")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(load(os.path.join(self.run_dir, f"{run_id}.json"))["token_usage"]["subagents"], [])
+        write_jsonl(os.path.join(self.run_dir, f"{run_id}.dispatch.jsonl"), [
+            "{broken json",
+            dispatch_line("retro", input_tokens=3, output_tokens=4),
+        ])
+        result = run_cli(self.run_dir, run_id, "--projects-root", self.projects_root, "--write")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = load(os.path.join(self.run_dir, f"{run_id}.json"))
+        self.assertEqual(len(manifest["token_usage"]["subagents"]), 1)
+        self.assertEqual(manifest["subagent_usage"]["loop"], 3 + 4)
+
+    def test_t4_dispatch_outside_events_window_still_counted(self):
+        """T4：events 窗 [09:00, 09:10]，dispatch 行 ts 在窗外 → 仍計入 loop。"""
+        run_id = "r-window-dispatch"
+        self._manifest_with_empty_main(run_id)
+        write_jsonl(os.path.join(self.run_dir, f"{run_id}.events.jsonl"), [
+            json.dumps({"ts": "2026-09-06T09:00:00+00:00", "cmd": "init", "args": {}}),
+            json.dumps({"ts": "2026-09-06T09:10:00+00:00", "cmd": "set-step", "args": {}}),
+        ])
+        write_jsonl(os.path.join(self.run_dir, f"{run_id}.dispatch.jsonl"),
+                    [dispatch_line("code-writer", ts="2026-09-06T08:00:00+00:00", input_tokens=9, output_tokens=1)])
+        result = run_cli(self.run_dir, run_id, "--projects-root", self.projects_root, "--write")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(load(os.path.join(self.run_dir, f"{run_id}.json"))["subagent_usage"]["loop"], 9 + 1)
+
+
 if __name__ == "__main__":
     unittest.main()

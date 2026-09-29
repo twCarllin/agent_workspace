@@ -2,6 +2,7 @@
 
 > agent→model 指派的**唯一枚舉點**。各 agent 定義檔（`.claude/agents/*.md`）frontmatter 的 `model` 欄是執行端載體（Claude Code harness 實際讀取處），`tests/test_model_policy.py` 強制兩者一致——**改 model 時，本表與對應 frontmatter 必須同一個 diff 改齊**，只改一邊測試會紅。
 > frontmatter 的行內註解是現場註記；指派理由的敘述以本表為準。
+> headless 派工（`.claude/hooks/dispatch.py` → `claude -p --agent <role>`，2026-09-29 起）由 `--agent` 讀同一份 frontmatter，本表仍是唯一枚舉點；Codex 後端另讀 `.codex/agents/*.toml`（`install_codex.py` 的 `CODEX_MODELS`）。
 
 | agent | model | 指派理由 |
 |---|---|---|

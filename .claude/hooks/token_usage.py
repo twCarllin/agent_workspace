@@ -20,6 +20,9 @@
   transcript 每行 `type == "assistant"` 且 `timestamp` 落在窗內者計入。
   `--full-session` 或 events 檔不存在 → 不切窗、整檔計入。
 
+  另讀 `run/<run_id>.dispatch.jsonl`（headless 派工留痕，dispatch.py 寫）每行為一筆 subagent
+  （agent_type＝role、description＝`dispatch:<backend>`），與 transcript 來源聯集、不切窗。
+
 分類：subagent `agentType` ∈ {usage-analyzer, task-decomposer, impact-analyzer} → prep；
   其餘（含缺 meta）→ loop。
 
@@ -190,6 +193,27 @@ def collect_subagents(subagents_dir, lo, hi):
     return subagents
 
 
+def collect_dispatch(dir_, run_id):
+    """headless 派工留痕 `run/<run_id>.dispatch.jsonl`（dispatch.py 寫）→ subagents 筆（2026-09-29）。
+    與 transcript `subagents/` 來源聯集；不受 events 時間窗切割（留痕本身即 per-run）。
+    檔不存在＝零筆；壞行由 `_parse_events` 寬容跳過（R-009：沿用同檔既有 jsonl 讀取 helper）。"""
+    entries = _parse_events(os.path.join(dir_, f"{run_id}.dispatch.jsonl")) or []
+    subagents = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        usage = {k: e.get(k, 0) if isinstance(e.get(k), int) and not isinstance(e.get(k), bool) else 0
+                 for k in TOKEN_FIELDS}
+        turns = e.get("turns", 0)
+        subagents.append({
+            "agent_type": e.get("role"),
+            "description": f"dispatch:{e.get('backend')}",
+            **usage,
+            "turns": turns if isinstance(turns, int) and not isinstance(turns, bool) else 0,
+        })
+    return subagents
+
+
 def _contains_run_id(path, run_id):
     try:
         with open(path, encoding="utf-8") as f:
@@ -273,8 +297,9 @@ def main():
     lo, hi = get_window(events_path, args.full_session)
 
     session_id, main_usage, subagents = resolve_usage(manifest, args, lo, hi)
+    subagents += collect_dispatch(args.dir, args.run_id)
 
-    prep = [s for s in subagents if s.get("agent_type") in PREP_AGENT_TYPES]
+    prep =[s for s in subagents if s.get("agent_type") in PREP_AGENT_TYPES]
     loop = [s for s in subagents if s.get("agent_type") not in PREP_AGENT_TYPES]
 
     print(f"main: {_fmt(main_usage)}")

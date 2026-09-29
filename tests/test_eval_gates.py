@@ -1823,5 +1823,79 @@ class CrossHookFullChainTest(unittest.TestCase):
         self.assertIn(stats.PER_TASK_CUTOFF, text)       # 斷點標示出現在輸出中
 
 
+class DispatchCommandGateTest(unittest.TestCase):
+    """item 1.3（task/2026-09-29.md）契約 G1–G4：Bash `dispatch.py <role>` 派工指令同受 gate 7
+    phase 狀態機（Spec 2026-09-29 §3.2）。全部走真實 `--hook` 子程序路徑、`tool_name: "Bash"`
+    payload（R-005）；Tier 1 manifest、無 eval_state.json。G5（commit gate 與 Task/Agent 路徑
+    不變）由既有測試全綠坐實，不重列。"""
+
+    def setUp(self):
+        import os
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = self.tmp.name
+        self.eval_gates_py = str(
+            Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "eval_gates.py"
+        )
+        os.makedirs(os.path.join(self.repo, "run"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_manifest(self, phase, task_file="task/x.md"):
+        import json
+        import os
+        m = {"run_id": "2026-09-29-dispatch-gate", "tier": 1, "status": "in_progress",
+             "phase": phase, "spec_inline": "s", "task_file": task_file}
+        with open(os.path.join(self.repo, "run", "2026-09-29-dispatch-gate.json"), "w", encoding="utf-8") as f:
+            json.dump(m, f)
+
+    def _run_bash_hook(self, command):
+        import json
+        import os
+        import subprocess
+        payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": self.repo}
+        env = {**os.environ, "CLAUDE_PROJECT_DIR": self.repo}
+        return subprocess.run(
+            [sys.executable, self.eval_gates_py, "--hook"],
+            input=json.dumps(payload), env=env, capture_output=True, text=True,
+        )
+
+    def test_g1_code_writer_dispatch_blocked_at_init(self):
+        """G1：phase=init 派 code-writer → exit 2、stderr 含「phase 狀態機」。"""
+        self._write_manifest("init")
+        result = self._run_bash_hook("python3 .claude/hooks/dispatch.py code-writer --prompt-file p.md")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("phase 狀態機", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_g2_code_writer_dispatch_passes_at_decomposed(self):
+        """G2：phase=decomposed＋task_file 非空 → exit 0。"""
+        self._write_manifest("decomposed")
+        result = self._run_bash_hook("python3 .claude/hooks/dispatch.py code-writer --prompt-file p.md")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_g3_flags_before_role_and_non_managed_role(self):
+        """G3 [組合]：旗標在 role 前（--backend codex task-verifier）＋ phase=init → exit 0
+        （task-verifier 不在 AGENT_MIN_PHASE）；同形式換 code-writer → 仍解析到 role 而 block。"""
+        self._write_manifest("init")
+        passed = self._run_bash_hook(
+            "python3 .claude/hooks/dispatch.py --backend codex task-verifier --prompt-file p.md")
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        blocked = self._run_bash_hook(
+            "python3 .claude/hooks/dispatch.py --backend codex code-writer --prompt-file p.md")
+        self.assertEqual(blocked.returncode, 2)
+        self.assertIn("phase 狀態機", blocked.stderr)
+
+    def test_g4_unmanaged_role_and_plain_command_untouched(self):
+        """G4 [邊界]：非 AGENT_MIN_PHASE 角色、以及無派工字樣的指令 → 皆 exit 0，不觸 gate。"""
+        self._write_manifest("init")
+        for command in ("python3 .claude/hooks/dispatch.py explore-foo --prompt-file p.md", "git status"):
+            with self.subTest(command=command):
+                result = self._run_bash_hook(command)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stderr, "")
+
+
 if __name__ == "__main__":
     unittest.main()

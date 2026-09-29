@@ -32,7 +32,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–1（初始化�
 
 `usage-analyzer` 與 `impact-analyzer` **不再是 Tier 2 的預設前置步驟**，改為**具名問題觸發**（D2 裁決）：
 
-- **觸發條件**：主 flow 寫得出要回答的**具名問題**（「這個模組的既有呼叫端有哪些？」→ 派 `impact-analyzer`；「這功能有哪些角色會用？」→ 派 `usage-analyzer`）。只點名 agent 而不附問題原文＝不合格（沿用 Tier 1 精簡路徑既有的 advisor 規則）
+- **觸發條件**：主 flow 寫得出要回答的**具名問題**（「這個模組的既有呼叫端有哪些？」→ 派 `impact-analyzer`；「這功能有哪些角色會用？」→ 派 `usage-analyzer`）。只點名 agent 而不附問題原文＝不合格（沿用 Tier 1 精簡路徑既有的 advisor 規則）；派工方式依「派工機制」節
 - **產出**：答案**寫進 Spec**，不再產獨立報告檔（不產 `usage/<run_id>.md`／`impact/<run_id>.md`，不回寫 `usage_report_path`／`impact_report_path`，不設 `phase: "usage_confirmed"`）——此二欄長期維持 `null` 屬正常，既有歷史報告（冷溯源）保留不刪
 - **呼叫時序**：hook `AGENT_MIN_PHASE` 對兩者皆放行於 `phase: "init"`（隨時可觸發，不受分拆進度限制）
 - 兩者可在循環執行中因新的具名問題再次觸發，不限於前置階段——每次觸發都須附問題原文
@@ -41,7 +41,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–1（初始化�
 
 ### 前置 1：分拆 task（條件派工，必須在第一次呼叫 code-writer 之前完成）
 
-- **條件派工門檻**：主 flow 估規模——**預估 ≤2 tasks 且 ≤8 items（含界）→ 主 flow 直建 task 檔**（比照 Tier 1 精簡路徑第 2 點：上限、四要素、DoD 措辭規則一併適用）；超過 → 呼叫 **`task-decomposer` subagent**。它讀 Spec（含已寫入的具名問題答案），拆成 task 與 item、寫入 `task/YYYY-MM-DD.md`、回寫 `manifest.task_file`、並執行交付前自檢。拆分粒度、上限、四要素等規則住在它的定義與 `task-decomposition` skill
+- **條件派工門檻**：主 flow 估規模——**預估 ≤2 tasks 且 ≤8 items（含界）→ 主 flow 直建 task 檔**（比照 Tier 1 精簡路徑第 2 點：上限、四要素、DoD 措辭規則一併適用）；超過 → 依「派工機制」節派工 **`task-decomposer` subagent**。它讀 Spec（含已寫入的具名問題答案），拆成 task 與 item、寫入 `task/YYYY-MM-DD.md`、回寫 `manifest.task_file`、並執行交付前自檢。拆分粒度、上限、四要素等規則住在它的定義與 `task-decomposition` skill
 - task-decomposer 交付前自檢通過後（或主 flow 直建完成後），將每個 task 展開為 `eval_state.json` 的 `sub_tasks`（**一個 task 一筆**；item 不入 `eval_state`，其 DoD 與契約表只住 task 檔，Q10），並將 manifest 的 `phase` 更新為 `"decomposed"`（hook 憑此放行 code-writer）
 
 ### HITL gate：Spec 開放問題裁示＋task 計畫確認（合為一次，取代原「使用情境報告確認」）
@@ -54,7 +54,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–1（初始化�
 
 > **循環中的升級逃生門（Tier 2 也適用）**：循環執行中若冒出 🔴 重大風險、或發現需求歧義（DoD 講不清、Spec 有洞）→ 中止循環，先修改 **Spec** 釐清範圍（風險分析機制已刪除，不補跑，見 Q1）；若牽動使用情境或影響面，補派具名問題給 `usage-analyzer`／`impact-analyzer`；若影響拆分，重跑前置 1（分拆 task）。
 
-1. 呼叫 `code-writer` subagent 產出程式碼
+1. 依「派工機制」節派工 `code-writer` subagent 產出程式碼
    - **批次派工（v3，2026-09-06 使用者裁決——省 spawn 稅）**：派工單位＝**task**，同 task 多 item 一次派給同一 code-writer（知識前置一次組裝、item 間共用 context），不再逐 item spawn。條件：①批內合計預估 ≤400 行（與合併審查上限對齊，超過拆批）②`[P]` item 不混批（保留平行／worktree 路徑）③**失敗隔離**：單 item 帶失敗交付只退該 item，其餘 item 照常收④工作報告與憑據**逐 item 分節**（審查輪輸入不變、逐 item 核對，格式住 code-writer.md）。單 item 的 task 照舊
    - **知識前置（硬性步驟）**：呼叫前，主 flow 把三個來源的相關內容**原文貼進 writer prompt 的硬性約束區**——不是叫 writer「自己去讀」，知識只有以明文約束前置進 prompt 才有效（R-011）。三源：
      - **retro 條目**：先以本 item `files` 的模組路徑 grep `retro/RETRO.md` 的標籤篩選（標籤第一段＝模組路徑，見 retro agent 規範），主 flow 再補判同類操作／同類風險面的條目
@@ -78,7 +78,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–1（初始化�
    - `<files>`＝**當前 sub_task（task）的 `files`**（主 flow 讀 `eval_state.json` 該 sub_task 的 `files` 欄帶入，即該 task 全部 item 的聯集；收斂到當前 task 涉及檔，避免跨 sub_task staging 累積污染）。
      - **注意**：`eval_state.py list-files` 是全 sub_task 聯集，不是單一 sub_task 來源、不可用於此。此收斂為退回主 worktree 循序時的污染修法（與 fan-out 無關、底層必需）。
    - **批前快照已刪除（D1，2026-09-22）**：審查改以 task 為界後 staging 天然以 task 分批，跨批污染的成因消失——批前快照原是修跨批污染的補丁，前提已變，故刪除、不留替代機制。
-3. **預設派 `task-verifier`（checker，haiku）審查——以 task 為單位**（2026-09-22 起，Spec §3.3）：同一 task 的全部 item 由 code-writer 交付完成後才派審一次。
+3. **預設派 `task-verifier`（checker，haiku）審查——以 task 為單位**（2026-09-22 起，Spec §3.3；派工方式依「派工機制」節）：同一 task 的全部 item 由 code-writer 交付完成後才派審一次。
    - **「全部 item 就緒」由主 flow 對照 task 檔判斷，無 hook 強制**（Q10）：某 item 帶失敗交付時，該 task **不進本步**，先補齊失敗 item（批次派工的「失敗隔離只退該 item」不變）。`eval_state` 不存 item 層狀態，故此判定純屬主 flow 紀律——漏判不會被擋，但會讓 checker 拿到不完整的交付。checker **不讀 diff**，輸入集＝該 task **各 item 的 DoD／契約表原文聯集**＋writer 工作報告全文（逐 item 分節）＋步驟 2 的 `git diff --cached --stat -- <files>` 輸出＋測試輸出尾段。**移除**批前快照與 `mine_log` 摘要兩項輸入（機制已刪除，見上）。
    - 職責＝核對「宣稱與憑據對得上」：各 item 的 DoD 逐條有憑據、契約 row 逐條有對應測試斷言（以 grep 測試檔核）、仲裁記錄一致、sabotage 自檢證據存在（見 `.claude/agents/code-writer.md` 測試管轄規則 8）、無疑似注入標註未處理
    - 其審查報告**強制兩節、缺一退件**：①**完成度節**——對照 task 檔**該 task 全部 item** 的 DoD 與子任務逐條核對，**明列 diff `--stat` 中缺席的項目**（scope 偏移一併檢，以檔名清單核對，不讀內容）；②**憑據節**（取代品質節）——上述憑據逐項核對結果，逐項標「有憑據／缺席／存疑」
@@ -137,12 +137,25 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–1（初始化�
      - **`Run-Id: <run_id>` trailer 因此升為硬要求**（見子項③）：`run/`／`task/` 系列溯源檔不進版控後，它是 commit↔run 之間唯一的機械連結，也是 commit gate 的定位依據。漏寫 → gate 退回「工作目錄 in_progress」安全網，該次 commit 的四欄憑據不被核對（判定全貌見 `references/gates.md`）
      - baseline 的處置要求同住 `test-strategy` skill——其 `stable_failures` 是本 run 進場的既有欠帳快照；**本節與該 skill 須一致，改任一端時對照另一端**
      - **部署建議**：目標專案的 `.gitignore` 可加 `run/`、`task/`，免得 `git status` 長期掛著未追蹤檔。`retro/RETRO.md` **不在此列**——它是派工時貼進 writer prompt 的硬性約束、隨框架部署，照常進版控
-     - ②之前：Claude 主 flow 跑 `python3 .claude/hooks/token_usage.py <run_id> --write`，由 transcript **實測**回寫 manifest `subagent_usage`（prep／loop／main）與 `token_usage` 明細；Codex run 設 `harness: "codex"`，同指令記 `token_usage_status: "unknown_codex"`，不將未知用量寫成零（欄位語義住 `references/formats.md`）
+     - ②之前：Claude 主 flow 跑 `python3 .claude/hooks/token_usage.py <run_id> --write`，由 transcript **實測**回寫 manifest `subagent_usage`（prep／loop／main）與 `token_usage` 明細（subagents＝transcript ∪ `run/<run_id>.dispatch.jsonl` 派工留痕）；Codex run 設 `harness: "codex"`，同指令記 `token_usage_status: "unknown_codex"`，不將未知用量寫成零（欄位語義住 `references/formats.md`）
    - ③git commit，message 末尾附 `Run-Id: <run_id>` trailer；成功後跑 `python3 .claude/hooks/run_commit.py finalize <run_id>`，核對 Git 實際提交訊息並回填 SHA、`completed`。中斷在兩者之間時，manifest 保持 `ready_to_commit`，照 resume 程序核對 HEAD 後續跑
-7. **有條件** 呼叫 `retro` subagent：
+7. **有條件** 依「派工機制」節派工 `retro` subagent：
    - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro
    - code-reviewer 無 🔴 → **不呼叫 retro**（reviewer 一次過即無回顧價值）
    - 本條件僅掛**升級輪**（reviewer 判定；邊界直派輪視同升級輪）——checker 通過輪與升級後零 🔴 輪都**不呼叫 retro**；升級本身是流程正常運作、不是教訓（2026-09-06 使用者裁決）
+
+## 派工機制（headless CLI，2026-09-29 起；本節為單一枚舉點）
+
+流程角色（`code-writer`／`task-verifier`／`code-reviewer`／`retro`／`task-decomposer`／`usage-analyzer`／`impact-analyzer`）一律以子程序執行 headless CLI 派工，不再依賴 harness 的 `Agent` 工具（舊路徑仍合法、hook 不擋——2026-09-29 使用者裁決 D4；文件以本節為準）：
+
+- **指令**：`python3 .claude/hooks/dispatch.py <role> --prompt-file <path> [--backend claude|codex] [--resume <session>]`。預設後端 `claude -p --agent <role>`（依 `.claude/agents/<role>.md` 載入 system prompt 與 frontmatter `model`／`tools`，`MODEL_POLICY.md` 仍是 model 單一枚舉點）；`--backend codex` 走 `codex exec`（角色設定讀 `.codex/agents/<role>.toml`）；省略時依 manifest `harness`（`"codex"` → codex，否則 claude）
+- **prompt 檔**：主 flow 把派工 prompt 全文（含硬性約束區、契約表原文——知識前置規則不變，R-011）寫到 `run/<run_id>.prompt-<role>-<n>.md`（冷溯源檔，不進版控）再派工，不走命令列參數
+- **輸出**：stdout＝子 agent 報告全文（主 flow 直接讀）；stderr 摘要行 `[dispatch] role=… backend=… session=<sid> turns=… tokens=… cost_usd=…`；exit 2＝信封 blocking（退件重取，見「主 flow 憑據紀律」）、exit 3＝子程序失敗
+- **修正輪**：同一角色的修正／重取以 `--resume <sid>` 沿用原 session（context 仍熱，省重建稅），`<sid>` 取自上一輪 stderr 摘要行
+- **信封驗收內建**：script 以 `report_envelope_check.check_envelope` 判定（單一出處），blocking／advisory 處置同 PostToolUse hook（該 hook 仍掛在 `Agent` 工具路徑上）
+- **權限**：子 session 全放行（`--dangerously-skip-permissions`／codex 對應旗標，2026-09-29 使用者裁決 D3）；派工為前景子程序，無背景執行
+- **留痕**：每次派工 append `run/<run_id>.dispatch.jsonl`（格式見 `references/formats.md`），`token_usage.py` 收尾時併入用量；gate 7 對 Bash 派工指令同樣生效（見 `references/gates.md`）
+- **範圍外**：parallel-run／[P] fan-out 的 worktree 背景 agent 仍走 `Agent isolation: "worktree"`，不經本機制
 
 ## Model 指派原則
 
@@ -156,6 +169,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–1（初始化�
   - `git diff` 只回傳變更部分，token 消耗遠低於讀整檔；file-scoped 指令另可避免跨 sub_task staging 累積污染（見循環 step 2）
   - **task-verifier（checker，預設輪呼叫）不讀 diff、不適用本條**——輸入集見循環 step 3，只附 `--stat` 輸出
 - **auto-mode 定義**：指使用者在本次 session 中**明確表示**開啟（例如「開 auto-mode」「全自動跑」）。未明示一律視為關閉，不可自行推斷。
+- **以下背景執行／auto-mode 條款只對仍走 `Agent` 工具的呼叫有效**（2026-09-29 D4：舊路徑仍合法）；headless 派工（「派工機制」節）為前景子程序、權限已全放行，不適用
 - **auto-mode 開啟時**：這 2 個 agent 可以放背景執行（`run_in_background: true`），Bash 會自動批准。
 - **非 auto-mode 時**：這 2 個 agent 必須用前景執行，讓使用者能批准 Bash 權限。不可放背景執行（背景 agent 無法彈出權限確認，會導致 Bash 被拒絕）。
 - **retro** 等不需要 Bash 的 agent：可隨時放背景執行。

@@ -35,6 +35,7 @@
 - [ ] **前提**：先照 parallel-run skill 手動跑一次真實並行，拿到「哪些步驟真機械、模型在哪出錯」的實測資料，才動工（不重演制度超前於使用量）
 - [ ] 先行低風險項（可先做）：worktree 開設／收拾＋批次 manifest／eval_state 初始化的小 script（純機械、單獨可測，手動並行時就能用）
 - [ ] driver 設計要點（實戰後定案）：吃「已批次 HITL 確認」的需求清單才啟動；headless 權限靠 allowedTools 白名單（git／測試指令／既有 script），不可全放行；輪詢見 manifest `tier` 翻 2 或 `status: failed` → 凍結該 worktree、彙報標紅；merge 一律回主 session HITL
+- 註（2026-09-29，run `2026-09-29-headless-dispatch`）：派工層已改 headless——`.claude/hooks/dispatch.py` 可直接作為 session-per-worktree 的啟動器；該 run 的子 session 權限裁決為全放行（D3），與上條「allowedTools 白名單」不同，driver 動工時重新裁決
 - [ ] **不採用**的路徑（已評估）：編排層直接 spawn 流程管制的 subagent（Workflow／背景 Task）——會繞過 PreToolUse hook 防線，且背景 Bash 批准問題已有前案
 
 ## 12. 觀察項（等實測資料，不先動）

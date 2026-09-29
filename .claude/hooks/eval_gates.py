@@ -4,7 +4,8 @@
 兩種模式：
   --hook            PreToolUse hook：stdin 讀 hook JSON。
                     Bash → 攔 `git commit`，跑 commit gate；
-                    Task/Agent → 依 manifest.phase 狀態機攔亂序的 subagent 呼叫
+                    Task/Agent → 依 manifest.phase 狀態機攔亂序的 subagent 呼叫；
+                    Bash `dispatch.py <role>`（headless 派工）同受該狀態機
   --validate <path> 獨立驗證單一 eval_state / eval 歸檔檔的不變量
 
 exit 0 = 放行；exit 2 = block（stderr 說明原因，回饋給 Claude 修正）。
@@ -53,6 +54,12 @@ MANIFEST_RE = re.compile(
 #   - 捕捉組收斂為 run_id 實際字元集 `[A-Za-z0-9._-]`（日期-slug 命名），遇引號自然停住
 #   - **不加行尾 `$` 錨點**——加了會讓上述常見寫法整條匹配失敗，靜默退化成「定位不到」
 RUN_ID_TRAILER_RE = re.compile(r"^[ \t]*Run-Id:[ \t]*([A-Za-z0-9._-]+)", re.MULTILINE)
+
+# Bash 派工指令（`dispatch.py <role>`，2026-09-29 headless 派工）：與 Task/Agent 的 subagent_type
+# 同受 gate 7 phase 狀態機。role＝`dispatch.py` 後第一個非旗標 token；旗標（`--x`／`--x value`）
+# 可在 role 之前。解析對象同 GIT_COMMIT_RE 是 Bash 指令原文，故 heredoc 內容含此字樣亦會觸發
+# （已知假陽性，與 commit gate 同型；phase 已達門檻時無害）。
+DISPATCH_RE = re.compile(r"\bdispatch\.py\s+(?:--[A-Za-z0-9-]+(?:[= ]\S+)?\s+)*([A-Za-z][A-Za-z0-9-]*)")
 
 TEST_FILE_NAME_RE = re.compile(r"^(test_.*|.*_test)\.py$")
 TEST_DIR_NAMES = {"test", "tests", "__tests__", "spec"}
@@ -550,6 +557,10 @@ def run_hook():
         check_task_gate(tool_input)
 
     command = tool_input.get("command", "")
+    # 派工辨識排在 commit 辨識之前：一條 Bash 指令不會同時是兩者（check_task_gate 內部 sys.exit）
+    dispatch = DISPATCH_RE.search(command) if tool_name == "Bash" else None
+    if dispatch:
+        check_task_gate({"subagent_type": dispatch.group(1)})
     if not GIT_COMMIT_RE.search(command):
         sys.exit(0)
 

@@ -83,5 +83,6 @@ Codex 安裝：在本 repo 目錄執行 `./init.sh --p codex --target /path/to/m
 | 中斷恢復程序 | `skills/eval-flow-resume/` |
 | 多需求並行（worktree 隔離） | `skills/parallel-run/` |
 | gate 攔截邏輯本體 | `.claude/hooks/eval_gates.py` |
+| subagent headless 派工（`claude -p`／`codex exec`） | `.claude/hooks/dispatch.py` |
 | 遙測與健檢 | `.claude/hooks/stats.py`、`doctor.py` |
 | gate script 的測試 | `tests/`（`python3 -m unittest discover -s tests`） |

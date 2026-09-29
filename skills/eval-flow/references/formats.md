@@ -46,7 +46,7 @@
   - resume／換手時，接手者憑此驗證確認 gate 真的過過，不只信 `phase` 欄位。Tier B 記選型確認
 - `estimated_active_minutes`／`actual_active_minutes`：**選填**。Router 判級時的預估主動工時與收尾補記的實際值（估實分記，agentflow 慣例；消費端為判級校準，缺欄＝無記錄）
 - `subagent_usage`：**選填**。step 6 子項②收尾時由 `python3 .claude/hooks/token_usage.py <run_id> --write` **實測回寫**的 tokens 彙總 `{"prep": int, "loop": int, "main": int}`——三鍵皆為 transcript 四欄（`input_tokens`／`cache_creation_input_tokens`／`cache_read_input_tokens`／`output_tokens`）加總；`prep`＝usage-analyzer／task-decomposer／impact-analyzer 的 subagent 合計、`loop`＝其餘 subagent 合計、`main`＝主 flow 自身。舊制「依 Agent 工具回執自報、`main` 憑印象估」**廢止**（實測 2026-09-14 run：自報 loop 68161，transcript 實測主 flow cache 讀 10.09M——估計法系統性低估流程稅，2026-09-19）。消費端 `stats.py`：prep／loop 缺一或非 int → 整筆計無記錄；`main` 非 int → 只跳過 main、prep/loop 照收
-- `token_usage`：**選填**。與 `subagent_usage` 同時由 `token_usage.py --write` 寫入的明細：`{"session_id", "window": [lo, hi]|null, "main": {四欄＋turns}, "subagents": [{"agent_type", "description", 四欄＋turns}]}`；`window` 取自 `events.jsonl` 首尾 `ts`（init 之前的判級／載 skill 用量不在窗內，屬已知低估面）。純記錄，無 gate 消費
+- `token_usage`：**選填**。與 `subagent_usage` 同時由 `token_usage.py --write` 寫入的明細：`{"session_id", "window": [lo, hi]|null, "main": {四欄＋turns}, "subagents": [{"agent_type", "description", 四欄＋turns}]}`；`window` 取自 `events.jsonl` 首尾 `ts`（init 之前的判級／載 skill 用量不在窗內，屬已知低估面）；`subagents` 為 transcript `subagents/` 目錄 ∪ `run/<run_id>.dispatch.jsonl` 派工留痕（後者 `description` 為 `dispatch:<backend>`、不切窗）。純記錄，無 gate 消費
 - `harness`：Codex run 設為 `"codex"`；Claude run 可省略。`token_usage.py --write` 遇 Codex 時只寫 `token_usage_status: "unknown_codex"`，不把 Claude transcript 當作 Codex 用量
 - `session_id`／`config_dir`：**選填**。init 事件（Tier 2 `init --run-id`、Tier 1 `event <run_id> init`）由 `eval_state.py` 自 `CLAUDE_CODE_SESSION_ID`／`CLAUDE_CONFIG_DIR` 環境變數自動寫入，已有值不覆寫（resume 換 session 保留首次）；`token_usage.py` 憑此開 `<config_dir>/projects/<cwd 編碼>/<session_id>.jsonl`。舊 run 缺欄＝該腳本走 fallback 掃描 `~/.claude*/projects/*/` 含 run_id 的 transcript
 - `executor_notes`：**選填**。list[str]，每 item 一句 `item <id>: 直寫｜派工 — <理由>`——主 flow 直寫捷徑（eval-flow SKILL.md Tier 1 第 4 點）的執行者選擇留痕；2026-09-21 起取代舊的固定行數硬門檻，判斷依據是「交接是否划算」，本欄供事後審計。純記錄欄位，無 gate 消費
@@ -129,6 +129,15 @@
 - 行形狀：`{"ts": "<ISO8601 UTC>", "summary": "...", "files": [...], "lines": <int>}`
 - **純記錄欄位，不被任何 gate 消費**——加 gate 消費此檔即為判定行為變更（比照 `verification_commands` 同條款）
 - 消費端：`stats.py`「Tier 0 留痕」節（筆數／合計行數／最近一筆 ts；壞行寬容跳過）
+
+## run/<run_id>.dispatch.jsonl 格式
+
+**冷溯源檔**（同 `events.jsonl` 分類：留在工作目錄、永不清除；不進版控）。headless 派工 script `.claude/hooks/dispatch.py` 每次派工 append 一行（2026-09-29 起，派工機制住 eval-flow SKILL.md「派工機制」節）：
+
+- 行形狀：`{"ts": "<ISO8601 UTC>", "role": "<角色>", "backend": "claude|codex", "session_id": "<claude session_id｜codex thread_id>", "resumed": <bool>, "model": "<model id>", "turns": <int>, "input_tokens": <int>, "cache_creation_input_tokens": <int>, "cache_read_input_tokens": <int>, "output_tokens": <int>, "cost_usd": <float|null>, "duration_ms": <int>, "exit_code": <0|2|3>, "envelope": "ok|advisory|blocking"}`
+- codex 用量映射：`cached_input_tokens`→`cache_read_input_tokens`、`cache_write_input_tokens`→`cache_creation_input_tokens`；`cost_usd` 為 null（codex 不回報）
+- run_id 由 script 解析（`eval_state.json` → 唯一 tier 1 in_progress manifest，同 gate 7 基準）；解析不到（run 外手動觸發）不落檔
+- **純記錄檔，不被任何 gate 消費**（加 gate 消費即為判定行為變更，比照 `verification_commands` 條款）。消費端：`token_usage.py`（每行一筆 subagent，與 transcript 來源聯集、不切窗）
 
 ## eval_state.json 操作規則
 

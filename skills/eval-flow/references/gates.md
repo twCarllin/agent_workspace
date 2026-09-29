@@ -29,6 +29,7 @@
    - `usage-analyzer`／`impact-analyzer`／`task-decomposer` 皆需 `phase >= init`（等同「manifest 已建即可呼叫」）——前置 1 風險分析已刪除（Q1）、usage／impact 改具名問題觸發、task-decomposer 改條件派工，三者 `AGENT_MIN_PHASE` 收斂為 `init`；`task-decomposer` **不再**要求 `usage_report_path` 非空
    - `code-writer` 需 `phase >= decomposed` 且 `task_file` 非空。`risk_analysis.blocking` 遍歷判定已移除（Q8）——`risk_analysis` 欄位隨前置 1 刪除不再寫入，該判定恆為死碼，一併清除，不留孤兒條文
    - **舊值相容**：既有 manifest 的 `phase` 為 `risk_done`／`usage_confirmed` 時，`manifest_phase()` 在比對值域前先映射為 `init`，不因值域收斂而拋例外（DoD 2，細節見 `references/formats.md`）
+   - **Bash 派工指令同受本 gate**（2026-09-29 headless 派工）：`command` 命中 `dispatch.py <role>`（`eval_gates.py` 的 `DISPATCH_RE`，role＝`dispatch.py` 後第一個非旗標 token、旗標可在其前）→ 以該 role 走同一判定；非 `AGENT_MIN_PHASE` 角色放行。解析對象是 Bash 指令原文，heredoc 內容含此字樣亦會觸發（與 commit gate 同型的已知假陽性，phase 已達門檻時無害）
    - **共通前提**：intent gate 通過且 manifest 存在。`eval_state.json` 存在時依其 `run_id` 定位 manifest
    - **Tier 1 分支**：`eval_state.json` 不存在時，掃 `run/` 找唯一一個 `tier: 1` 且 `status: "in_progress"` 的 manifest 作為當前 run 依據（找到唯一一個 → 繼續後續 gate；找不到或多個 → 擋，原訊息語義）
    - `check_other_runs` 在兩條路徑下都執行（Tier 1 單一 run 原則不因豁免而失效）
@@ -46,5 +47,6 @@
 
 合規（兩類皆無缺項）→ exit 0、無輸出。
 
+- **headless 派工路徑**（2026-09-29）：`.claude/hooks/dispatch.py` 在 script 內以同一 `check_envelope` 判定（單一出處，不自建第二份規則），blocking → exit 2、advisory → stderr 警告；本 hook 只覆蓋仍走 `Agent` 工具的呼叫
 - **性質**：品質 lint、**fail-open**（stdin 非 JSON、欄位缺席、背景啟動回執、非信封名單 agent 一律放行）——**不是安全 gate**，不承擔攔截惡意內容的職責；與上方 PreToolUse gate 1–7 的攔截性質不同
 - 信封名單與載荷依據（2026-09-07 實測 PostToolUse `tool_response.content[].text`）住 script 檔頭，改名單時只改 script

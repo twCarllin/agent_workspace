@@ -6,6 +6,7 @@ import contextlib
 import io
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -163,6 +164,27 @@ class ReportBriefTest(unittest.TestCase):
         self.assertEqual(out, "[doctor] OK: ok1\n[doctor] 健檢通過\n")
         self.assertEqual(err, "")
         self.assertEqual(code, 0)
+
+
+class HooksListTest(unittest.TestCase):
+    """item 1.4（task/2026-09-29.md）契約 T5：健檢清單含 dispatch.py。"""
+
+    def test_t5_missing_dispatch_reported(self):
+        """T5：hooks 目錄缺 dispatch.py → issues 含「hooks 缺 dispatch.py」（以複製到暫存目錄的
+        doctor.py 執行，其他 script 齊全、只缺 dispatch.py）。"""
+        hooks_dir = Path(doctor.__file__).resolve().parent
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_hooks = os.path.join(tmp, ".claude", "hooks")
+            os.makedirs(fake_hooks)
+            for name in doctor.HOOKS + ["VERSION", "doctor.py"]:
+                if name != "dispatch.py":
+                    shutil.copy2(hooks_dir / name, fake_hooks)
+            proc = subprocess.run(
+                [sys.executable, os.path.join(fake_hooks, "doctor.py"), "--brief"],
+                capture_output=True, text=True,
+            )
+        self.assertIn("hooks 缺 dispatch.py", proc.stderr)
+        self.assertIn("dispatch.py", doctor.HOOKS)
 
 
 if __name__ == "__main__":

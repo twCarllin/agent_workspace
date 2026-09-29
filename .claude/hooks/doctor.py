@@ -5,7 +5,7 @@
   python3 .claude/hooks/doctor.py
 
 檢查：
-  1. hooks 檔案齊全（6 個 script ＋ VERSION）且 Python 檔可編譯
+  1. hooks 檔案齊全（7 個 script ＋ VERSION）且 Python 檔可編譯
   2. .claude/settings.json 的 PreToolUse 含 gate-check（防線真的接上）
   3. 核心 skill 已部署到 ~/.claude/skills/
   4. retro/RETRO.md 存在（seed 或累積）
@@ -23,7 +23,8 @@ import os
 import py_compile
 import sys
 
-HOOKS = ["eval_gates.py", "test_baseline.py", "test_lint.py", "eval_state.py", "stats.py", "session_start.py"]
+HOOKS = ["eval_gates.py", "test_baseline.py", "test_lint.py", "eval_state.py", "stats.py", "session_start.py",
+         "dispatch.py"]
 CORE_SKILLS = ["eval-flow", "eval-flow-resume", "test-strategy", "task-decomposition"]
 
 
