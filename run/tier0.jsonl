@@ -3,3 +3,6 @@
 {"ts": "2026-09-07T13:38:22.317223+00:00", "summary": "SKILL.md step 3 加 checker 派工信封註記（recency 前置，快 model 遵從補強）", "files": ["skills/eval-flow/SKILL.md"], "lines": 2}
 {"ts": "2026-09-21T03:55:31.592865+00:00", "summary": "RETRO R-004 加嚴：寫出留痕欄位的函式測試須逐鍵斷言（BUGLOG 驗證盲點第 3 次命中，使用者裁決加嚴不新增）", "files": ["retro/RETRO.md"], "lines": 2}
 {"ts": "2026-09-21T03:55:31.629480+00:00", "summary": "README Router 表第 27／30 行改 v2 措辭（本體變更觸碼、工具鏈不因類別觸碰）", "files": ["README.md"], "lines": 4}
+{"ts": "2026-09-22T15:16:06.913370+00:00", "summary": "修 is_test_file 誤判：排除點開頭目錄段（.claude/hooks 下的 test_*.py 被當成測試模組，argv 首段為空使整個 suite 失敗），加 3 條回歸測試含 argv 合法性斷言", "files": [".claude/hooks/test_baseline.py", "tests/test_test_baseline.py"], "lines": 48}
+{"ts": "2026-09-22T15:23:57.206831+00:00", "summary": "mine 用法補完整：移除四處對 mine 傳 --strike-key 的死指令（該旗標只有 check 消費，mine 端消費者隨 Task 5 刪 mine_log 一併消失），test-strategy 補 Tier 0 需同時給 --run-id 與 --cmd 的完整用法與已知瑕疵", "files": ["skills/test-strategy/SKILL.md", "skills/eval-flow/SKILL.md", "skills/eval-flow/references/rare-paths.md", ".claude/agents/code-writer.md"], "lines": 18}
+{"ts": "2026-09-23T16:27:04.299142+00:00", "summary": "修 Codex 安裝缺漏：部署 VERSION、RETRO seed 並初始化 BUGLOG，重跑保留專案紀錄", "files": ["install_codex.py", "tests/test_codex_flow.py", "retro/BUGLOG.md"], "lines": 37}
