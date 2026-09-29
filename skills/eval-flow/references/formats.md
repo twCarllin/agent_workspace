@@ -116,7 +116,7 @@
 
 - 每個會寫入狀態的子命令（`init`／`add-subtask`／`set-step`／`set-files`／`set-test`／`set-status`／`set-review`／`set-verify`／`add-verification`／`archive`）成功寫入（`save()` 之後）append 一行 JSON：`{"ts": "<ISO8601>", "cmd": "<子命令>", "args": {...}}`；唯讀的 `list-files` 不記
 - `args` 鍵全記（`func` 與子命令 dest `command` 除外），字串值 >200 字元截斷並標 `…[truncated]`
-- `verify_cmd`（Tier 1，run_verify.py 寫）與 `add-verification`（Tier 2）事件的 `args.verify_command`＝驗證指令原文（2026-09-21 起；因 `command` 鍵被過濾，舊事件只有 `exit_code`）。消費端 `stats.py` 事件節「全套 N」＝含 `--strike-key full_suite` 的此類事件數，供收尾停止規則（記錄級修正不重跑全套）累積證據
+- `verify_cmd`（Tier 1，run_verify.py 寫）與 `add-verification`（Tier 2）事件的 `args.verify_command`＝驗證指令原文（2026-09-21 起；因 `command` 鍵被過濾，舊事件只有 `exit_code`）。消費端 `stats.py` 事件節「全套 N」＝含 `--strike-key full_suite` 的此類事件數，供收尾停止規則（記錄級修正不重跑全套）累積證據；2026-09-29 起 Tier 1 收尾改跑累積聯集（`--strike-key wrapup_related`），不計入此數，Tier 1 run 顯示「全套 0」屬正常
 - append 是旁路記錄：寫入失敗（如 `run/` 不可寫）僅 stderr warning，不影響原子命令的 exit code；`eval_state.json` 缺 `run_id` 時同樣只 warning 並略過記錄
 - **Tier 1 的寫入路徑**：Tier 1 不建 `eval_state.json`，改以 `event` 子命令（`python3 .claude/hooks/eval_state.py event <run_id> <節點名> [--note <str>]`，不經 load()）於流程節點直寫本檔——呼叫點住 eval-flow SKILL.md「Tier 1 精簡路徑」；事件行形狀同上（`cmd` 為節點名）
 - 消費端見 `stats.py`（依 `ts` 欄位取極值計時距；`set-step` 重入依事件的 sub_task id＋`step` 計數，不依賴檔內物理行序）

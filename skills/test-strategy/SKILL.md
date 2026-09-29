@@ -1,6 +1,6 @@
 ---
 name: test-strategy
-description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無新增穩定失敗」機制（script 判定，單次跑快照既有失敗）、真失敗即回報使用者（人是計數器）、相關測試選擇（累積聯集）、假測試 lint、mutation self-check、commit 前全套檢查與重開 passed sub_task 的路徑、零測試專案處置、全 tier 驗證豁免窗口。觸發語：Eval Flow 循環進入 step 5 時、「測試失敗怎麼辦」、「建測試 baseline」。不適用於：測試框架選型（Tier B bootstrap 的 HITL 決定）。
+description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無新增穩定失敗」機制（script 判定，單次跑快照既有失敗）、真失敗即回報使用者（人是計數器）、相關測試選擇（累積聯集）、假測試 lint、mutation self-check、commit 前收尾檢查（分 tier：Tier 1 累積聯集／Tier 2 全套）與重開 passed sub_task 的路徑、零測試專案處置、全 tier 驗證豁免窗口。觸發語：Eval Flow 循環進入 step 5 時、「測試失敗怎麼辦」、「建測試 baseline」。不適用於：測試框架選型（Tier B bootstrap 的 HITL 決定）。
 ---
 
 # Test Strategy（本地測試 gate 執行細節）
@@ -18,6 +18,7 @@ python3 .claude/hooks/test_baseline.py baseline
 
 - **全套測試指令從 manifest 的 `test_command` 讀**（single source of truth；`--cmd` 僅供覆寫）。manifest 尚無此欄時，先確認指令並寫入 manifest 再跑——不要每個 run 各猜一套，baseline 與 check 範圍不一致就會出現「無關的既有失敗」
   - **`test_command` 須指定專案直譯器**（專案有虛擬環境時，寫成 `.venv/bin/python3 -m pytest` 之類，不要用裸 `python3`）——系統直譯器缺專案套件會讓整批測試 import 失敗、被誤記為既有 `stable_failures`（幻影欠帳，實測外部專案累積 31 個）。baseline 偵測到「有 `.venv/bin` 但 cmd 未用它且有 stable 失敗」時會於 stderr 印錯配警示（僅提醒、不改執行環境）
+  - **`test_command` 須為完整組指令**：專案把測試分成日常組／完整組時（pytest marker、conftest 白名單等），manifest 寫**完整組**——日常組是開發期快速回饋，不當 gate（實測 2026-09-29：TW_Analysis 日常組白名單上線後 `pytest tests/ -q` 靜默降為 695／2,375 筆，收尾檢查無人察覺縮水）
 - **跑一次**：所有失敗記為 `stable_failures`（進場既有壞測試，之後不擋 gate）。非確定性（flaky）失敗不在 baseline 階段預先分類——scoped 測試架構下每輪跑的測試面積小、噪音低，改由 check 在**出現新失敗時**才重跑一次確認可重現（惰性驗證，成本只在有訊號時付）
 - **`__suite__` 套件層失敗**（無法解析出個別失敗的整體性失敗）例外於上一點：baseline 階段即重跑一次確認可重現才記入 `stable_failures`。
   - 記入後，check 每次執行皆於 stderr 印出「gate 對套件層級失敗失明」警告（不影響判定與 exit code）——因為 gate 的新增失敗比對機制看不見套件層失敗，需要額外提醒使用者注意
@@ -112,7 +113,7 @@ script 重跑確認可重現的真新失敗，先判是否屬下列兩種**確�
 | 分類 | 判定 | 處置 |
 |---|---|---|
 | **測試過時** | 測試斷言的是被 Spec **有意**改掉的舊行為 | 更新測試並在 `local_test_evidence` 註明依據；無依據放寬視同 🔴（詳見表下補充） |
-| **肇因非本 item** | 累積聯集照出的失敗，肇因是**先前已 passed 的 sub_task**（潛伏 bug 被本 item 新測試或新路徑照到；用 `git diff --cached -- <各 sub_task 的 files>` 定位肇事者） | 走「重開路徑」重開肇事 sub_task（同 commit 前全套檢查的處置）；本 item 不動 |
+| **肇因非本 item** | 累積聯集照出的失敗，肇因是**先前已 passed 的 sub_task**（潛伏 bug 被本 item 新測試或新路徑照到；用 `git diff --cached -- <各 sub_task 的 files>` 定位肇事者） | 走「重開路徑」重開肇事 sub_task（同 commit 前收尾檢查的處置）；本 item 不動 |
 | **疑似既有失敗（baseline 盲區）** | 失敗的測試檔與本 run 變更檔聯集（`eval_state.py list-files`）**無交集**，或一眼可見與本 run 變更無關 | **不調查、不修，直接回報使用者裁決**（詳見表下補充） |
 
 - **測試過時補充**：`local_test_evidence` 註明改了哪個測試、舊斷言為何不再成立、對應的 Spec／task 依據。**無依據的放寬斷言／刪 case／加 skip 視同 🔴**（code-reviewer 審查重點）。
@@ -134,16 +135,17 @@ script 重跑確認可重現的真新失敗，先判是否屬下列兩種**確�
 
 不新設迴圈——這與審查退回共用同一條 fixing 路，差別只在入口（審查輪發現 vs step 5 發現）與前置動作（先補契約 row 再修）。
 
-## Commit 前全套檢查與重開路徑（跨 sub_task 破壞的最後防線）
+## Commit 前收尾檢查與重開路徑（跨 sub_task 破壞的最後防線，分 tier）
 
-step 6 收尾**之前**（歸檔 eval_state 前）跑一次全套：
+step 6 收尾**之前**（Tier 2 歸檔 eval_state 前）跑一次收尾檢查，範圍**依 tier**（2026-09-29 使用者裁決；依據：框架工作區 49 run＋TW_Analysis 60 run 的收尾全套從未抓到累積聯集漏掉的破壞，而全套成本隨測試數線性上漲）：
 
-```
-python3 .claude/hooks/test_baseline.py check --strike-key full_suite
-```
+| Tier | 收尾檢查範圍 | 指令 |
+|---|---|---|
+| **Tier 1** | **累積聯集**（本 run staged 檔的相關測試），**不跑全套** | `python3 .claude/hooks/test_baseline.py check --cmd 'python3 -m pytest -q $(python3 .claude/hooks/test_baseline.py related --files $(git diff --cached --name-only))' --strike-key wrapup_related`（`--cmd` **必須單引號**：讓 `$(…)` 在 test_baseline 的 sh 內展開才會依換行分詞，外層 shell 先展開會把換行塞進單一字串、pytest 之後的檔名被當命令執行而報 `__suite__`——實測 2026-09-29；測試框架指令依專案 `test_command` 的直譯器改寫；Tier 1 無 `eval_state.json`，files 聯集取 staged 清單） |
+| **Tier 2** | **全套**（manifest `test_command`） | `python3 .claude/hooks/test_baseline.py check --strike-key full_suite`（省略 `--cmd` → 讀 manifest，與 baseline 同源同範圍） |
+| parallel-run merge gate | 全套（規則住 parallel-run skill，不變） | 同 Tier 2 |
 
-（省略 `--cmd` → 讀 manifest 的 `test_command`，與 baseline 同源同範圍）
-
+- Tier 1 的 related 輸出為空（純 prose 變更等）→ `local_test_evidence` 記「wrapup_related：無相關測試」，以 step 5 既有憑據收尾；**不得改跑全套湊憑據**（全套在 Tier 1 不是憑據要求）
 - exit 0 → 照常收尾
 - exit 2 → 相關測試沒抓到的跨 sub_task 破壞。處置：
   1. 用 `git diff --cached -- <各 sub_task 的 files>` 定位是哪個 sub_task 的變更弄壞的
