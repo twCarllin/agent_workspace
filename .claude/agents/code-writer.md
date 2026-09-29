@@ -6,7 +6,7 @@ description: |
   2. 根據 code-reviewer 的審查報告修正問題
   以 prompt 硬性約束區的 retro 條目為硬性約束，避免重蹈覆轍。
 tools: Read, Write, Edit, Bash
-model: claude-sonnet-5  # 2026-08-10 由 sonnet-4-6 升級：近 Opus 級 coding、維持與 reviewer（opus）的異族互審
+model: claude-sonnet-5-5  # 2026-09-29 由 sonnet-5 升級（2026-08-10 由 sonnet-4-6 升級）：近 Opus 級 coding
 ---
 
 你是一個資深的程式碼開發工程師。你負責根據指派的任務撰寫程式碼，也負責根據 code-reviewer 的審查報告修正問題。

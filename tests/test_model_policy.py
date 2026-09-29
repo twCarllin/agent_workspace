@@ -1,4 +1,5 @@
 """MODEL_POLICY.md（政策表）↔ agent frontmatter（執行端）一致性：防「改了一邊沒改另一邊」的漂移。
+Claude 端 writer／reviewer 異族約束已於 2026-09-29 廢除（run 2026-09-29-all-sonnet55），本檔不再檢查。
 
 執行：python3 -m unittest tests.test_model_policy
 檢查對象是 repo 本身的靜態一致性，不跑任何流程。
@@ -33,11 +34,6 @@ def frontmatter_models():
     return models
 
 
-def family(model_id):
-    """claude-<family>-... → family（如 claude-sonnet-5 → sonnet）。"""
-    return model_id.removeprefix("claude-").split("-")[0]
-
-
 class ModelPolicyConsistencyTest(unittest.TestCase):
     def test_policy_covers_exactly_all_agents(self):
         table = set(policy_table())
@@ -56,13 +52,8 @@ class ModelPolicyConsistencyTest(unittest.TestCase):
                 f"{agent}：政策表 {table.get(agent)} ≠ frontmatter {actual}（改 model 須兩處同 diff）",
             )
 
-    def test_writer_reviewer_families_differ(self):
-        table = policy_table()
-        writer, reviewer = table["code-writer"], table["code-reviewer"]
-        self.assertNotEqual(
-            family(writer), family(reviewer),
-            f"去相關化約束違反：code-writer（{writer}）與 code-reviewer（{reviewer}）同家族",
-        )
+    # Claude 端「writer 與 reviewer 異族」測試已於 2026-09-29 隨規則廢除刪除（run 2026-09-29-all-sonnet55，
+    # 使用者裁決全部 sonnet-5-5；去相關化改由 session 層承擔，見 MODEL_POLICY.md 約束節）。Codex 端仍有異族測試（下方 M1③）。
 
     def test_inline_comment_boundary(self):
         """frontmatter model 行帶行內註解（現況存在）→ 解析須只取值。"""

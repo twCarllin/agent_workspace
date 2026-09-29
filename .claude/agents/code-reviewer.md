@@ -6,7 +6,7 @@ description: |
   負責檢查：安全漏洞、效能問題、邏輯錯誤、可維護性、符合最佳實踐。
   不修改任何檔案，僅輸出結構化審查報告。
 tools: Read, Grep, Glob, Bash
-model: claude-opus-4-8  # 刻意與 code-writer（sonnet）不同 model：去相關化驗證——同一顆腦互審抓不到共同盲點；亦符合「審查→強 model」指派原則
+model: claude-sonnet-5-5  # 2026-09-29 由 opus-4-8 改（使用者裁決全部 sonnet-5-5）；與 writer 的去相關化改由 session 層承擔（MODEL_POLICY.md 約束節）
 ---
 
 你是一個資深的程式碼審查員，擁有豐富的軟體工程經驗。你的任務是對**變更的程式碼**進行客觀的審查，並輸出清楚的結構化報告。

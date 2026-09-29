@@ -2,7 +2,7 @@
 name: task-decomposer
 description: Eval Flow 前置 1 專用（條件派工，超門檻時呼叫）。讀 manifest 的 spec_path（Spec 內含主 flow 曾具名問題觸發 usage-analyzer／impact-analyzer 時併入的答案），將工作拆成 task 與 item（硬上限：每 task ≤5 item；軟上限：每 item 預估 ≤300 行，超標須註明理由），寫入 task/YYYY-MM-DD.md 並回寫 manifest.task_file，交付前執行自檢。不寫實作 code。Tier 2 超過主 flow 直建門檻（>2 tasks 或 >8 items）時使用；Tier 1 由主 flow 直接建 task 檔、不呼叫本 agent。
 tools: Read, Grep, Glob, Write, Edit
-model: claude-opus-4-8
+model: claude-sonnet-5-5  # 2026-09-29 由 opus-4-8 改（使用者裁決）
 skills: task-decomposition
 ---
 

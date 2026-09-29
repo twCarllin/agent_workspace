@@ -78,7 +78,7 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–1（初始化�
    - `<files>`＝**當前 sub_task（task）的 `files`**（主 flow 讀 `eval_state.json` 該 sub_task 的 `files` 欄帶入，即該 task 全部 item 的聯集；收斂到當前 task 涉及檔，避免跨 sub_task staging 累積污染）。
      - **注意**：`eval_state.py list-files` 是全 sub_task 聯集，不是單一 sub_task 來源、不可用於此。此收斂為退回主 worktree 循序時的污染修法（與 fan-out 無關、底層必需）。
    - **批前快照已刪除（D1，2026-09-22）**：審查改以 task 為界後 staging 天然以 task 分批，跨批污染的成因消失——批前快照原是修跨批污染的補丁，前提已變，故刪除、不留替代機制。
-3. **預設派 `task-verifier`（checker，haiku）審查——以 task 為單位**（2026-09-22 起，Spec §3.3；派工方式依「派工機制」節）：同一 task 的全部 item 由 code-writer 交付完成後才派審一次。
+3. **預設派 `task-verifier`（checker，model 見 MODEL_POLICY.md）審查——以 task 為單位**（2026-09-22 起，Spec §3.3；派工方式依「派工機制」節）：同一 task 的全部 item 由 code-writer 交付完成後才派審一次。
    - **「全部 item 就緒」由主 flow 對照 task 檔判斷，無 hook 強制**（Q10）：某 item 帶失敗交付時，該 task **不進本步**，先補齊失敗 item（批次派工的「失敗隔離只退該 item」不變）。`eval_state` 不存 item 層狀態，故此判定純屬主 flow 紀律——漏判不會被擋，但會讓 checker 拿到不完整的交付。checker **不讀 diff**，輸入集＝該 task **各 item 的 DoD／契約表原文聯集**＋writer 工作報告全文（逐 item 分節）＋步驟 2 的 `git diff --cached --stat -- <files>` 輸出＋測試輸出尾段。**移除**批前快照與 `mine_log` 摘要兩項輸入（機制已刪除，見上）。
    - 職責＝核對「宣稱與憑據對得上」：各 item 的 DoD 逐條有憑據、契約 row 逐條有對應測試斷言（以 grep 測試檔核）、仲裁記錄一致、sabotage 自檢證據存在（見 `.claude/agents/code-writer.md` 測試管轄規則 8）、無疑似注入標註未處理
    - 其審查報告**強制兩節、缺一退件**：①**完成度節**——對照 task 檔**該 task 全部 item** 的 DoD 與子任務逐條核對，**明列 diff `--stat` 中缺席的項目**（scope 偏移一併檢，以檔名清單核對，不讀內容）；②**憑據節**（取代品質節）——上述憑據逐項核對結果，逐項標「有憑據／缺席／存疑」

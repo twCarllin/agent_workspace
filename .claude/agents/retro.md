@@ -6,7 +6,7 @@ description: |
   追加寫入 retro/RETRO.md 單一檔案，供主 flow 前置貼進 code-writer prompt 的硬性約束區。
   不修改任何程式碼檔案。
 tools: Read, Grep, Glob, Write, Edit
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5  # 2026-09-29 由 sonnet-4-6 升級
 skills: root-cause-table
 ---
 
