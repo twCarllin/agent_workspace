@@ -148,9 +148,10 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–1（初始化�
 
 流程角色（`code-writer`／`task-verifier`／`code-reviewer`／`retro`／`task-decomposer`／`usage-analyzer`／`impact-analyzer`）一律以子程序執行 headless CLI 派工，不再依賴 harness 的 `Agent` 工具（舊路徑仍合法、hook 不擋——2026-09-29 使用者裁決 D4；文件以本節為準）：
 
-- **指令**：`python3 .claude/hooks/dispatch.py <role> --prompt-file <path> [--backend claude|codex] [--resume <session>]`。預設後端 `claude -p --agent <role>`（依 `.claude/agents/<role>.md` 載入 system prompt 與 frontmatter `model`／`tools`，`MODEL_POLICY.md` 仍是 model 單一枚舉點）；`--backend codex` 走 `codex exec`（角色設定讀 `.codex/agents/<role>.toml`）；省略時依 manifest `harness`（`"codex"` → codex，否則 claude）
+- **指令**：`python3 .claude/hooks/dispatch.py <role> --prompt-file <path> [--backend claude|codex] [--resume <session>] [--files <逗號清單>] [--timeout <秒>] [--max-output-chars <n>]`。預設後端 `claude -p --agent <role>`（依 `.claude/agents/<role>.md` 載入 system prompt 與 frontmatter `model`／`tools`，`MODEL_POLICY.md` 仍是 model 單一枚舉點）；`--backend codex` 走 `codex exec`（角色設定讀 `.codex/agents/<role>.toml`）；省略時依 manifest `harness`（`"codex"` → codex，否則 claude）
 - **prompt 檔**：主 flow 把派工 prompt 全文（含硬性約束區、契約表原文——知識前置規則不變，R-011）寫到 `run/<run_id>.prompt-<role>-<n>.md`（冷溯源檔，不進版控）再派工，不走命令列參數
-- **輸出**：stdout＝子 agent 報告全文（主 flow 直接讀）；stderr 摘要行 `[dispatch] role=… backend=… session=<sid> turns=… tokens=… cost_usd=…`；exit 2＝信封 blocking（退件重取，見「主 flow 憑據紀律」）、exit 3＝子程序失敗
+- **輸出**：stdout＝子 agent 報告全文（主 flow 直接讀）；stderr 摘要行 `[dispatch] role=… backend=… session=<sid> turns=… tokens=… cost_usd=…`；exit 2＝信封 blocking（退件重取，見「主 flow 憑據紀律」）、exit 3＝子程序失敗／超時（預設 1200 秒）／報告超量（預設 60000 字元，截斷）、exit 4＝越界變更（退件；範圍外檔案列在 stderr，優先於 exit 2）
+- **越界檢查（主 flow 派 code-writer 時必帶 `--files`，值＝該 item 的 files 欄）**：script 以派工前後的 `git status` 對照，「派工後新出現且不在清單內」的路徑即越界。越界退件時主 flow 先看 stderr 清單裁決（真越界→`--resume` 要求還原；清單漏列→補 files 後照常收），不自行放行
 - **修正輪**：同一角色的修正／重取以 `--resume <sid>` 沿用原 session（context 仍熱，省重建稅），`<sid>` 取自上一輪 stderr 摘要行
 - **信封驗收內建**：script 以 `report_envelope_check.check_envelope` 判定（單一出處），blocking／advisory 處置同 PostToolUse hook（該 hook 仍掛在 `Agent` 工具路徑上）
 - **權限**：子 session 全放行（`--dangerously-skip-permissions`／codex 對應旗標，2026-09-29 使用者裁決 D3）；派工為前景子程序，無背景執行

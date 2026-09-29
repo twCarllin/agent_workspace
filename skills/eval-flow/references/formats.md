@@ -134,7 +134,8 @@
 
 **冷溯源檔**（同 `events.jsonl` 分類：留在工作目錄、永不清除；不進版控）。headless 派工 script `.claude/hooks/dispatch.py` 每次派工 append 一行（2026-09-29 起，派工機制住 eval-flow SKILL.md「派工機制」節）：
 
-- 行形狀：`{"ts": "<ISO8601 UTC>", "role": "<角色>", "backend": "claude|codex", "session_id": "<claude session_id｜codex thread_id>", "resumed": <bool>, "model": "<model id>", "turns": <int>, "input_tokens": <int>, "cache_creation_input_tokens": <int>, "cache_read_input_tokens": <int>, "output_tokens": <int>, "cost_usd": <float|null>, "duration_ms": <int>, "exit_code": <0|2|3>, "envelope": "ok|advisory|blocking"}`
+- 行形狀：`{"ts": "<ISO8601 UTC>", "role": "<角色>", "backend": "claude|codex", "session_id": "<claude session_id｜codex thread_id>", "resumed": <bool>, "model": "<model id>", "turns": <int>, "input_tokens": <int>, "cache_creation_input_tokens": <int>, "cache_read_input_tokens": <int>, "output_tokens": <int>, "cost_usd": <float|null>, "duration_ms": <int>, "exit_code": <0|2|3|4>, "envelope": "ok|advisory|blocking|null", "failure": null|"timed_out"|"output_truncated"|"child_error", "out_of_scope": null|[<越界路徑>...]}`
+- `failure`／`out_of_scope`（2026-09-29 run `2026-09-29-dispatch-guards` 新增）：前者記子程序失敗分類（成功為 null；超時／超量時 `envelope` 為 null、未做信封判定）；後者記 `--files` 越界檢查結果（未給 `--files` 或非 git repo 為 null，無越界為空 list）
 - codex 用量映射：`cached_input_tokens`→`cache_read_input_tokens`、`cache_write_input_tokens`→`cache_creation_input_tokens`；`cost_usd` 為 null（codex 不回報）
 - run_id 由 script 解析（`eval_state.json` → 唯一 tier 1 in_progress manifest，同 gate 7 基準）；解析不到（run 外手動觸發）不落檔
 - **純記錄檔，不被任何 gate 消費**（加 gate 消費即為判定行為變更，比照 `verification_commands` 條款）。消費端：`token_usage.py`（每行一筆 subagent，與 transcript 來源聯集、不切窗）

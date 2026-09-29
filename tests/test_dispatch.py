@@ -21,10 +21,15 @@ STAMP = "* _2026-09-29 10:00 (claude-haiku-4-5-20251001)_"
 # 合規＝report_envelope_check.check_envelope 的定義：戳記行＋（task-verifier）完成度／憑據兩節＋Self-check 終行
 COMPLIANT = "\n".join([STAMP, "", "## 完成度", "全部完成", "## 憑據", "測試通過", "Self-check: 通過"])
 FAKE_EXE = """#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, time
 data = sys.stdin.read()
 with open(os.environ["FAKE_CALLS"], "a", encoding="utf-8") as f:
-    f.write(json.dumps({"exe": %r, "argv": sys.argv[1:], "stdin": data}) + "\\n")
+    f.write(json.dumps({"exe": %r, "argv": sys.argv[1:], "stdin": data, "pid": os.getpid()}) + "\\n")
+for path in [p for p in os.environ.get("FAKE_TOUCH", "").split("|") if p]:
+    with open(path, "a", encoding="utf-8") as f:
+        f.write("changed by fake worker\\n")
+if os.environ.get("FAKE_SLEEP"):
+    time.sleep(float(os.environ["FAKE_SLEEP"]))
 sys.stdout.write(os.environ.get("FAKE_STDOUT", ""))
 sys.exit(int(os.environ.get("FAKE_EXIT", "0")))
 """
@@ -88,11 +93,27 @@ class DispatchTest(unittest.TestCase):
         with open(os.path.join(self.dir, "run", f"{RUN_ID}.json"), "w", encoding="utf-8") as f:
             json.dump(m, f)
 
-    def dispatch(self, *args, stdout="", exit_code=0):
+    def dispatch(self, *args, stdout="", exit_code=0, touch=(), sleep=None):
         env = {**os.environ, "PATH": self.bin + os.pathsep + os.environ.get("PATH", ""),
-               "FAKE_CALLS": self.calls, "FAKE_STDOUT": stdout, "FAKE_EXIT": str(exit_code)}
+               "FAKE_CALLS": self.calls, "FAKE_STDOUT": stdout, "FAKE_EXIT": str(exit_code),
+               "FAKE_TOUCH": "|".join(touch)}
+        if sleep is not None:
+            env["FAKE_SLEEP"] = str(sleep)
         return subprocess.run([sys.executable, DISPATCH, *args], cwd=self.dir, env=env,
                               capture_output=True, text=True)
+
+    def init_git(self, tracked=("a.py", "c.py")):
+        """B 系列：把工作目錄變成 git repo，tracked 檔已提交（之後修改會出現在 git status）。"""
+        for cmd in (["git", "init", "-q"], ["git", "config", "user.email", "t@t.com"],
+                    ["git", "config", "user.name", "T"]):
+            subprocess.run(cmd, cwd=self.dir, check=True, capture_output=True)
+        with open(os.path.join(self.dir, ".gitignore"), "w", encoding="utf-8") as f:
+            f.write("run/\nbin/\ncalls.jsonl\nprompt.md\n")
+        for name in tracked:
+            with open(os.path.join(self.dir, name), "w", encoding="utf-8") as f:
+                f.write("original\n")
+        subprocess.run(["git", "add", "."], cwd=self.dir, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=self.dir, check=True, capture_output=True)
 
     def calls_made(self):
         if not os.path.exists(self.calls):
@@ -127,6 +148,7 @@ class DispatchTest(unittest.TestCase):
             "input_tokens": 10, "cache_creation_input_tokens": 19448,
             "cache_read_input_tokens": 13971, "output_tokens": 44,
             "cost_usd": 0.0415, "exit_code": 0, "envelope": "ok",
+            "failure": None, "out_of_scope": None,  # 2026-09-29-dispatch-guards：留痕擴為 17 鍵
         })
 
     def test_c2_claude_argv_and_stdin(self):
@@ -237,6 +259,7 @@ class DispatchTest(unittest.TestCase):
             "input_tokens": 16296, "cache_creation_input_tokens": 12,
             "cache_read_input_tokens": 7936, "output_tokens": 5,
             "cost_usd": None, "exit_code": 0, "envelope": "advisory",
+            "failure": None, "out_of_scope": None,  # 2026-09-29-dispatch-guards：留痕擴為 17 鍵
         })
 
     def test_k3_default_backend_follows_manifest_harness(self):
@@ -272,6 +295,115 @@ class DispatchTest(unittest.TestCase):
                              stdout=codex_jsonl(with_message=False))
         self.assertEqual(proc.returncode, 3)
         self.assertIn("agent_message", proc.stderr)
+
+
+class DispatchGuardsTest(DispatchTest):
+    """run 2026-09-29-dispatch-guards：item 1.1 契約 A1–A4（timeout／輸出上限）、item 1.2 契約 B1–B5（越界檢查）。
+    沿用 DispatchTest 的 fixture（setUp／dispatch／records）；父類測試不在此重跑（見 load_tests）。"""
+
+    def test_a1_timeout_kills_child(self):
+        """A1：假 claude 睡 5 秒、--timeout 1 → exit 3；stderr 含 timeout；stdout 空；留痕 timed_out；子程序已不存在。"""
+        proc = self.dispatch("task-verifier", "--prompt-file", self.prompt, "--timeout", "1",
+                             stdout=claude_json(), sleep=5)
+        self.assertEqual(proc.returncode, 3)
+        self.assertIn("timeout", proc.stderr)
+        self.assertEqual(proc.stdout, "")
+        rec = self.records()[0]
+        self.assertEqual((rec["failure"], rec["exit_code"], rec["envelope"]), ("timed_out", 3, None))
+        pid = self.calls_made()[0]["pid"]
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+
+    def test_a2_output_over_limit_is_truncated(self):
+        """A2：報告 > --max-output-chars 100 → exit 3；stdout＝前 100 字元＋截斷末行；留痕 output_truncated。"""
+        long_report = "x" * 250
+        proc = self.dispatch("task-verifier", "--prompt-file", self.prompt, "--max-output-chars", "100",
+                             stdout=claude_json(result=long_report))
+        self.assertEqual(proc.returncode, 3)
+        self.assertIn("截斷", proc.stderr)
+        self.assertEqual(proc.stdout, "x" * 100 + "\n[dispatch] 輸出截斷：250 字元超過上限 100\n")
+        rec = self.records()[0]
+        self.assertEqual((rec["failure"], rec["exit_code"], rec["envelope"]), ("output_truncated", 3, None))
+
+    def test_a3_explicit_limits_with_short_report_unchanged(self):
+        """A3 [組合]：--timeout 30 --max-output-chars 100000 ＋ 合規短報告 → exit 0、failure=null。"""
+        proc = self.dispatch("task-verifier", "--prompt-file", self.prompt, "--timeout", "30",
+                             "--max-output-chars", "100000", stdout=claude_json())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, COMPLIANT + "\n")
+        self.assertIsNone(self.records()[0]["failure"])
+
+    def test_a4_child_exit_records_child_error(self):
+        """A4 [邊界]：假 claude exit 1 → 留痕 failure=child_error（exit 3 行為不變）。"""
+        proc = self.dispatch("task-verifier", "--prompt-file", self.prompt, stdout=claude_json(), exit_code=1)
+        self.assertEqual(proc.returncode, 3)
+        self.assertEqual(self.records()[0]["failure"], "child_error")
+
+    def test_b1_out_of_scope_file_rejected(self):
+        """B1：--files a.py，假 claude 改 a.py 並新增 b.py → exit 4；stderr 含越界與 b.py；留痕 ["b.py"]；stdout 仍全文。"""
+        self.init_git()
+        proc = self.dispatch("code-writer", "--prompt-file", self.prompt, "--files", "a.py",
+                             stdout=claude_json(), touch=("a.py", "b.py"))
+        self.assertEqual(proc.returncode, 4)
+        self.assertIn("越界", proc.stderr)
+        self.assertIn("b.py", proc.stderr)
+        self.assertNotIn("a.py", proc.stderr.split("越界變更")[1])
+        self.assertEqual(proc.stdout, COMPLIANT + "\n")
+        rec = self.records()[0]
+        self.assertEqual((rec["out_of_scope"], rec["exit_code"]), (["b.py"], 4))
+
+    def test_b2_only_allowed_file_changed(self):
+        """B2：--files a.py，只改 a.py → exit 0；留痕 out_of_scope=[]。"""
+        self.init_git()
+        proc = self.dispatch("code-writer", "--prompt-file", self.prompt, "--files", "a.py",
+                             stdout=claude_json(), touch=("a.py",))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.records()[0]["out_of_scope"], [])
+
+    def test_b3_out_of_scope_wins_over_envelope_blocking(self):
+        """B3 [組合]：越界 b.py ＋ 報告缺 Self-check → exit 4；stderr 同時含越界與信封缺損；留痕 blocking＋["b.py"]。"""
+        self.init_git()
+        broken = "\n".join([STAMP, "", "## 完成度", "x", "## 憑據", "y"])
+        proc = self.dispatch("code-writer", "--prompt-file", self.prompt, "--files", "a.py",
+                             stdout=claude_json(result=broken), touch=("b.py",))
+        self.assertEqual(proc.returncode, 4)
+        self.assertIn("越界", proc.stderr)
+        self.assertIn("信封缺損", proc.stderr)
+        rec = self.records()[0]
+        self.assertEqual((rec["envelope"], rec["out_of_scope"]), ("blocking", ["b.py"]))
+
+    def test_b4_preexisting_change_ignored_and_space_path_listed(self):
+        """B4 [邊界]：派工前 c.py 已修改且假 claude 不動它 → 不算越界；含空白檔名 `sp ace.py` 越界時正確列出。"""
+        self.init_git()
+        with open(os.path.join(self.dir, "c.py"), "a", encoding="utf-8") as f:
+            f.write("pre-existing edit\n")
+        proc = self.dispatch("code-writer", "--prompt-file", self.prompt, "--files", "a.py",
+                             stdout=claude_json(), touch=("a.py", "sp ace.py"))
+        self.assertEqual(proc.returncode, 4)
+        self.assertEqual(self.records()[0]["out_of_scope"], ["sp ace.py"])
+
+    def test_b5_no_files_flag_and_non_git_dir(self):
+        """B5 [邊界]：無 --files → out_of_scope=null、無越界行；非 git 目錄給 --files → stderr 一句、exit 依信封。"""
+        proc = self.dispatch("code-writer", "--prompt-file", self.prompt, stdout=claude_json(), touch=("b.py",))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("越界", proc.stderr)
+        self.assertIsNone(self.records()[0]["out_of_scope"])
+        proc = self.dispatch("code-writer", "--prompt-file", self.prompt, "--files", "a.py",
+                             stdout=claude_json(), touch=("b.py",))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("略過越界檢查", proc.stderr)
+        self.assertIsNone(self.records()[1]["out_of_scope"])
+
+
+def load_tests(loader, tests, pattern):
+    """DispatchGuardsTest 繼承 DispatchTest 只為共用 fixture；父類的測試只在父類跑一次。"""
+    suite = unittest.TestSuite()
+    suite.addTests(loader.loadTestsFromTestCase(DispatchTest))
+    suite.addTests(
+        t for t in loader.loadTestsFromTestCase(DispatchGuardsTest)
+        if t.id().rsplit(".", 1)[1].startswith(("test_a", "test_b"))
+    )
+    return suite
 
 
 if __name__ == "__main__":
