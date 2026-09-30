@@ -146,6 +146,8 @@ description: Eval Flow 的完整執行細節：Tier 2 前置 0–1（初始化�
 
 ## Model 指派原則
 
+- **Codex exec（2026-09-30 使用者指定）**：所有派工角色統一使用 `gpt-6.1-sol`、`model_reasoning_effort = "low"`；CLI 對應 `codex exec -m gpt-6.1-sol -c 'model_reasoning_effort="low"'`。角色 TOML 與安裝器須同步；writer／reviewer 各自使用獨立 session。
+
 - Claude 的 Model 政策住 repo 根 `MODEL_POLICY.md`，由 `.claude/agents/*.md` frontmatter 承載，`tests/test_model_policy.py` 強制一致。Codex 安裝層用 `.agent-flow/CODEX_MODEL_POLICY.md` 與 `.codex/agents/*.toml`；不同平台各自驗證，不共用模型 ID
 - 指派準則：**推理／判斷密集的規劃與審查（拆解、情境盤點、審查）→ 強 model；機械式、量大的執行 → 快 model**。規劃階段一次判斷錯，整條 flow 重跑的成本遠高於強 model 的單價
 - 例外：前置 1 分拆 task 在主 flow 直建門檻內（≤2 tasks 且 ≤8 items）時由主 flow 直接執行，無 frontmatter 可指定，沿用主 session model

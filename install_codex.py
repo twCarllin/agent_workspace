@@ -10,13 +10,13 @@ from pathlib import Path
 SOURCE = Path(__file__).resolve().parent
 MARKER = "<!-- agent-workspace codex instructions -->"
 CODEX_MODELS = {
-    "code-writer": ("gpt-6-sol", "medium"),
-    "code-reviewer": ("gpt-6-astra", "medium"),
-    "task-verifier": ("gpt-6-luna", "high"),
-    "task-decomposer": ("gpt-6-astra", "medium"),
-    "usage-analyzer": ("gpt-6-astra", "low"),
-    "impact-analyzer": ("gpt-6-astra", "low"),
-    "retro": ("gpt-6-sol", "low"),
+    "code-writer": ("gpt-6.1-sol", "low"),
+    "code-reviewer": ("gpt-6.1-sol", "low"),
+    "task-verifier": ("gpt-6.1-sol", "low"),
+    "task-decomposer": ("gpt-6.1-sol", "low"),
+    "usage-analyzer": ("gpt-6.1-sol", "low"),
+    "impact-analyzer": ("gpt-6.1-sol", "low"),
+    "retro": ("gpt-6.1-sol", "low"),
 }
 
 
@@ -139,7 +139,7 @@ def main():
     model_policy = target / ".agent-flow" / "CODEX_MODEL_POLICY.md"
     model_policy.write_text(
         "<!-- agent-workspace managed -->\n# Codex model policy\n\n"
-        "Writer and reviewer use different GPT-6 models for independent review.\n\n"
+        "All Codex exec roles use gpt-6.1-sol with low reasoning effort. Writer and reviewer run in separate sessions.\n\n"
         "| Role | Model | Reasoning effort |\n|---|---|---|\n"
         + "".join(f"| {role} | {model} | {effort} |\n" for role, (model, effort) in CODEX_MODELS.items()),
         encoding="utf-8",

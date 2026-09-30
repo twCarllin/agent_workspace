@@ -53,7 +53,7 @@ class ModelPolicyConsistencyTest(unittest.TestCase):
             )
 
     # Claude 端「writer 與 reviewer 異族」測試已於 2026-09-29 隨規則廢除刪除（run 2026-09-29-all-sonnet55，
-    # 使用者裁決全部 sonnet-5-5；去相關化改由 session 層承擔，見 MODEL_POLICY.md 約束節）。Codex 端仍有異族測試（下方 M1③）。
+    # 使用者裁決全部 sonnet-5-5；去相關化改由 session 層承擔，見 MODEL_POLICY.md 約束節）。Codex 端統一模型／effort 測試見下方 M1③。
 
     def test_inline_comment_boundary(self):
         """frontmatter model 行帶行內註解（現況存在）→ 解析須只取值。"""
@@ -117,10 +117,10 @@ class CodexModelPolicyTest(unittest.TestCase):
         self.assertEqual(codex_mismatches(self.codex_models(), codex_toml_models()), [],
                          ".codex/agents/*.toml 與 CODEX_MODELS 不一致（重跑 install_codex.py 或同 diff 改齊）")
 
-    def test_m1_codex_writer_reviewer_differ(self):
-        """M1③：Codex writer 與 reviewer model id 不同（去相關化）。"""
-        table = codex_policy_table()
-        self.assertNotEqual(table["code-writer"][0], table["code-reviewer"][0])
+    def test_m1_codex_roles_use_requested_model_and_effort(self):
+        """M1③：所有 Codex exec 角色遵守使用者指定的 model／effort。"""
+        for role, settings in codex_policy_table().items():
+            self.assertEqual(settings, ("gpt-6.1-sol", "low"), role)
 
     def test_m2_modified_toml_copy_reported(self):
         """M2 [邊界]：暫存複本把 task-verifier 的 model 改掉 → 比對回報該角色（不動 repo 檔）。"""
@@ -131,7 +131,7 @@ class CodexModelPolicyTest(unittest.TestCase):
             for path in CODEX_AGENTS_DIR.glob("*.toml"):
                 shutil.copy2(path, copy / path.name)
             target = copy / "task-verifier.toml"
-            target.write_text(target.read_text(encoding="utf-8").replace('model = "gpt-6-luna"', 'model = "gpt-6-x"'),
+            target.write_text(target.read_text(encoding="utf-8").replace('model = "gpt-6.1-sol"', 'model = "gpt-6-x"'),
                               encoding="utf-8")
             problems = codex_mismatches(self.codex_models(), codex_toml_models(copy))
         self.assertEqual(problems, ["task-verifier"])
