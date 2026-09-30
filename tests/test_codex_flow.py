@@ -96,7 +96,8 @@ class CodexFlowTest(unittest.TestCase):
         self.assertEqual(len(config["hooks"]["PreToolUse"]), 1)
         writer = tomllib.loads((self.project / ".codex" / "agents" / "code-writer.toml").read_text(encoding="utf-8"))
         reviewer = tomllib.loads((self.project / ".codex" / "agents" / "code-reviewer.toml").read_text(encoding="utf-8"))
-        self.assertNotEqual(writer["model"], reviewer["model"])
+        for agent in (writer, reviewer):
+            self.assertEqual((agent["model"], agent["model_reasoning_effort"]), ("gpt-6.1-sol", "low"))
 
     def test_install_seeds_support_files_without_overwriting_project_history(self):
         version = self.project / ".claude" / "hooks" / "VERSION"
