@@ -1,6 +1,6 @@
 ---
 name: root-cause-table
-description: 根因分類參考表與分析框架，供 retro 回顧反思時使用
+description: retro 歸因用的根因分類表（知識不足／疏忽／複製貼上／架構限制／需求模糊／趕工／時序耦合／驗證盲點）與三問分析框架。觸發語：retro agent 分析審查報告根因時（經 agent frontmatter `skills:` 載入）。不適用於：主 flow 直接呼叫、非 retro 情境。
 user-invocable: false
 ---
 

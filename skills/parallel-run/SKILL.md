@@ -1,6 +1,6 @@
 ---
 name: parallel-run
-description: 多個互不相依的 Tier 1 需求並行執行：主 session 批次判級與批次 HITL 後，每需求開一個 git worktree ＋背景 agent 各自跑 eval-flow Tier 1 精簡路徑，完成後 rolling merge（機械檢查＋全套測試 gate）回 main。觸發語：「/parallel-run」、「這幾個需求同時做」、「並行跑這些 Tier 1」。不適用於：單一需求（走原本流程，不開 worktree）、Tier 0（一律主 session 序列直接做）、Tier 2 背景執行（HITL gate 多；Tier 2 僅可由主 session 前景在自己的 worktree 跑，與本批並存）、需求之間有相依或觸及檔案相交（並行必互相污染，改序列）。
+description: 多個互不相依的 Tier 1 需求並行執行：主 session 批次判級與批次 HITL 後，每需求一個 git worktree＋背景 agent 各跑 eval-flow Tier 1 精簡路徑，完成後 rolling merge（機械檢查＋全套測試 gate）回 main。觸發語：「/parallel-run」、「這幾個需求同時做」、「並行跑這些 Tier 1」。不適用於：單一需求、Tier 0、Tier 2 背景執行、需求相依或檔案相交。
 ---
 
 # Parallel Run（多個 Tier 1 需求並行）
@@ -31,9 +31,9 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
 
 5. **每需求 spawn 一個背景 agent，worktree 交由 harness 建立**：以 `Agent` 工具的 `isolation: "worktree"` 啟動，harness 會建 `.claude/worktrees/agent-<id>/` 並**在啟動時把該 agent 的工作目錄釘定在其中**。
    - **釘定是 gate 生效的前提，不是便利**：hook 依該次 tool call 的**實際 cwd** 解析所屬工作區（見 `.claude/hooks/eval_gates.py` 的 root 解析）。agent 若改用 `cd` 進 worktree，cwd 仍被判為主工作區 → gate 套用到錯的 repo → 檔案改在 worktree、憑據卻對主工作區判定，等同無 gate。
-   - **禁止改用「主 session 先 `git worktree add`，再叫 agent 自己進去」**：實測（2026-07-29，R-005）從 repo root 啟動的 subagent cwd 被釘死，`EnterWorktree` 明文拒絕從 repo root 做 path 切換（`switching is only available to sessions whose working directory is inside a worktree`），兩支 agent 皆於第一步即無法起跑。
+   - **禁止改用「主 session 先 `git worktree add`，再叫 agent 自己進去」**：從 repo root 啟動的 subagent cwd 被釘死（R-005），`EnterWorktree` 明文拒絕從 repo root 做 path 切換（`switching is only available to sessions whose working directory is inside a worktree`），兩支 agent 皆於第一步即無法起跑。
    - **branch 由 harness 指派**（`worktree-agent-<id>`），**不是** `feat/<run_id>`。agent 必須在最終回報附上自己的 branch 名稱，主 session 靠它做 merge；run↔commit 的溯源靠 commit message 的 `Run-Id:` trailer，不靠 branch 名。
-   - **worktree 起點＝主線本地 HEAD**（本專案已於 `.claude/settings.json` 設 `worktree.baseRef: "head"`）：worktree 從當前 session 所在 branch 的本地 HEAD 切出，**含尚未 push 的 commit**。此值經配對對照實測坐實（`head` 看得到未 push 的 commit ∧ `fresh` 看不到）。
+   - **worktree 起點＝主線本地 HEAD**（本專案已於 `.claude/settings.json` 設 `worktree.baseRef: "head"`）：worktree 從當前 session 所在 branch 的本地 HEAD 切出，**含尚未 push 的 commit**。
      - **失效情境**：設定未套用時（他人 clone 未取得、設定被改、harness 行為變動）會退回預設 `fresh`、從 `origin/<預設分支>` 切出而**靜默落後主線**——這正是步驟 6 起手第②步存在的理由，故該步不可移除。
      - **潛在假設（目前恆成立，但值得知道）**：`head` 取的是「**當前 session 所在 branch** 的本地 HEAD」，隱含**主 session 位於 `main`**。
      - 若在 feature branch 上 spawn 並行批次，worktree 會繼承該 branch 的尖端、其未合併的工作會洩入並行 run；起手第②步的 `git merge main` 只是把 main **疊加**上去，不會取代那些工作。
@@ -47,7 +47,7 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
      - ③驗證本需求的前提在同步後確實成立（例如所需檔案／目錄存在、數量符合預期）。**前提不成立就停下回報，不可帶著錯的前提往下做**——第②③步互為備援：②保證起點正確，③保證即使②失效也攔得住
    - 工作目錄已由 harness 釘定：**禁止呼叫 `EnterWorktree`、禁止用 `cd` 換目錄**，**禁止碰主工作區與其他 worktree**。
    - 載入 `eval-flow` skill，走 **Tier 1 精簡路徑**，但：
-     - 精簡初始化照常（manifest 填 `tier: 1`、`spec_inline`、`risk_report_path: "skipped"`、`usage_report_path: "skipped"`）；因 HITL 已在主 session 完成，`phase` 直接設 `"decomposed"`，並在 manifest 附註「HITL 於主 session 批次完成（parallel-run）」。
+     - 精簡初始化照常（manifest 填 `tier: 1`、`spec_inline`；report path 欄維持 `null`）；因 HITL 已在主 session 完成，`phase` 直接設 `"decomposed"`，並在 manifest 附註「HITL 於主 session 批次完成（parallel-run）」。
      - **task 檔命名例外**：用 `task/YYYY-MM-DD-<slug>.md`（防兩個 run 同建當天檔造成 merge 衝突）。僅並行 run 適用此例外；單一 run 維持 `task/YYYY-MM-DD.md`。
    - 跑循環 1–7，全部 gate 照常（hook 以該次 tool call 的實際 cwd 解析所屬 worktree 根後才套用 gate，故在各 worktree 內獨立生效——`CLAUDE_PROJECT_DIR` 釘死在 session 啟動目錄、不隨 worktree 移動，此前提由 `.claude/hooks/eval_gates.py` 的 root 解析建立，非天然成立）。
      - **限制**：`CLAUDE_PROJECT_DIR` 為 git 儲存庫子目錄的專案開 worktree 時解析到 worktree 根，該類專案目前不支援並行。

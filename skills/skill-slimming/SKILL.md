@@ -1,6 +1,6 @@
 ---
 name: skill-slimming
-description: skill／流程文件瘦身作業的檢查清單：範圍界定（只碰進 LLM context 的 prose）、不可弱化清單（硬性 gate、憑據要求、HITL／防濫用條款）、單一枚舉點與投放路徑檢查、停損判準與留痕、逐條語義保持驗收。觸發語：「瘦身 skill」、「壓縮流程文件」、「精簡 SKILL.md」、「這份 skill 太長了」。不適用於：新寫 skill（無壓縮對象）、純格式化任務（不改字義，直接做，不需本清單）、script／test 程式碼的精簡（那是 refactor，走一般判級）。
+description: skill／流程文件瘦身的檢查清單：範圍界定、不可弱化清單（硬性 gate、憑據、HITL／防濫用）、單一枚舉點與投放路徑、停損留痕、逐條語義保持驗收。觸發語：「瘦身 skill」、「壓縮流程文件」、「精簡 SKILL.md」、「這份 skill 太長了」。不適用於：新寫 skill、純格式化任務、script／test 程式碼精簡（走一般判級）。
 ---
 
 # Skill Slimming（瘦身作業檢查清單）

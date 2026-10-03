@@ -75,3 +75,47 @@
 - 2026-10-03｜HITL 裁決②｜rare-paths.md:Hotfix 步驟 2／4｜補債清單移除 `risk` 項（改為 `["test", "retro"]`）、`risk_report_path: "deferred"` 移除；`skills/task-risk-analysis` 移至 `skills/_deprecated/`（風險分析已於 2026-09-22 Q1 刪除、不設替代，此為收口）
 - （共用樹模型移除）｜—｜rare-paths.md:單一 run 原則｜舊「shared-tree join barrier」概念隨共用樹併發 writer 模型一併移除
 - 2026-10-03｜HITL 裁決②｜rare-paths.md:Tier B 步驟 2｜「只跑部署、資料兩面向」改寫為「只檢視部署與資料兩面向的風險」——六面向風險分析 skill 已 deprecated，無 skill 可跑，改為主 flow 自行檢視
+
+## 2026-10-03 搬出（run 2026-10-03-skills-dehistorize：其餘 skills）
+
+### skills/test-strategy/SKILL.md
+
+- —｜實測｜test-strategy:Baseline test_command 直譯器｜幻影欠帳的出生證：系統直譯器缺專案套件使外部專案累積 31 個 stable_failures
+- 2026-09-29｜實測｜test-strategy:Baseline test_command 完整組｜TW_Analysis 日常組白名單上線後 `pytest tests/ -q` 靜默降為 695／2,375 筆，收尾檢查無人察覺縮水
+- 2026-09-22｜D1｜test-strategy:Writer 層 mine 模式｜mine_log 落檔（script 端零 token 震盪指紋）刪除；`--strike-key` 的 mine 端消費者隨之消失；舊「指定測試檔清單」workaround 作廢
+- —｜實測｜test-strategy:Step 5 假測試 lint｜寫 60+ 測試時假測試模式必然重現，retro 散文擋不住、只有 lint 擋得住
+- —｜實測｜test-strategy:Mutation self-check｜制度化依據：事後補做 mutation test 才確認斷言有效；stale `.pyc` 曾誤判 2 個測試壞掉；主 flow 獨立重放曾抓到 writer 自報遺漏
+- —｜實測｜test-strategy:真新失敗三分類｜「禁止自行調查歸因」的依據：調查燒大量 token 後結論多半是「與本 run 無關」
+- 2026-09-29｜使用者裁決｜test-strategy:Commit 前收尾檢查｜收尾檢查分 tier 的依據：框架工作區 49 run＋TW_Analysis 60 run 的收尾全套從未抓到累積聯集漏掉的破壞；Tier 1 指令「--cmd 必須單引號」源自同日 `__suite__` 誤報實測
+
+### skills/eval-flow-resume/SKILL.md
+
+- 2026-09-22｜Q4｜eval-flow-resume:Step 2｜phase 值域收斂為 init→decomposed→completed；依 `usage/<run_id>.md`、`impact_report_path` 判斷卡點的舊邏輯移除；`usage_report_path` 推導 `usage_confirmed` 的分支移除
+- 2026-09-22｜Q2｜eval-flow-resume:Step 3｜eval_state 一筆＝一個 task 的裁決碼（原文誤寫 item 降為 items 清單，與 formats.md「不存 item 層資料」矛盾，一併修正）
+- 2026-09-22｜D1／Q6｜eval-flow-resume:Step 3 step 表｜審查落檔刪除後 reviewing／fixing 一律重跑並重派 checker；輪數判定改讀 `review_reds`（取代原落檔 `<N>` 接續）；兩項已知缺陷為 D1 換取記帳收斂的代價
+- 2026-07-25／2026-09-05｜—｜eval-flow-resume:Step 3 verifying｜task-verifier 於 2026-07-25 退役、2026-09-05 復活為 checker（審查層預設位）
+- 2026-07-17｜—｜eval-flow-resume:Step 3 scoring｜評分階段（eval-scorer）已移除，`scoring` 僅為舊 run 相容值
+
+### skills/parallel-run/SKILL.md
+
+- 2026-07-29｜R-005｜parallel-run:步驟 5｜「主 session 先 `git worktree add`、再叫 agent 進去」首次實跑失敗的日期
+- —｜實測｜parallel-run:步驟 5 baseRef｜`worktree.baseRef: "head"` 經配對對照實測坐實（`head` 看得到未 push 的 commit ∧ `fresh` 看不到）
+- 2026-10-03｜R-006 對齊｜parallel-run:步驟 6｜精簡初始化句原要求 `risk_report_path: "skipped"`／`usage_report_path: "skipped"`，與 eval-flow Tier 1 第 1 點（三欄維持 null）矛盾，改為「report path 欄維持 null」
+
+### skills/task-decomposition/SKILL.md
+
+- 2026-09-22｜D2｜task-decomposition:輸入｜`usage_report_path` 為 null 不再中止拆分
+- —｜實測｜task-decomposition:行為契約表 邊界判準｜mine 子命令的 3 條 🔴 全藏在怪檔名輸入裡
+- —｜—｜task-decomposition:Step 2 測試估算｜舊「實作 0.5–1 倍」估法作廢（把測試預算綁在實作行數上，變相鼓勵灌測試）
+- —｜實測｜task-decomposition:Step 2 校準｜×2 校準源自實測 naive 粗估系統性低估 2–3 倍
+- —｜R-017｜task-decomposition:推理密度｜純散文演算法規格曾使 writer 連續 4 次 thinking 燒滿、零產出
+- 2026-09-29｜—｜task-decomposition:退場行｜測試退場規則生效日；動機數據：TW_Analysis 近 100 commit 測試函式 +1,786／-616
+
+### skills/usage-scenario-analysis/SKILL.md
+
+- 2026-09-22｜D2｜usage-scenario-analysis:頭註／輸入輸出／輸出格式｜由 Tier 2 預設前置步驟改為具名問題觸發；不再產 `usage/<run_id>.md`、不回寫 `usage_report_path`；本 skill 不再是獨立 HITL 卡點
+- —｜R-016｜usage-scenario-analysis:Step 4／Step 6｜一條未驗證的保序假設曾讓整條 flow 空轉數十輪；人打槍一條假設 30 秒 vs flow 空轉數十輪
+
+### skills/root-cause-table/SKILL.md
+
+- 2026-10-03｜—｜root-cause-table:description｜由「根因分類參考表與分析框架，供 retro 回顧反思時使用」擴為含觸發語與不適用於的三段式

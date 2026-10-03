@@ -1,6 +1,6 @@
 ---
 name: test-strategy
-description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無新增穩定失敗」機制（script 判定，單次跑快照既有失敗）、真失敗即回報使用者（人是計數器）、相關測試選擇（累積聯集）、假測試 lint、mutation self-check、commit 前收尾檢查（分 tier：Tier 1 累積聯集／Tier 2 全套）與重開 passed sub_task 的路徑、零測試專案處置、全 tier 驗證豁免窗口。觸發語：Eval Flow 循環進入 step 5 時、「測試失敗怎麼辦」、「建測試 baseline」。不適用於：測試框架選型（Tier B bootstrap 的 HITL 決定）。
+description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無新增穩定失敗」機制、writer 層 mine 模式、累積聯集相關測試、假測試 lint、mutation self-check、分 tier 的 commit 前收尾檢查與重開路徑、零測試專案處置、驗證豁免窗口。觸發語：Eval Flow 循環進入 step 5 時、「測試失敗怎麼辦」、「建測試 baseline」。不適用於：測試框架選型（Tier B bootstrap 的 HITL 決定）。
 ---
 
 # Test Strategy（本地測試 gate 執行細節）
@@ -17,8 +17,8 @@ python3 .claude/hooks/test_baseline.py baseline
 ```
 
 - **全套測試指令從 manifest 的 `test_command` 讀**（single source of truth；`--cmd` 僅供覆寫）。manifest 尚無此欄時，先確認指令並寫入 manifest 再跑——不要每個 run 各猜一套，baseline 與 check 範圍不一致就會出現「無關的既有失敗」
-  - **`test_command` 須指定專案直譯器**（專案有虛擬環境時，寫成 `.venv/bin/python3 -m pytest` 之類，不要用裸 `python3`）——系統直譯器缺專案套件會讓整批測試 import 失敗、被誤記為既有 `stable_failures`（幻影欠帳，實測外部專案累積 31 個）。baseline 偵測到「有 `.venv/bin` 但 cmd 未用它且有 stable 失敗」時會於 stderr 印錯配警示（僅提醒、不改執行環境）
-  - **`test_command` 須為完整組指令**：專案把測試分成日常組／完整組時（pytest marker、conftest 白名單等），manifest 寫**完整組**——日常組是開發期快速回饋，不當 gate（實測 2026-09-29：TW_Analysis 日常組白名單上線後 `pytest tests/ -q` 靜默降為 695／2,375 筆，收尾檢查無人察覺縮水）
+  - **`test_command` 須指定專案直譯器**（專案有虛擬環境時，寫成 `.venv/bin/python3 -m pytest` 之類，不要用裸 `python3`）——系統直譯器缺專案套件會讓整批測試 import 失敗、被誤記為既有 `stable_failures`（幻影欠帳）。baseline 偵測到「有 `.venv/bin` 但 cmd 未用它且有 stable 失敗」時會於 stderr 印錯配警示（僅提醒、不改執行環境）
+  - **`test_command` 須為完整組指令**：專案把測試分成日常組／完整組時（pytest marker、conftest 白名單等），manifest 寫**完整組**——日常組是開發期快速回饋，不當 gate（日常組白名單會讓全套靜默縮水而收尾檢查無人察覺）
 - **跑一次**：所有失敗記為 `stable_failures`（進場既有壞測試，之後不擋 gate）。非確定性（flaky）失敗不在 baseline 階段預先分類——scoped 測試架構下每輪跑的測試面積小、噪音低，改由 check 在**出現新失敗時**才重跑一次確認可重現（惰性驗證，成本只在有訊號時付）
 - **`__suite__` 套件層失敗**（無法解析出個別失敗的整體性失敗）例外於上一點：baseline 階段即重跑一次確認可重現才記入 `stable_failures`。
   - 記入後，check 每次執行皆於 stderr 印出「gate 對套件層級失敗失明」警告（不影響判定與 exit code）——因為 gate 的新增失敗比對機制看不見套件層失敗，需要額外提醒使用者注意
@@ -38,14 +38,14 @@ python3 .claude/hooks/test_baseline.py mine --run-id <任意識別字串> --cmd 
 ```
 
 - **參數解析順序（實作為準）**：`--run-id` → `eval_state.json` 的 `run_id` → 失敗中止；`--cmd` → `run/<run_id>.json` 的 `test_command` → 失敗中止。故 **Tier 0 兩個都要給**——沒有 eval_state 也沒有 manifest 可查。`--run-id` 在 mine 的唯一用途是定位 manifest 取 `test_command`，給了 `--cmd` 之後它只是為了通過解析（已知小瑕疵，見本節末）
-- **不要傳 `--strike-key`**：該旗標只有 `check` 子命令消費（累犯計數）。mine 端的消費者是已刪除的 `mine_log` 落檔（D1，2026-09-22），現在傳了會被 argparse 接受但完全忽略
+- **不要傳 `--strike-key`**：該旗標只有 `check` 子命令消費（累犯計數）；mine 端無消費者，傳了會被 argparse 接受但完全忽略
 
 - **用途與分工**：code-writer 自驗**只准**用 mine——只跑自己未提交變更範圍內的測試檔；step 5 的 `check`（累積聯集＋baseline 扣除）是主 flow 的事。失敗歸因不留給弱 model：mine 範圍內的失敗全屬呼叫者（不做 baseline 扣除），範圍外的歸因由 script 與主 flow 仲裁
 - **範圍推導原理**：每 sub_task 結尾 commit ⇒ writer 開工時樹乾淨 ⇒ 當下 git 未提交變更（staged＋unstaged＋untracked）全屬該 writer，其中的測試檔即其管轄範圍——機械推導，零判斷
 - **抓不到的破壞是 by design**：writer 改 source 弄壞既有測試但沒碰測試檔時 mine 不會抓到——這類失敗由 step 5 的 check 現形（baseline 在其開工前是乾淨的，歸因必然準確），主 flow 拿具體失敗清單回派修正
-- **`[P]` item 的 mine 模式均適用**：`[P]` item 在 fan-out（各開 worktree，隔離樹）或門檻不足的循序退回（逐個執行）下，mine 範圍推導**均成立**（未提交變更只屬當前 item）；兩路徑均無多 writer 並發共樹，舊「指定測試檔清單」workaround 不再需要
+- **`[P]` item 的 mine 模式均適用**：`[P]` item 在 fan-out（各開 worktree，隔離樹）或門檻不足的循序退回（逐個執行）下，mine 範圍推導**均成立**（未提交變更只屬當前 item）；兩路徑均無多 writer 並發共樹
 - **已知小瑕疵（不影響正確性）**：`cmd_mine` 無條件先跑 `resolve_run_id()` 再跑 `resolve_cmd()`，所以即使給了 `--cmd`、`--run-id` 仍為必填。Tier 0 使用時隨便給一個識別字串即可
-- **mine_log 落檔稽核已刪除**（D1，2026-09-22）：mine 每次執行不再 append 落檔 `run/<run_id>.mine_log.json`（script 端零 token 的震盪指紋機制隨之停用）。writer 的 mine 模式測試自驗**本身保留**——writer 交付時主 flow 仍對照工作報告的「仲裁記錄」稽核（見上）；改測試湊綠的退路改由 checker 核對「契約 row 逐條有對應測試斷言」現形，不再靠落檔指紋
+- **mine 不落檔**：mine 每次執行不寫任何 `run/` 檔；writer 交付時主 flow 以工作報告的「仲裁記錄」稽核（見上），改測試湊綠的退路由 checker 核對「契約 row 逐條有對應測試斷言」現形
 - writer 端的行為約束（先實作後測試、範圍外失敗照抄不修、仲裁三選一先判再動手、2 次上限帶失敗交付）住在 `.claude/agents/code-writer.md` 的「測試管轄規則」節，不在此重述
 
 ## 前端／UI 實機驗證的定位（best-effort，非阻塞）
@@ -73,7 +73,7 @@ python3 .claude/hooks/test_baseline.py mine --run-id <任意識別字串> --cmd 
    ```
    python3 .claude/hooks/test_lint.py <本 sub_task 新增/修改的測試檔>
    ```
-   抓機械可辨的假測試模式：if-guard 藏斷言、無斷言測試、恆真斷言（實測：這類模式寫 60+ 測試時必然重現，retro 散文擋不住，只有 lint 擋得住）。
+   抓機械可辨的假測試模式：if-guard 藏斷言、無斷言測試、恆真斷言（機械可辨的模式用 lint 擋，不靠散文約束）。
    - exit 2 → 修測試；確認誤報（如「不拋例外即通過」型測試）→ 行尾加 `# testlint: allow` 並在 `local_test_evidence` 註明理由
    - commit 時 hook 會對 staged 測試檔再跑一次（硬防線）
 3. **跑 gate 判定**：
@@ -87,7 +87,7 @@ python3 .claude/hooks/test_baseline.py mine --run-id <任意識別字串> --cmd 
 
 ## Mutation self-check（每 run 抽樣一次，Tier 2）
 
-測試會跑不代表斷言有效——實測靠事後補做 mutation test 才確認斷言真的抓得到破壞（sabotage 後測試真的 FAIL），此步制度化為整合測試 item 的收尾動作。
+測試會跑不代表斷言有效——斷言鑑別力要靠 sabotage 後測試真的 FAIL 來證明，此步制度化為整合測試 item 的收尾動作。
 
 **執行頻率：每 run 抽一個整合測試 item 做完整版（含下方第 6 步的主 flow 獨立重放），其餘整合測試 item 的 `local_test_evidence` 記「沿用本 run mutation 結論（抽樣 item：<id>）」即可**——斷言鑑別力是同一個 run 內測試撰寫習慣的性質，item 間高度相關，逐個重做的邊際資訊低。
 
@@ -97,13 +97,13 @@ python3 .claude/hooks/test_baseline.py mine --run-id <任意識別字串> --cmd 
 
 1. 挑本 task 至少 2 個**關鍵行為點**（計算邏輯、防呆條件——被弄壞會直接造成錯誤結果的那種）
 2. 逐一 sabotage（改壞實作的一行）→ 跑對應測試，**必須 FAIL**；恢復原狀 → 跑測試，**必須 PASS**
-3. **每次 sabotage 與恢復後清 `__pycache__`**（`find . -name __pycache__ -type d -exec rm -rf {} +`）——stale `.pyc` 會讓判定失真（實測誤判 2 個測試壞掉）
+3. **每次 sabotage 與恢復後清 `__pycache__`**（`find . -name __pycache__ -type d -exec rm -rf {} +`）——stale `.pyc` 會讓判定失真
 4. 任一 sabotage 沒讓測試 FAIL → **第一步先質疑需求，不是加壓**：追該行為點的最終消費點，確認該性質被破壞時可觀察輸出真的會變。
    - 輸出不變＝該性質非 load-bearing（假需求，典型如「下游依 key／name 重新定位，中間順序根本不影響輸出」），回報使用者建議自 Spec／DoD 移除，探針作廢不補
    - 確認是真需求 → 斷言無效，修測試後重做
 5. **停損（硬性）**：同一行為點 **2 次 sabotage 仍綠即停手回報使用者**，禁止繼續加時序延遲／調並發數／加壓力硬湊 FAIL（R-016）。
    - 結果（sabotage 了哪些點、FAIL/PASS 確認、作廢的探針與理由）記入 `local_test_evidence`
-6. **獨立重放（主 flow 執行，不採信自報）**：**抽樣** item 的 step 5 收尾時，**主 flow 親自重放至少一組 sabotage→FAIL→恢復→PASS**，不採信 writer 的自報結果（實測「主 flow 重放」抓到自報遺漏）。
+6. **獨立重放（主 flow 執行，不採信自報）**：**抽樣** item 的 step 5 收尾時，**主 flow 親自重放至少一組 sabotage→FAIL→恢復→PASS**，不採信 writer 的自報結果。
    - 重放主體是主 flow 而非 code-reviewer——reviewer 是只讀角色，不改檔；重放同樣遵守第 3 步清 `__pycache__`，做完恢復原狀
 
 ## 真新失敗的處置（script 確認可重現後才進這裡）
@@ -122,9 +122,9 @@ script 重跑確認可重現的真新失敗，先判是否屬下列兩種**確�
 - **疑似既有失敗補充**：已知盲區成因：related 全 repo 掃可選到 `test_command` 範圍外的測試、環境／日期漂移、參數化 ID 變動——baseline 快照照不到不代表是新失敗。
   - 使用者裁定為既有 → 把該測試 ID 補進 baseline 檔的 `stable_failures`（直接編輯 `run/<run_id>.test_baseline.json`），之後的 check 不再回鍋；**裁決不持久化就會每個 sub_task 重複誤報一次**
 
-**三分類的判定上限是一次機械比對**（對 list-files 聯集、看 `git diff --cached`）——需要讀測試實作、追 import 鏈、跑額外測試才能歸因的，一律視同塞住，立即 HITL，**禁止自行調查歸因**（實測：這種調查燒大量 token 後結論多半是「與本 run 無關」，白查）。
+**三分類的判定上限是一次機械比對**（對 list-files 聯集、看 `git diff --cached`）——需要讀測試實作、追 import 鏈、跑額外測試才能歸因的，一律視同塞住，立即 HITL，**禁止自行調查歸因**（這種調查結論多半是「與本 run 無關」，成本不划算）。
 
-**三者皆非（真的是本 item 的 code 錯）→ 立即回報使用者裁決（人是計數器）**：不再有「自修 N 次才舉手」的額度——script 不記 strike、不設上限。把「卡在哪些測試、失敗原文、已試過什麼」回報使用者，由使用者決定續修或改路。塞住時的正確行為是舉手，不是自行空轉迴圈。
+**三者皆非（真的是本 item 的 code 錯）→ 立即回報使用者裁決（人是計數器）**：沒有「自修 N 次才舉手」的額度——script 不記 strike、不設上限。把「卡在哪些測試、失敗原文、已試過什麼」回報使用者，由使用者決定續修或改路。塞住時的正確行為是舉手，不是自行空轉迴圈。
 
 （真失敗已由 script append 進 baseline 檔的 `failure_log`，稽核時「紅過卻無回報」即抓吞失敗）
 
@@ -137,11 +137,11 @@ script 重跑確認可重現的真新失敗，先判是否屬下列兩種**確�
 
 ## Commit 前收尾檢查與重開路徑（跨 sub_task 破壞的最後防線，分 tier）
 
-step 6 收尾**之前**（Tier 2 歸檔 eval_state 前）跑一次收尾檢查，範圍**依 tier**（2026-09-29 使用者裁決；依據：框架工作區 49 run＋TW_Analysis 60 run 的收尾全套從未抓到累積聯集漏掉的破壞，而全套成本隨測試數線性上漲）：
+step 6 收尾**之前**（Tier 2 歸檔 eval_state 前）跑一次收尾檢查，範圍**依 tier**（收尾全套從未抓到累積聯集漏掉的破壞，而全套成本隨測試數線性上漲）：
 
 | Tier | 收尾檢查範圍 | 指令 |
 |---|---|---|
-| **Tier 1** | **累積聯集**（本 run staged 檔的相關測試），**不跑全套** | `python3 .claude/hooks/test_baseline.py check --cmd 'python3 -m pytest -q $(python3 .claude/hooks/test_baseline.py related --files $(git diff --cached --name-only))' --strike-key wrapup_related`（`--cmd` **必須單引號**：讓 `$(…)` 在 test_baseline 的 sh 內展開才會依換行分詞，外層 shell 先展開會把換行塞進單一字串、pytest 之後的檔名被當命令執行而報 `__suite__`——實測 2026-09-29；測試框架指令依專案 `test_command` 的直譯器改寫；Tier 1 無 `eval_state.json`，files 聯集取 staged 清單） |
+| **Tier 1** | **累積聯集**（本 run staged 檔的相關測試），**不跑全套** | `python3 .claude/hooks/test_baseline.py check --cmd 'python3 -m pytest -q $(python3 .claude/hooks/test_baseline.py related --files $(git diff --cached --name-only))' --strike-key wrapup_related`（`--cmd` **必須單引號**：讓 `$(…)` 在 test_baseline 的 sh 內展開才會依換行分詞，外層 shell 先展開會把換行塞進單一字串、pytest 之後的檔名被當命令執行而報 `__suite__`；測試框架指令依專案 `test_command` 的直譯器改寫；Tier 1 無 `eval_state.json`，files 聯集取 staged 清單） |
 | **Tier 2** | **全套**（manifest `test_command`） | `python3 .claude/hooks/test_baseline.py check --strike-key full_suite`（省略 `--cmd` → 讀 manifest，與 baseline 同源同範圍） |
 | parallel-run merge gate | 全套（規則住 parallel-run skill，不變） | 同 Tier 2 |
 
