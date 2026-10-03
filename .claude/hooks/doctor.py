@@ -24,7 +24,7 @@ import py_compile
 import sys
 
 HOOKS = ["eval_gates.py", "test_baseline.py", "test_lint.py", "eval_state.py", "stats.py", "session_start.py",
-         "dispatch.py", "retro_select.py", "cite_check.py"]
+         "dispatch.py", "retro_select.py", "cite_check.py", "skill_eval.py"]
 CORE_SKILLS = ["eval-flow", "eval-flow-resume", "test-strategy", "task-decomposition"]
 
 

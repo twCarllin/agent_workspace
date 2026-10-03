@@ -4,3 +4,4 @@ eval_state.json
 __pycache__/
 run/
 task/
+evals/results/

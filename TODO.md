@@ -59,7 +59,8 @@
 - [ ] **出生證制**：新流程規則須引用證據——BUGLOG／RETRO 條目（recurring 或 severe one-off）或使用者明示決策；單發 observation 留證據層不成規則（BUGLOG 兩層制從 bug 擴及所有規則來源，含 reviewer/checker catch）
 - [ ] **Minimality 逐筆**：新規則附「被否決的更小替代」一句；同一規則家族第 2 次被修 → 重開設計而非就地補丁
 - [ ] **修剪啟動**：stats 已點名的兩批進第一次修剪審查（細節見下方「修剪審查」條，不重列）——HITL 打回率 0%（0/33）的人閘門（降級候選；註記：33 run 幾乎全為框架自我改進 domain，外部專案未驗證，修剪保守）、從未命中的 gate
-- [ ] **Game day**：故意在 step 5 中途 kill 一個 run，換乾淨 session 純照 eval-flow-resume skill 恢復——沒演練過的恢復程序等於不存在。順便驗重開路徑與升級逃生門
+- [x] **Game day**：以 fixture 中斷現場演練一次（task 2 卡在 step 3 reviewing，乾淨 headless session 純照 eval-flow-resume 恢復並跑完到 commit），記錄與缺口見 `retro/GAMEDAY.md`；可重跑：`python3 .claude/hooks/skill_eval.py --case resume-interrupted`。原設想的「step 5 中途 kill 真 run」未做（使用者裁示 fixture 演練）
+- [ ] **resume 守則候選（Game day 演練 1 缺口 7）**：恢復者為通過 prepare gate 自行改了 fixture 的 `.git/info/exclude`。是否在 `eval-flow-resume` 恢復守則加一句「不得為通過 gate 改 git 設定，改回報使用者裁決」——需使用者裁示，見 `retro/GAMEDAY.md` 演練 1
 - [ ] **修剪審查**：每 5 個 run 看一次 gate_hits——從不觸發的 gate、打回率 0% 的 HITL、沒被 retro 前置引用過的約束條目，逐一裁決降級或刪除
 - [ ] **實測選題多樣化**：下幾個 run 刻意換 domain（前端／infra／資料處理），驗證規則泛化（現有 17 條改動全來自同一 agent 同一 domain 的 n=2）
 - [ ] **收斂判準**：連續 5 run 無新規則＋gate 全有命中記錄＋stats 趨勢平穩 → 框架進維護模式（框架的健康狀態是變得無聊）
