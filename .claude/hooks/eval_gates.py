@@ -180,7 +180,7 @@ def check_manifest(manifest_path, staged, allow_in_progress=False):
 
     if m.get("tier") == "hotfix":
         if not isinstance(m.get("debt"), list):
-            block(f"{manifest_path} 為 hotfix 但缺 debt 欄位（欠帳清單，如 [\"risk\", \"test\", \"retro\"]）")
+            block(f"{manifest_path} 為 hotfix 但缺 debt 欄位（欠帳清單，如 [\"test\", \"retro\"]）")
         return  # hotfix 不走循環評分，豁免 eval 歸檔檔要求；欠帳由 debt gate 追討
 
     if m.get("tier") == "B":

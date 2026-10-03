@@ -26,7 +26,7 @@ PROSE_FILES = SKILL_FILES + REFERENCE_FILES + AGENT_FILES + [CLAUDE_MD]
 # 字元預算（以字元計，不以行計——中文 prose 單行可達 900+ 字元，行數不反映 context 成本）。
 # 數值＝2026-10-03 去歷史化後各類最大檔的現值取整到千位，餘裕 10–16%；超標時的正確動作是依
 # progressive disclosure 拆到 references/，不是擴寫。description 兩條刻意更緊：它們每個 session 預載。
-BUDGET_SKILL_CHARS = 24_000        # eval-flow SKILL.md 現值 23.8K（Tier 2 前置外移後；餘裕僅 0.6%，刻意——再長就該分檔）
+BUDGET_SKILL_CHARS = 25_000        # eval-flow SKILL.md 現值 23.8K（Tier 2 前置外移後），餘裕約 4.6%；24,000 的 154 字元餘裕過緊，使用者裁示放寬
 BUDGET_REFERENCE_CHARS = 16_000    # formats.md 現值 14.1K（餘裕約 13%）
 BUDGET_AGENT_CHARS = 8_000         # code-reviewer.md 現值 7.2K（餘裕約 10%）
 BUDGET_CLAUDE_MD_CHARS = 6_000     # CLAUDE.md 現值 5.2K（餘裕約 16%；每個 session 必載，最貴的一份）
@@ -60,14 +60,19 @@ def prose_lines(text):
 
 
 def description_of(text):
+    """取 frontmatter 的 description，支援單行與 YAML 的兩種多行寫法（`|` literal、`>` folded）。
+
+    `>` 必須與 `|` 同等處理：只認 `|` 時，`description: >` 會讓單行分支回傳 ">"（長度 1），
+    於是字元預算檢查無聲通過——防線留洞。
+    """
     m = FRONTMATTER_RE.match(text)
     if not m:
         return None
     fm = m.group(1)
     single = re.search(r"^description:[ \t]*(\S.*)$", fm, re.M)
-    if single and single.group(1).strip() != "|":
+    if single and single.group(1).strip() not in ("|", ">"):
         return single.group(1).strip()
-    block = re.search(r"^description:[ \t]*\|\n((?:[ \t]+.*\n?)+)", fm, re.M)
+    block = re.search(r"^description:[ \t]*[|>]\n((?:[ \t]+.*\n?)+)", fm, re.M)
     return " ".join(l.strip() for l in block.group(1).splitlines()) if block else None
 
 
@@ -93,6 +98,30 @@ def terminology_scan_files():
 def hits(path, regex):
     return [f"{path.relative_to(ROOT)}:{no}: {line.strip()[:80]}"
             for no, line in prose_lines(read(path)) if regex.search(line)]
+
+
+class DescriptionParsingTest(unittest.TestCase):
+    """description_of() 對三種 YAML 寫法的解析（契約：`>` 不得回傳長度 1 的 '>'）。"""
+
+    @staticmethod
+    def _fm(desc_block):
+        return "---\nname: x\n" + desc_block + "---\n\n# body\n"
+
+    def test_single_line_description(self):
+        self.assertEqual(description_of(self._fm("description: 一句話說明\n")), "一句話說明")
+
+    def test_literal_block_description(self):
+        got = description_of(self._fm("description: |\n  第一行。\n  第二行。\n"))
+        self.assertEqual(got, "第一行。 第二行。")
+
+    def test_folded_block_description(self):
+        """`>` 折疊寫法：須回傳合併內容，不得是 '>'（否則預算檢查被架空）。"""
+        got = description_of(self._fm("description: >\n  第一行。\n  第二行。\n"))
+        self.assertEqual(got, "第一行。 第二行。")
+
+    def test_description_marker_without_body_is_none(self):
+        """[邊界] 只有標記、無縮排內容 → None，由「缺 description」斷言攔。"""
+        self.assertIsNone(description_of(self._fm("description: >\n")))
 
 
 class NoTimeSensitiveProseTest(unittest.TestCase):

@@ -395,6 +395,42 @@ class DispatchGuardsTest(DispatchTest):
         self.assertIsNone(self.records()[1]["out_of_scope"])
 
 
+    # --- 空 prompt 斷言（run 2026-10-03-parked-fixes，使用者裁示「應該要擋空的 prompt」）---
+
+    def test_b6_empty_prompt_file_rejected(self):
+        """空 prompt 檔 → exit 1、stderr 指出為空、未呼叫子程序、未落留痕（空指令派工等於沒派工）。"""
+        empty = os.path.join(self.dir, "empty.md")
+        open(empty, "w", encoding="utf-8").close()
+        proc = self.dispatch("task-verifier", "--prompt-file", empty, stdout=claude_json())
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("為空", proc.stderr)
+        self.assertEqual(self.calls_made(), [])
+        self.assertEqual(self.records(), [])
+
+    def test_b7_whitespace_only_prompt_rejected(self):
+        """只有空白字元（換行／空格／tab）的 prompt 檔 → 同空檔處置 exit 1。"""
+        ws = os.path.join(self.dir, "ws.md")
+        with open(ws, "w", encoding="utf-8") as f:
+            f.write("\n  \n\t\n")
+        proc = self.dispatch("task-verifier", "--prompt-file", ws, stdout=claude_json())
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("為空", proc.stderr)
+        self.assertEqual(self.calls_made(), [])
+        self.assertEqual(self.records(), [])
+
+    def test_b8_empty_stdin_prompt_rejected(self):
+        """[邊界] --prompt-file - 且 stdin 為空 → exit 1（stdin 路徑同守此斷言）。"""
+        env = {**os.environ, "PATH": self.bin + os.pathsep + os.environ.get("PATH", ""),
+               "FAKE_CALLS": self.calls, "FAKE_STDOUT": claude_json(), "FAKE_EXIT": "0",
+               "FAKE_TOUCH": ""}
+        proc = subprocess.run([sys.executable, DISPATCH, "task-verifier", "--prompt-file", "-"],
+                              cwd=self.dir, env=env, input="", capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("為空", proc.stderr)
+        self.assertEqual(self.calls_made(), [])
+        self.assertEqual(self.records(), [])
+
+
 def load_tests(loader, tests, pattern):
     """DispatchGuardsTest 繼承 DispatchTest 只為共用 fixture；父類的測試只在父類跑一次。"""
     suite = unittest.TestSuite()

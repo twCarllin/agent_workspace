@@ -153,3 +153,18 @@
 - 2026-09-06｜v2｜CLAUDE.md:防濫用規則｜「本地開發工具鏈不在此清單」為 v2 變更
 - 2026-09-22｜Q1｜CLAUDE.md:防濫用規則 升級逃生門／Eval Flow 執行｜前置風險分析移除；eval-flow 前置 0–1 括註原列「風險分析已刪除不設替代、使用情境／影響面盤點改具名問題觸發」
 - 2026-09-22｜Q1／D2｜CLAUDE.md:Task Principle｜`usage/`／`impact/`／`risk/` 三目錄自 2026-09-22 起不再是任何步驟的預設輸出目標
+
+## 2026-10-03 搬出（run 2026-10-03-parked-fixes：code-writer 校準標記退役）
+
+使用者裁示刪除 `.claude/agents/code-writer.md` 的五處 `〔校準:sonnet-4-6〕` 標記。**標記刪除、四條規則本體保留**——「逐字引文防偽」被 `.claude/agents/task-verifier.md` 工作流程 2 依賴（核對仲裁行是否逐字引用契約表 row 以抓假仲裁），「2 次上限」被 code-writer 自身的不變量索引引用；刪規則會使 checker 的檢查空轉。以下為各標記原本承載的實測依據。
+
+- 2026-09-22 前｜校準:sonnet-4-6｜code-writer.md:開始工作前 1｜「不要自行通讀 RETRO.md，以約束區為準」的依據：通讀無效為實測結論（與 R-011「知識只有以明文約束前置進 prompt 才有效」同源）
+- 2026-09-22 前｜校準:sonnet-4-6｜code-writer.md:測試管轄規則 1｜「禁止邊寫 code 邊寫測試交錯」的依據：每個小步觸發一輪自我質疑是寫不完的主因
+- 2026-09-22 前｜校準:sonnet-4-6｜code-writer.md:測試管轄規則 4｜判「測試超出契約」須逐字引用 row 原文的依據：逐字引文防偽（無引文要求時會出現假仲裁）
+- 2026-09-22 前｜校準:sonnet-4-6｜code-writer.md:測試管轄規則 5｜「同一失敗測試最多修 2 次」的 2 次這個數字為校準值
+- 2026-09-22 前｜校準:sonnet-4-6｜code-writer.md:測試管轄規則 節前說明行｜標記的定義與退場條件原文：「標記＝針對舊模型行為缺陷的防護條款。sonnet-5 實測數個 run 無再犯後，可向使用者提議刪除；未經實測不得自行刪。」——退場條件已於 2026-10-03 由使用者裁示達成（依據：2026-09-22 起 rework 率 0%）
+
+### .claude/hooks/eval_gates.py／MODEL_POLICY.md 過期範例
+
+- 2026-09-22｜Q1｜eval_gates.py:183｜hotfix 缺 debt 欄位的提示訊息範例原列 `["risk", "test", "retro"]`；`risk`（補跑風險分析）類別已隨前置 1 風險分析刪除，範例改為 `["test", "retro"]`（與 rare-paths.md 的 hotfix debt 初值一致）
+- 2026-09-22｜Q1｜MODEL_POLICY.md:38｜「主 session／skill 執行（如前置 1 風險分析）」的舉例指向已刪除的機制，改舉現存例子（前置 1 直建門檻內的主 flow 分拆、主 flow 直寫捷徑）

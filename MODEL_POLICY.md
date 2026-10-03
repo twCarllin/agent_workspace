@@ -35,4 +35,4 @@
 
 - **去相關化（session 層，2026-09-29 起）**：`code-writer` 與 `code-reviewer` 一律**分別派工**——headless 派工（eval-flow「派工機制」節）下兩者是不同子 session、不共用 context，reviewer 只讀 staged diff 與契約，不讀 writer 的推理過程。原「model 必須異族」硬約束（出生證：同一顆腦互審抓不到共同盲點）於 2026-09-29 由使用者裁決廢除（run `2026-09-29-all-sonnet55`，Claude 端全部 sonnet-5-5），對應測試 `test_writer_reviewer_families_differ` 隨之刪除；若日後 reviewer 漏抓率上升，重開此約束的證據住 `retro/BUGLOG.md`。**Codex 端自 2026-09-30 起同樣以獨立 session 審查**：使用者指定所有 `codex exec` 角色為 `gpt-6.1-sol / low`，`tests/test_model_policy.py` 強制一致。
 - 指派準則沿用 eval-flow skill「Model 指派原則」：推理／判斷密集的規劃與審查 → 強 model；機械式、量大的執行 → 快 model。
-- 本表只管 subagent；主 session／skill 執行（如前置 1 風險分析）沿用主 session model，不入表。
+- 本表只管 subagent；主 session／skill 執行（如前置 1 在直建門檻內由主 flow 自行分拆 task、主 flow 直寫捷徑）沿用主 session model，不入表。

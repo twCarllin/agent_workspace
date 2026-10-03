@@ -6,7 +6,8 @@
                                     [--files <逗號清單>] [--timeout <秒>] [--max-output-chars <n>]
 
 - `<role>`：`.claude/agents/<role>.md` 存在者（code-writer／task-verifier／…）；不存在 → exit 1
-- `--prompt-file`：派工 prompt 全文（`-`＝stdin）。約定路徑 `run/<run_id>.prompt-<role>-<n>.md`
+- `--prompt-file`：派工 prompt 全文（`-`＝stdin）。約定路徑 `run/<run_id>.prompt-<role>-<n>.md`。
+  內容為空或只有空白字元 → exit 1、不呼叫子程序、不落留痕（空指令派工等於沒派工）
 - `--backend`：省略時依 manifest `harness`（`"codex"` → codex，否則 claude）
 - `--resume`：修正輪沿用同一子 session（claude session_id／codex thread_id）
 - `--files`：本 item 允許變更的檔案清單（repo 相對路徑）。派工前後各取一次 `git status --porcelain -z`，
@@ -107,12 +108,20 @@ def default_backend(run_id):
 
 def read_prompt(path):
     if path == "-":
-        return sys.stdin.read()
-    try:
-        with open(path, encoding="utf-8") as f:
-            return f.read()
-    except OSError as e:
-        fail(f"讀不到 prompt 檔 {path}（{e}）", 1)
+        text, src = sys.stdin.read(), "stdin 的 prompt"
+    else:
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except OSError as e:
+            fail(f"讀不到 prompt 檔 {path}（{e}）", 1)
+        src = f"prompt 檔 {path}"
+    # 空 prompt 不可派工：子 agent 會拿著空指令照自己的 system prompt 亂跑，主 flow 卻以為派了工。
+    # 實測成因（2026-10-03）：未加引號的 heredoc 把 markdown 反引號當命令替換執行並卡在等 stdin，
+    # 寫檔中斷、留下 0 字節 prompt 檔。此處與「讀不到檔」同屬使用錯誤，exit 1。
+    if not text.strip():
+        fail(f"{src} 為空（或只有空白字元），不派工", 1)
+    return text
 
 
 def _run(argv, stdin_text, timeout):
