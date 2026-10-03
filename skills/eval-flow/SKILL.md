@@ -82,6 +82,7 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
    - **批次派工（省 spawn 稅）**：派工單位＝**task**，同 task 多 item 一次派給同一 code-writer（知識前置一次組裝、item 間共用 context）。條件：①批內合計預估 ≤400 行（與合併審查上限對齊，超過拆批）②`[P]` item 不混批（保留平行／worktree 路徑）③**失敗隔離**：單 item 帶失敗交付只退該 item，其餘 item 照常收④工作報告與憑據**逐 item 分節**（審查輪輸入不變、逐 item 核對，格式住 code-writer.md）。單 item 的 task 照舊
    - **知識前置（硬性步驟）**：呼叫前，主 flow 把三個來源的相關內容**原文貼進 writer prompt 的硬性約束區**——不是叫 writer「自己去讀」，知識只有以明文約束前置進 prompt 才有效（R-011）。三源：
      - **retro 條目**：先以本 item `files` 的模組路徑 grep `retro/RETRO.md` 的標籤篩選（標籤第一段＝模組路徑，見 retro agent 規範），主 flow 再補判同類操作／同類風險面的條目
+       - **篩選由 script 執行**：`python3 .claude/hooks/retro_select.py --files <該 item 的 files>`——它一次做完下兩條（排除 retired、錨點鮮度檢查），輸出可直接貼進硬約束區的條目原文與 retire 候選清單。機械步驟不留給模型逐次手做；主 flow 仍須就輸出補判同類操作／同類風險面的條目
        - **排除 retired 條目**：grep 命中標 `［retired ...］` 的條目一律不選（標記定義住 RETRO.md 檔頭，單一枚舉點——此處指向式引用、不重列格式）
        - **貼入前鮮度檢查**：選中的每條若帶前提錨點 `［錨點: X］`，貼進 prompt **前**先 grep 該錨點（檔案／helper／機制名）是否仍存在於 codebase——**不存在→不貼該條**，改列入「retire 候選」於收尾回報使用者（比照 memory 規則「recalled 條目須先驗證仍存在」）。錨點失效的舊約束是對已消失機制的錯誤指令，貼進去只會與新功能打架
      - **模組 conventions**：本 item 觸及模組的子目錄 `CLAUDE.md`（存在則摘錄相關段）
@@ -123,6 +124,7 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
    - **🔴 重裁條款**：主 flow 對每條 🔴 先做事實核對——至少讀 producer 端證據（上游 schema、函式定義、實際輸出），有反證 → 送獨立重裁（重呼叫 reviewer 附上反證，或取第二意見），**不可未經查證直接派 writer 照修**（reviewer 可能只讀消費面就下錯誤斷言，照修會把正確的 code 改壞）
    - **引文核實（重裁不限 🔴）**：任何發現（含 🟡）只要引用具體 code 片段／行號，主 flow 套用修正前必須對照 staged 原碼核實：`git show :<檔案> | grep -n -F '<引文片段>'`（引文跨多行或含特殊字元時，取最具識別性的**單行**片段）。
      - 生產端已有對應要求（`code-reviewer.md` 工作守則規定 reviewer 寫行號前須以同類指令現查），本條是消費端補網，兩端並存、不互相取代
+     - **核實與判定由 script 執行**：主 flow 自報告擷取引文三元組（`檔案<TAB>行號<TAB>片段`）後跑 `python3 .claude/hooks/cite_check.py --citations -`——它對 staged 內容字面比對、輸出逐條判定，並執行下方機械退件門檻（exit 2＝整份退回）。分工：擷取是讀理解（模型），核實與判定不留裁量（script）
      - 處置**依 grep 輸出二分，不留臨場裁量**（R-012——留裁量即被繞過）：
      - **grep 無輸出（引文文字在檔中不存在）→ 直接駁回該條**（記入該輪處置摘要，隨收尾回報呈現），不進 fixing——照修等於為幻覺改 code（R-012）
      - **grep 有輸出但行號與報告不符（文字為真、僅行號漂移）→ 不駁回**：主 flow 以 grep 實得行號改寫該條行號後照常處置（實質結論不受行號影響），並在處置摘要記 `行號修正: <報告行號>→<實得行號>`
