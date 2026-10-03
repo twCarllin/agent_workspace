@@ -1,6 +1,6 @@
 # agent_workspace
 
-一套讓 Claude Code 與 Codex 寫程式**可控、可審計**的工作流程模板。Router、skills、gate 與角色職責由這個 repo 維護；Claude Code 用 `./init.sh` 部署，Codex 用 `./init.sh --p codex --target <專案路徑>` 部署。
+一套讓 Claude Code 與 Codex 寫程式**可控、可審計**的工作流程模板。Router、skills、gate 與角色職責由這個 repo 維護；兩種 harness 由 `./init.sh --harness <claude|codex|both> --target <專案路徑>` 部署。
 
 ## 要解決什麼問題
 
@@ -53,36 +53,39 @@ Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改
 - **學習**：每次 review 抓到的問題，由 retro agent 歸因寫進 `retro/RETRO.md`，下一輪直接貼進 code-writer 的硬性約束——同一個坑不踩第二次。
 - **瘦身**：每個 run 留下結構化溯源，`stats.py` 彙總 tier 分佈、gate 命中、HITL 裁示與執行成本，用實際資料審查流程步驟。
 
-## 怎麼套用到你的專案
+## 安裝與更新
 
-1. 把本 repo clone 到**工作專案的子目錄**（`init.sh` 會往上一層部署）：
+```bash
+./init.sh --harness both --target /path/to/project
+# 只安裝其中一種
+./init.sh --harness claude --target /path/to/project
+./init.sh --harness codex --target /path/to/project
+```
 
-   ```bash
-   cd ~/work/my-project
-   git clone <this-repo> agent_workspace
-   cd agent_workspace && ./init.sh
-   ```
+省略 harness 時預設 both；省略 target 時安裝到本 repo 的上一層。舊 `--platform`、`--p` 與 `install_codex.py` 入口保留。
 
-2. `init.sh` 會部署 Claude 規則、subagents、hooks，並將 skills 同步到 `~/.claude/skills/`；RETRO seed 只在不存在時建立。
+兩種 harness 都部署 `.agent-flow/` 共用核心與 `.agents/skills/` 專案 skills。Claude 的專案 skills 連結至同一份內容。安裝不寫入個人 skills。`AGENTS.md`、`.agent-flow/ROUTER.md` 的管理區段可更新，區段外的專案指令保留。自訂角色、skill、hook 與既有 RETRO 保留並回報。
 
-3. 重新載入 Claude Code session（hook 部署後才生效，首次會請你確認信任）。可跑 `python3 .claude/hooks/doctor.py` 健檢部署是否齊全。
+安裝後重新載入 session，依客戶端要求檢查與信任 hooks。執行 `python3 .agent-flow/scripts/doctor.py --harness both` 檢查檔案與設定。doctor 不證明客戶端已啟用 hooks。既有 Git hook 或 core.hooksPath 由安裝器保留，依輸出的指令接入提交 gate。
 
-Codex 安裝：在本 repo 目錄執行 `./init.sh --p codex --target /path/to/my-project`。安裝器將 Router 複製到 `.agent-flow/ROUTER.md`、skills 複製到 `.agents/skills/`、角色設到 `.codex/agents/`，並合併 `AGENTS.md` 與 `.codex/hooks.json`；Git 沒有既有 `commit-msg` hook 時安裝提交訊息 gate。重新開啟 Codex 後，在 `/hooks` 檢查並信任專案 hook 定義。
+更新時重跑相同安裝指令。已管理的 skills 會更新；來源已移除的管理 skills 才會刪除。舊 `.claude/hooks/` 指令透過相對連結使用同一套核心。
 
-日常使用就是把需求交給 agent，依 Router 判級並走對應流程。Tier 1／2 提交前執行 `python3 .claude/hooks/run_commit.py prepare <run_id>`；成功 commit 後執行 `python3 .claude/hooks/run_commit.py finalize <run_id>`。
+共用來源：Router 在 `.agent-flow/ROUTER.md`，角色在 `.agent-flow/roles/`，腳本在 `.agent-flow/scripts/`，skills 在 `skills/`。各 harness 的模型設定在 `.agent-flow/harnesses/models.json`，安裝器產生各自角色設定。repo 的 `.agents/skills/` 連結至來源，避免副本落後。
 
-後續更新：改本 repo 後重跑 `./init.sh` 即可全量覆蓋部署（skills 只覆蓋不刪除，移除的舊檔需手動清理目標端）。
+## 最佳做法
+
+入口保持短小；流程按需載入。派工包含目標、背景、限制與完成條件。複雜工作先規劃，交付附驗證與獨立審查證據。這些做法已寫入兩種入口共用的 `.agent-flow/PRACTICES.md`，依 [OpenAI 指南](https://learn.chatgpt.com/guides/best-practices) 調整。外部整合與排程依實際需求建立。
 
 ## 想看細節
 
 | 主題 | 位置 |
 |---|---|
-| 分級表全文、防濫用規則 | `CLAUDE.md` |
+| 分級表全文、防濫用規則 | `.agent-flow/ROUTER.md` |
 | 完整流程與 manifest 格式 | `skills/eval-flow/` |
 | 測試 gate（baseline、flaky 過濾、豁免窗口） | `skills/test-strategy/` |
 | 中斷恢復程序 | `skills/eval-flow-resume/` |
 | 多需求並行（worktree 隔離） | `skills/parallel-run/` |
-| gate 攔截邏輯本體 | `.claude/hooks/eval_gates.py` |
-| subagent headless 派工（`claude -p`／`codex exec`） | `.claude/hooks/dispatch.py` |
-| 遙測與健檢 | `.claude/hooks/stats.py`、`doctor.py` |
+| gate 攔截邏輯本體 | `.agent-flow/scripts/eval_gates.py` |
+| subagent headless 派工（`claude -p`／`codex exec`） | `.agent-flow/scripts/dispatch.py` |
+| 遙測與健檢 | `.agent-flow/scripts/stats.py`、`doctor.py` |
 | gate script 的測試 | `tests/`（`python3 -m unittest discover -s tests`） |

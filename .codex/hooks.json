@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/.claude/hooks/eval_gates.py\" --hook",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.agent-flow/scripts/eval_gates.py\" --hook",
             "timeout": 30
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/.claude/hooks/session_start.py\"",
+            "command": "AGENT_FLOW_HARNESS=codex python3 \"$(git rev-parse --show-toplevel)/.agent-flow/scripts/session_start.py\"",
             "timeout": 15
           }
         ]

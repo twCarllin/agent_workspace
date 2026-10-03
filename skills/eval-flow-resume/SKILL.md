@@ -16,7 +16,7 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 3. 找到多個 in_progress 的 run → 列給使用者選，不自行挑
 4. 一個都沒有 → 無可恢復，回報後結束
 
-若 manifest 為 `ready_to_commit`：先讀 `pre_commit_head`，查目前 HEAD 的 commit message。若 HEAD 已變且有唯一匹配的 `Run-Id`，執行 `python3 .claude/hooks/run_commit.py finalize <run_id>`；若 HEAD 未變，檢查 staging 和驗證快照後提交，再 finalize。HEAD 已變但 trailer 不匹配時停止並回報，不推測歸屬。
+若 manifest 為 `ready_to_commit`：先讀 `pre_commit_head`，查目前 HEAD 的 commit message。若 HEAD 已變且有唯一匹配的 `Run-Id`，執行 `python3 .agent-flow/scripts/run_commit.py finalize <run_id>`；若 HEAD 未變，檢查 staging 和驗證快照後提交，再 finalize。HEAD 已變但 trailer 不匹配時停止並回報，不推測歸屬。
 
 ## Step 2：依 manifest `phase` 定位前置進度
 

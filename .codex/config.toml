@@ -1,0 +1,21 @@
+
+[agents.code-reviewer]
+config_file = "agents/code-reviewer.toml"
+
+[agents.impact-analyzer]
+config_file = "agents/impact-analyzer.toml"
+
+[agents.task-decomposer]
+config_file = "agents/task-decomposer.toml"
+
+[agents.code-writer]
+config_file = "agents/code-writer.toml"
+
+[agents.retro]
+config_file = "agents/retro.toml"
+
+[agents.usage-analyzer]
+config_file = "agents/usage-analyzer.toml"
+
+[agents.task-verifier]
+config_file = "agents/task-verifier.toml"

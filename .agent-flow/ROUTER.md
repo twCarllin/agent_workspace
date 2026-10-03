@@ -26,14 +26,14 @@
 | **未決重大決策** | 設計空間開放、尚無使用者裁決的取捨 |
 
 - **本體 vs 使用**：僅呼叫／經過既有機制＝使用，不觸碼；改機制自身＝本體，觸碼（機械判準見防濫用規則「信任邊界／公開契約的邊界」）
-- **本地開發工具鏈不因檔案類別自動觸碼**：hooks／tests／skills／流程文件的變更——git 可復原、測試可指認、無外部副作用——不屬信任邊界；它們仍可能觸「重大不確定」「未決重大決策」（v2 依據：實測 2026-09-06-baseline-suite-guard，25 行本機可復原修改被類別制排除送 Tier 2，前置佔成本 44%）
-- **行數不是判級軸**（agentflow：job length is never used；實測行數不預測執行時間——流程稅才是時間主因）。大小閘獨立一條：預估 active time，見第二步
+- **本地開發工具鏈不因檔案類別自動觸碼**：hooks／tests／skills／流程文件的變更——git 可復原、測試可指認、無外部副作用——不屬信任邊界；它們仍可能觸「重大不確定」「未決重大決策」
+- **行數不是判級軸**（agentflow：job length is never used；行數不預測執行時間——流程稅才是時間主因）。大小閘獨立一條：預估 active time，見第二步
 
 ### 第二步：判 tier
 
 | Tier | 進入條件 | 路徑 |
 |---|---|---|
-| **0 微調** | 無新行為（純樣式／文案／參數調整，無新邏輯／新分支；**bugfix 例外**：把實際行為修回預期行為、不新增行為面者，視同「無新行為」）＋ 不觸信任邊界／公開契約（觸碼判準見防濫用規則，1 行也不例外）＋ ≤3 個檔案、合計 ≤80 行（以 `git diff` 變更行數計，增＋刪）。**例外**：同一種機械式改動跨多檔重複套用（如同一句文案、同一個名稱替換），檔數不受 3 檔限制，但每檔 ≤50 行 | 直接改；改完回報時 append 一行留痕：`python3 .claude/hooks/eval_state.py tier0 --summary "<一句>" --files "<逗號清單>" --lines <增＋刪行數>`（格式住 eval-flow `references/formats.md`） |
+| **0 微調** | 無新行為（純樣式／文案／參數調整，無新邏輯／新分支；**bugfix 例外**：把實際行為修回預期行為、不新增行為面者，視同「無新行為」）＋ 不觸信任邊界／公開契約（觸碼判準見防濫用規則，1 行也不例外）＋ ≤3 個檔案、合計 ≤80 行（以 `git diff` 變更行數計，增＋刪）。**例外**：同一種機械式改動跨多檔重複套用（如同一句文案、同一個名稱替換），檔數不受 3 檔限制，但每檔 ≤50 行 | 直接改；改完回報時 append 一行留痕：`python3 .agent-flow/scripts/eval_state.py tier0 --summary "<一句>" --files "<逗號清單>" --lines <增＋刪行數>`（格式住 eval-flow `references/formats.md`） |
 | **1 直接路線** | 理由碼**空集合**；或非空但**全部可收斂為具名重大問題**（每個問題可由點名一個 advisor 回答——點名必附問題原文，機制見 eval-flow「Tier 1 精簡路徑」）＋ 預估 active time ≤120 分 | 載入 `eval-flow` skill，走「Tier 1 精簡路徑」 |
 | **2 完整路線** | 信任邊界／公開契約的本體變更 OR 重大不確定／未決決策無法收斂為具名問題 OR 預估 active time >120 分 OR 請求不連貫 OR 使用者宣告 all-in | 載入 `eval-flow` skill，走完整「Tier 2 路徑」 |
 | **B Bootstrap** | 空專案或新模組**骨架**（目錄結構、框架接線、CI、工具鏈）＋ 純結構性工作、**無業務邏輯**（開始寫業務行為的瞬間就不是 Tier B，回上面判級） | 載入 `eval-flow` skill，走「Tier B Bootstrap 路徑」 |
@@ -42,7 +42,6 @@
 - **active time 留痕**：Tier 1／2 的 manifest 記 `estimated_active_minutes`（選填，判級時的預估主動工時；收尾可補 `actual_active_minutes`）——估實分記（agentflow 慣例），供校準判級
 - **事後降級門**：判 Tier 2 後、前置 1 開跑前的最後一道 check——工作實為瑣碎、無歧義、機械性 → 向使用者**提議**退回 Tier 1（附一句理由）。降級必經使用者確認，**agent 不可自行降**；執行中的「升級不可逆」不變（見防濫用規則）
 - **all-in（使用者強制全流程）**：使用者明說「all-in」→ 本需求強制走 Tier 2 完整路徑，選配步驟全跑，直寫捷徑／合併審查／降級門全關。**agent 不可自行宣告、不可主動建議**（與驗證豁免同一防濫用原則）。預設（非 all-in）容許小工作抄捷徑：跳過的選配步驟在回報留痕一句
-- **Minimality 尾註**：本節 v2（2026-09-06）借 agentflow 理由碼制；被否決的更大替代（devlog 對話制、四層模型 profile、Tier 2 前置 trigger 制）與出生證數據見 `run/2026-09-06-tier-router-v2.json` 的 `spec_inline`
 
 ### 工作型態前判（bugfix 先診斷，判級在後）
 
@@ -54,9 +53,9 @@
 
 ### 防濫用規則（避免 agent 為省 token 自我降級）
 
-- **信任邊界／公開契約的邊界（機械判準）**：觸碼的是這兩類機制**本體**的變更——auth／權限的判定邏輯、金流計算／交易處理邏輯、DB schema 定義、部署設定內容、對外發佈路徑、對外 API 簽章。兩道判準**同時成立**才觸碼：①diff 動到**可執行邏輯／判定行為／設定值**的行（**純註解、訊息字串、文件說明、新增測試**＝否——判準看行的性質，不是看檔案在哪個目錄）；②動到機制**本體**（僅呼叫／經過既有機制＝使用，不觸發——例：新頁面掛在既有 login guard 之後＝否；改 guard 的判斷式＝是；呼叫既有權限 helper、讀取既有設定＝使用）。**本地開發工具鏈不在此清單**（v2 變更，2026-09-06）：`.claude/hooks/*.py` 等本地 gate script 屬工具鏈，不屬信任邊界——其變更照其他碼（不確定／協調／大小）正常判級。Tier 2 是重型流程，入口收窄、保留給真正需要的
+- **信任邊界／公開契約的邊界（機械判準）**：觸碼的是這兩類機制**本體**的變更——auth／權限的判定邏輯、金流計算／交易處理邏輯、DB schema 定義、部署設定內容、對外發佈路徑、對外 API 簽章。兩道判準**同時成立**才觸碼：①diff 動到**可執行邏輯／判定行為／設定值**的行（**純註解、訊息字串、文件說明、新增測試**＝否——判準看行的性質，不是看檔案在哪個目錄）；②動到機制**本體**（僅呼叫／經過既有機制＝使用，不觸發——例：新頁面掛在既有 login guard 之後＝否；改 guard 的判斷式＝是；呼叫既有權限 helper、讀取既有設定＝使用）。**本地開發工具鏈不在此清單**：`.agent-flow/scripts/*.py` 等本地 gate script 屬工具鏈，不屬信任邊界——其變更照其他碼（不確定／協調／大小）正常判級。Tier 2 是重型流程，入口收窄、保留給真正需要的
 - Tier 1／2 的判定必須在 manifest 寫 `tier` 與 `tier_rationale`（理由碼清單＋為何判這層），供事後審計
-- **升級逃生門**：Tier 1 執行中若發生下列任一 → **中止，升級 Tier 2**，補齊 Spec 與 task；有具名問題時才派 usage／impact advisor（前置風險分析已移除）：
+- **升級逃生門**：Tier 1 執行中若發生下列任一 → **中止，升級 Tier 2**，補齊 Spec 與 task；有具名問題時才派 usage／impact advisor：
   - 實際規模遠超判級認知（預估 active time 將明顯超過 120 分）
   - 冒出新理由碼且無法收斂為具名問題（需求歧義浮現、發現多條使用路徑、未決決策浮現）
   - 風險上冒出 🔴
@@ -65,16 +64,16 @@
 
 ## Eval Flow 執行（Tier 1／2）
 
-- Router 判為 **Tier 1 或 Tier 2** 時，**必須先載入 `eval-flow` skill**，依其內容執行（前置 0–1（風險分析已刪除不設替代、使用情境／影響面盤點改具名問題觸發）、循環 1–7（code-writer → review（per-task，含完成度節）→ 本地測試 → commit）、Tier 1 精簡路徑、manifest／eval_state 格式與操作規則都住在該 skill，本文件不重述）
+- Router 判為 **Tier 1 或 Tier 2** 時，**必須先載入 `eval-flow` skill**，依其內容執行（路徑選擇、Tier 1 精簡路徑、共用循環 1–7（code-writer → review（per-task，含完成度節）→ 本地測試 → commit）住 `SKILL.md`；Tier 2 前置住其 `references/tier2-prep.md`；manifest／eval_state 格式與操作規則住 `references/formats.md`，本文件不重述）
 - **skill 內容不在 context 就不可憑印象跑**：執行中若對流程細節不確定（例如 context 被 compact 後、或接手他人的 run）→ **重新載入 `eval-flow` skill**（檔案在 `.agents/skills/eval-flow/SKILL.md`），並以 manifest／`eval_state.json` 的檔案狀態為準，不靠記憶
-- 各 gate 由 PreToolUse hook（`.claude/hooks/gate-check.sh` → `eval_gates.py`）強制攔截：擋亂序的 subagent 呼叫與不合規的 `git commit`。被擋時依 stderr 訊息補齊狀態後重試；實際防線以 hook 為準
+- 各 gate 由 PreToolUse hook（`.agent-flow/scripts/gate-check.sh` → `eval_gates.py`）強制攔截：擋亂序的 subagent 呼叫與不合規的 `git commit`。被擋時依 stderr 訊息補齊狀態後重試；實際防線以 hook 為準
 - **中斷恢復**：先前的 run 被中斷要續跑時，依 `eval-flow-resume` skill 的確定性程序恢復，不靠記憶或猜測
 
 ## Task Principle
 
-- 產出物目錄慣例（`task/YYYY-MM-DD.md`、`run/<run_id>.json` 冷溯源留在工作目錄、不進版控）住 `eval-flow` skill 各前置節與 `references/formats.md`，不在此重列。`usage/`／`impact/`／`risk/` 三目錄的既有歷史報告保留不刪（冷溯源），但 2026-09-22 起不再是任何步驟的預設輸出目標（風險分析已刪除、usage／impact 改具名問題觸發、答案寫進 Spec），不再列入產出物目錄慣例
+- 產出物目錄慣例（`task/YYYY-MM-DD.md`、`run/<run_id>.json` 冷溯源留在工作目錄、不進版控）住 `eval-flow` skill 的 `references/tier2-prep.md`（Tier 2 前置）、「Tier 1 精簡路徑」節與 `references/formats.md`，不在此重列。`usage/`／`impact/`／`risk/` 三目錄的既有歷史報告保留不刪（冷溯源），不是任何步驟的輸出目標、不列入產出物目錄慣例
 - **產出物自足性（換手的前提）**：Spec、usage 報告、task 檔、風險報告必須**不依賴對話上下文**即可讀懂——不得出現「如上所述」「依先前討論」等指涉對話的內容；task item 必須寫明確檔案路徑與 DoD。標準是：任何未參與對話的 AI／工程師讀檔即可接手。**引用其他 run 產出檔（spec／usage／impact 路徑＋節次）不算依賴對話**——應指向式引用、不重述內容
 - 每次新增或讀取任務時，使用**當天日期**的檔案（例如 `task/2026-04-18.md`）
-- 呼叫 subagent 完成任務（例外：Tier 1 小 item 的主 flow 直寫捷徑，見 eval-flow skill）
+- 呼叫 subagent 完成任務（經 `.agent-flow/scripts/dispatch.py` headless 派工，見 eval-flow skill「派工機制」節；例外：Tier 1 小 item 的主 flow 直寫捷徑，見 eval-flow skill）
 - sub_task 收尾後，若任務來自 task 檔，須將對應 item 標記完成（`[x]`）
 - 拆分粒度、[P] 平行標註、item 四要素等規則住 **task-decomposition** skill；審查／驗證順序與 gate 住 **eval-flow** skill 與 hook，不在此重述

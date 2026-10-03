@@ -1,10 +1,10 @@
-> 本檔由 skills/eval-flow/SKILL.md 的觸發句按需載入，不單獨作為 skill 入口。
+> 本檔由 .agents/skills/eval-flow/SKILL.md 的觸發句按需載入，不單獨作為 skill 入口。
 >
 > 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
 
 ## Gate 的硬性執行（hook）
 
-以下 gate 由 PreToolUse hook（Claude：`.claude/settings.json`；Codex：`.codex/hooks.json`；共用 `.claude/hooks/eval_gates.py`）攔截。Git 的 `commit-msg` hook 另讀實際提交訊息，避免 `-F`、編輯器輸入與 shell 指令文字不同步。攔截點為提交時（gate 1–6）與呼叫流程管制的 subagent 時（gate 7）：
+以下 gate 由 PreToolUse hook（Claude：`.claude/settings.json`；Codex：`.codex/hooks.json`；共用 `.agent-flow/scripts/eval_gates.py`）攔截。Git 的 `commit-msg` hook 另讀實際提交訊息，避免 `-F`、編輯器輸入與 shell 指令文字不同步。攔截點為提交時（gate 1–6）與呼叫流程管制的 subagent 時（gate 7）：
 
 **待驗 manifest 的定位（gate 3–6 的共同前提）**：冷溯源檔不進版控（見 eval-flow SKILL.md step 6 子項②），故 commit gate **不以「staged 中有沒有 manifest」為啟動條件**。定位依序為：
 
@@ -34,11 +34,11 @@
    - **Tier 1 分支**：`eval_state.json` 不存在時，掃 `run/` 找唯一一個 `tier: 1` 且 `status: "in_progress"` 的 manifest 作為當前 run 依據（找到唯一一個 → 繼續後續 gate；找不到或多個 → 擋，原訊息語義）
    - `check_other_runs` 在兩條路徑下都執行（Tier 1 單一 run 原則不因豁免而失效）
 
-被擋時 hook 會以 stderr 回報原因，依訊息補齊狀態後重試。流程中亦可隨時自檢：`python3 .claude/hooks/eval_gates.py --validate eval_state.json`。工具 hook 覆蓋 agent 的受支援工具呼叫；Git `commit-msg` hook 也攔一般終端提交。hook 仍可能被停用或繞過，CI 可重跑同一驗證作為專案邊界。
+被擋時 hook 會以 stderr 回報原因，依訊息補齊狀態後重試。流程中亦可隨時自檢：`python3 .agent-flow/scripts/eval_gates.py --validate eval_state.json`。工具 hook 覆蓋 agent 的受支援工具呼叫；Git `commit-msg` hook 也攔一般終端提交。hook 仍可能被停用或繞過，CI 可重跑同一驗證作為專案邊界。
 
 ## 報告信封 lint（PostToolUse hook）
 
-`.claude/hooks/report_envelope_check.py`（設定於 `.claude/settings.json`，matcher `Task|Agent`）於 subagent 交付時機械驗收報告信封。缺項二分：
+`.agent-flow/scripts/report_envelope_check.py`（設定於 `.claude/settings.json`，matcher `Task|Agent`）於 subagent 交付時機械驗收報告信封。缺項二分：
 
 | 類別 | 項目 | hook 行為 | 主 flow 處置 |
 |---|---|---|---|
@@ -47,6 +47,6 @@
 
 合規（兩類皆無缺項）→ exit 0、無輸出。
 
-- **headless 派工路徑**：`.claude/hooks/dispatch.py` 在 script 內以同一 `check_envelope` 判定（單一出處，不自建第二份規則），blocking → exit 2、advisory → stderr 警告；本 hook 只覆蓋仍走 `Agent` 工具的呼叫
+- **headless 派工路徑**：`.agent-flow/scripts/dispatch.py` 在 script 內以同一 `check_envelope` 判定（單一出處，不自建第二份規則），blocking → exit 2、advisory → stderr 警告；本 hook 只覆蓋仍走 `Agent` 工具的呼叫
 - **性質**：品質 lint、**fail-open**（stdin 非 JSON、欄位缺席、背景啟動回執、非信封名單 agent 一律放行）——**不是安全 gate**，不承擔攔截惡意內容的職責；與上方 PreToolUse gate 1–7 的攔截性質不同
 - 信封名單與載荷依據住 script 檔頭，改名單時只改 script

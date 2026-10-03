@@ -57,7 +57,7 @@ description: 依 Spec（若曾具名問題觸發 usage-analyzer／impact-analyze
 **測試同步段（有意的行為變更專用）**：需求含**有意改變既有行為**時，Spec／spec_inline 須明列「作廢舊行為清單」（舊契約 → 新契約對照）。
 
 - **拆分者負責核對**：情境報告／Spec 隱含既有行為被改而未列清單 → 回頭要求補清單再拆（比照契約表的他證原則），不可照單續拆
-- 拆分時以 `python3 .claude/hooks/test_baseline.py related --files <受影響檔>` 預算受影響的既有測試，在**對應實作 item 內標註「測試同步段」**（不是獨立 item——見下時序理由）
+- 拆分時以 `python3 .agent-flow/scripts/test_baseline.py related --files <受影響檔>` 預算受影響的既有測試，在**對應實作 item 內標註「測試同步段」**（不是獨立 item——見下時序理由）
 - 執行時序：實作 writer 交付後、該 item 的 **step 2（git add）之前**，由主 flow 另派**快 model** 依對照表機械批次更新舊測試斷言，同步後的測試**與 writer 產出一併 staged**
   - staged 的理由：step 3 的 code-reviewer 才審得到測試變更（「測試變更需有依據 → 🔴」防線在此執行：逐條核對測試改動能否對映到對照表 row，對映不上 → 🔴）
 - 實作 writer 仍不碰舊測試（管轄分離、成本分離都保留），step 5 於 review∥verify 通過後照常跑——此時 code 與測試都已斷言新契約，check 才不會死結
@@ -136,7 +136,7 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 2. **migrate** — 呼叫端**按爆炸半徑分批**遷移到新形式（per 套件／per 目錄），每批一個 item、`depends` expand 批；舊形式仍在，**批批之間 step 5 check 保持綠**。
 3. **contract** — `grep` 確認舊形式**零呼叫端殘留**後刪除舊形式。一個 item，`depends` 全部 migrate 批。
 
-與 Tier 0 機械式改動例外的分界：Tier 0 例外（CLAUDE.md 分級表）管每檔 ≤50 行、可一次直改完的機械變更；超出該量級（一次改不完、改了必紅）→ 進本節的分批序列。
+與 Tier 0 機械式改動例外的分界：Tier 0 例外（.agent-flow/ROUTER.md 分級表）管每檔 ≤50 行、可一次直改完的機械變更；超出該量級（一次改不完、改了必紅）→ 進本節的分批序列。
 
 ---
 

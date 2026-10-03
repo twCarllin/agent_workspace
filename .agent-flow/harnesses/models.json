@@ -1,0 +1,62 @@
+{
+  "claude": {
+    "code-reviewer": {
+      "frontmatter": "name: code-reviewer\ndescription: 升級路徑審查員：checker 四類升級觸發之一成立時、理由碼含信任邊界／公開契約的 run 直派、或高風險變更手動觸發時，以 `git diff --cached` 全 diff 審查安全、效能、邏輯正確性、可維護性、測試覆蓋，並核對 DoD 完成度。不修改任何檔案，僅輸出結構化審查報告。\ntools: Read, Grep, Glob, Bash\nmodel: claude-sonnet-5-5"
+    },
+    "impact-analyzer": {
+      "frontmatter": "name: impact-analyzer\ndescription: 具名問題觸發的影響面盤點 agent：主 flow 附具名問題原文才可呼叫；從 manifest 的 spec_path 與既有程式碼盤點觸及模組、慣例、可重用元件、呼叫端與跨模組風險，答案寫進 Spec、不產獨立報告檔。唯讀，不修改程式碼。Tier 2 具名問題觸發使用；Tier 1 另有點名 advisor 路徑。\ntools: Read, Grep, Glob, Write, Bash\nmodel: claude-sonnet-5-5"
+    },
+    "task-decomposer": {
+      "frontmatter": "name: task-decomposer\ndescription: Eval Flow 前置 1 的分拆 agent（條件派工：Tier 2 超過主 flow 直建門檻 >2 tasks 或 >8 items 時呼叫；Tier 1 由主 flow 直建、不呼叫）。讀 manifest 的 spec_path（含具名問題答案）把工作拆成 task 與 item（每 task ≤5 item、每 item 預估 ≤300 行，超標註明理由），寫入 task/YYYY-MM-DD.md、回寫 manifest.task_file，交付前自檢。不寫實作 code。\ntools: Read, Grep, Glob, Write, Edit\nmodel: claude-sonnet-5-5\nskills: task-decomposition"
+    },
+    "code-writer": {
+      "frontmatter": "name: code-writer\ndescription: |\n  程式碼開發工程師。負責兩種任務：\n  1. 根據 task 需求撰寫新功能或修改既有程式碼\n  2. 根據 code-reviewer 的審查報告修正問題\n  以 prompt 硬性約束區的 retro 條目為硬性約束，避免重蹈覆轍。\ntools: Read, Write, Edit, Bash\nmodel: claude-sonnet-5-5"
+    },
+    "retro": {
+      "frontmatter": "name: retro\ndescription: |\n  回顧反思員。在 code-reviewer 審查完成後呼叫。\n  分析審查報告中的問題根因，歸納成約束句式的教訓，\n  追加寫入 retro/RETRO.md 單一檔案，供主 flow 前置貼進 code-writer prompt 的硬性約束區。\n  不修改任何程式碼檔案。\ntools: Read, Grep, Glob, Write, Edit\nmodel: claude-sonnet-5-5\nskills: root-cause-table"
+    },
+    "usage-analyzer": {
+      "frontmatter": "name: usage-analyzer\ndescription: 具名問題觸發的使用情境分析 agent：主 flow 附具名問題原文才可呼叫；依 usage-scenario-analysis skill 從 Spec 盤點角色、情境、I/O 契約與開放問題，答案寫進 Spec、不產獨立報告檔。Tier 2 具名問題觸發使用；Tier 1 另有點名 advisor 路徑；Tier 0 不呼叫。\ntools: Read, Grep, Glob, Write, Edit\nmodel: claude-sonnet-5-5\nskills: usage-scenario-analysis"
+    },
+    "task-verifier": {
+      "frontmatter": "name: task-verifier\ndescription: checker——審查層預設位：eval-flow 循環 step 3 以 task 為單位派用（同 task 全部 item 交付完成後審一次）。不讀 diff，核對「宣稱與憑據對得上」：各 item 的 DoD 逐條有憑據、契約 row 逐條有對應測試斷言、仲裁記錄一致、sabotage 自檢證據存在、無疑似注入標註未處理。四種升級情況之一成立時自報建議，裁決與改派 code-reviewer 在主 flow。也可隨時手動觸發。不修改任何檔案，僅輸出結構化報告。\ntools: Read, Grep, Glob, Bash\nmodel: claude-sonnet-5-5"
+    }
+  },
+  "codex": {
+    "code-reviewer": {
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "low",
+      "description": "升級路徑審查員：checker 四類升級觸發之一成立時、理由碼含信任邊界／公開契約的 run 直派、或高風險變更手動觸發時，以 `git diff --cached` 全 diff 審查安全、效能、邏輯正確性、可維護性、測試覆蓋，並核對 DoD 完成度。不修改任何檔案，僅輸出結構化審查報告。"
+    },
+    "impact-analyzer": {
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "low",
+      "description": "具名問題觸發的影響面盤點 agent：主 flow 附具名問題原文才可呼叫；從 manifest 的 spec_path 與既有程式碼盤點觸及模組、慣例、可重用元件、呼叫端與跨模組風險，答案寫進 Spec、不產獨立報告檔。唯讀，不修改程式碼。Tier 2 具名問題觸發使用；Tier 1 另有點名 advisor 路徑。"
+    },
+    "task-decomposer": {
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "low",
+      "description": "Eval Flow 前置 1 的分拆 agent（條件派工：Tier 2 超過主 flow 直建門檻 >2 tasks 或 >8 items 時呼叫；Tier 1 由主 flow 直建、不呼叫）。讀 manifest 的 spec_path（含具名問題答案）把工作拆成 task 與 item（每 task ≤5 item、每 item 預估 ≤300 行，超標註明理由），寫入 task/YYYY-MM-DD.md、回寫 manifest.task_file，交付前自檢。不寫實作 code。"
+    },
+    "code-writer": {
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "low",
+      "description": "程式碼開發工程師。負責兩種任務： 1. 根據 task 需求撰寫新功能或修改既有程式碼 2. 根據 code-reviewer 的審查報告修正問題 以 prompt 硬性約束區的 retro 條目為硬性約束，避免重蹈覆轍。"
+    },
+    "retro": {
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "low",
+      "description": "回顧反思員。在 code-reviewer 審查完成後呼叫。 分析審查報告中的問題根因，歸納成約束句式的教訓， 追加寫入 retro/RETRO.md 單一檔案，供主 flow 前置貼進 code-writer prompt 的硬性約束區。 不修改任何程式碼檔案。"
+    },
+    "usage-analyzer": {
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "low",
+      "description": "具名問題觸發的使用情境分析 agent：主 flow 附具名問題原文才可呼叫；依 usage-scenario-analysis skill 從 Spec 盤點角色、情境、I/O 契約與開放問題，答案寫進 Spec、不產獨立報告檔。Tier 2 具名問題觸發使用；Tier 1 另有點名 advisor 路徑；Tier 0 不呼叫。"
+    },
+    "task-verifier": {
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "low",
+      "description": "checker——審查層預設位：eval-flow 循環 step 3 以 task 為單位派用（同 task 全部 item 交付完成後審一次）。不讀 diff，核對「宣稱與憑據對得上」：各 item 的 DoD 逐條有憑據、契約 row 逐條有對應測試斷言、仲裁記錄一致、sabotage 自檢證據存在、無疑似注入標註未處理。四種升級情況之一成立時自報建議，裁決與改派 code-reviewer 在主 flow。也可隨時手動觸發。不修改任何檔案，僅輸出結構化報告。"
+    }
+  }
+}

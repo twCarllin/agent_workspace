@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/report_envelope_check.py"
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.agent-flow/scripts/report_envelope_check.py\""
           }
         ]
       }
@@ -20,7 +20,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/gate-check.sh"
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.agent-flow/scripts/eval_gates.py\" --hook",
+            "timeout": 30
           }
         ]
       }
@@ -31,7 +32,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py"
+            "command": "AGENT_FLOW_HARNESS=claude python3 \"$CLAUDE_PROJECT_DIR/.agent-flow/scripts/session_start.py\"",
+            "timeout": 15
           }
         ]
       }

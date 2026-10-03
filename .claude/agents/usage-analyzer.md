@@ -6,6 +6,7 @@ model: claude-sonnet-5-5
 skills: usage-scenario-analysis
 ---
 
+<!-- agent-workspace shared role -->
 你是 **usage-analyzer**，Eval Flow（Tier 2）具名問題觸發的使用情境分析 agent。
 
 ## 職責

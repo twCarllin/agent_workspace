@@ -1,4 +1,4 @@
-> 本檔由 skills/eval-flow/SKILL.md 的觸發句按需載入，不單獨作為 skill 入口。
+> 本檔由 .agents/skills/eval-flow/SKILL.md 的觸發句按需載入，不單獨作為 skill 入口。
 >
 > 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
 
@@ -23,7 +23,7 @@
 
 ## Hotfix 通道（先止血、後補債；債是硬性的）
 
-僅限**使用者明確宣告**緊急（線上事故／資損進行中）時啟用，agent 不可自行認定。Bugfix 的診斷前判規則見 CLAUDE.md「工作型態前判」。
+僅限**使用者明確宣告**緊急（線上事故／資損進行中）時啟用，agent 不可自行認定。Bugfix 的診斷前判規則見 .agent-flow/ROUTER.md「工作型態前判」。
 
 1. **止血**：診斷（重現 → 根因 → 修法）→ 直接修 ＋ 本地測試驗證（部署規則不豁免：未經本地驗證仍不可 commit／部署）
 2. **精簡溯源**：建 manifest `run/<run_id>.json`，填 `tier: "hotfix"`、`tier_rationale`（含使用者宣告緊急的依據）、`spec_inline`（診斷結論）、`phase: "hotfix"`、`usage_report_path: "deferred"`、**`debt: ["test", "retro"]`**。**不建 `eval_state.json`**（不走循環評分）
@@ -46,7 +46,7 @@
 
 Tier 2 run 內符合門檻的 `[P]` item 各開 git worktree 並行執行，取得真正的 worktree 隔離：每個 item 在自己的樹裡，`git diff --cached` 天生乾淨、mine 模式正常生效。
 
-本節描述三段式 fan-out 執行協定，由**主 flow**（前景，判門檻／開 worktree／rolling merge）編排、**背景 item agent**（在各自 worktree 跑迷你 run，具備 Bash／Write／Edit 工具）執行、收尾序列**直接引用 `skills/parallel-run/SKILL.md`**（避免兩處漂移）。
+本節描述三段式 fan-out 執行協定，由**主 flow**（前景，判門檻／開 worktree／rolling merge）編排、**背景 item agent**（在各自 worktree 跑迷你 run，具備命令執行與檔案寫入能力）執行、收尾序列**直接引用 `.agents/skills/parallel-run/SKILL.md`**（避免兩處漂移）。
 
 改此 skill 的 run 自身序列跑、不 fan-out（新機制首次執行不用在改它自己的 run 上）。
 
@@ -72,11 +72,7 @@ fan-out 僅在「**`[P]` item ≥2 且各自預估 ≥150 行**（以 task-decom
 
 **② Fan-out 段**
 
-主 flow 為每個符合門檻的 `[P]` item spawn 一個背景 item agent，**worktree 交由 harness 建立**：以 `Agent` 工具的 `isolation: "worktree"` 啟動，harness 建 `.claude/worktrees/agent-<id>/` 並在啟動時釘定該 agent 的工作目錄。
-
-細節與禁止事項見 `parallel-run` skill 步驟 5（**禁止改用「主 flow 先 `git worktree add`，再叫 agent 自己進去」**——repo root 啟動的 subagent 無法切入，`EnterWorktree` 會拒絕，R-005 同型端到端教訓；亦禁止用 `cd` 替代，那會使 gate 判到主工作區）。
-
-branch 名稱由 harness 指派（非 `feat/<父run_id>-item-<id>`），item agent 須在回報中附上；全族溯源靠 commit trailer `Parent-Run-Id: <父run_id>`，不靠 branch 命名。
+主 flow 為每個符合門檻的 [P] item 啟動隔離 agent。worktree 的建立、cwd 釘定與禁止事項依 parallel-run skill 步驟 5 及目前 harness 適配層執行；不能用背景旗標或 shell cd 取代隔離。
 
 **worktree 起點見 `parallel-run` 步驟 5**（單一來源，本節不自述以免漂移；現況為主線本地 HEAD，設定未套用時會退回 origin）。
 
@@ -86,11 +82,9 @@ item agent 起手仍必須依 `parallel-run` 步驟 6 的「起手三步」`git 
 
 - **子 manifest**：`run/<父run_id>-item-<id>.json`，填入 `parent_run_id: <父run_id>`、`spec_path` 指回父 Spec（`spec/<父run_id>.md`）、`tier: 2`、`status: "in_progress"`，以及自己的 `run_id`、`created_at`、`phase`。
 - **自己的 `eval_state.json`**（在自己 worktree 初始化），自己的 eval_state 貫穿自己的 code-writer → review（含完成度節）→ step 5 本地測試 → 自己歸檔。
-- **mine 模式在隔離樹下正常生效**：各 worktree diff 乾淨，未提交變更只屬於自己，`python3 .claude/hooks/test_baseline.py mine` 可正常推導範圍（不傳 `--strike-key`，見 test-strategy skill mine 節）。
+- **mine 模式在隔離樹下正常生效**：各 worktree diff 乾淨，未提交變更只屬於自己，`python3 .agent-flow/scripts/test_baseline.py mine` 可正常推導範圍（不傳 `--strike-key`，見 test-strategy skill mine 節）。
 - **hook gate 在各 worktree 內獨立生效（有前提，非天然成立）**：每個 worktree 有自己的 staging area 與 `eval_state.json`，所有現行 gate 照常運作、零後門——**前提是 hook 以該次 tool call 的實際 cwd（payload 的 `cwd`）解析所屬 worktree 根後才 chdir**。
-  - `CLAUDE_PROJECT_DIR` 由 Claude Code 釘死在 session 啟動目錄、**不隨 worktree 移動**（`EnterWorktree` 與背景 subagent 皆然），若 gate 逕以它決定工作區，worktree 內的 run 會誤用主工作區狀態：subagent 呼叫 gate 誤判、commit gate 因讀主工作區空 index 而靜默失效
-  - 此解析住在 `.claude/hooks/eval_gates.py`，改動該處等同動搖本節前提
-  - **限制**：`CLAUDE_PROJECT_DIR` 為 git 儲存庫子目錄的專案開 worktree 時會解析到 worktree 根（不拼接子路徑），該類專案目前不支援 fan-out
+  - 解析住在 `.agent-flow/scripts/eval_gates.py`，改動等同動搖本節前提；各 harness 的環境變數與子目錄限制見適配層。
 - **自己 branch commit**：step 6 收尾 commit 附 trailer `Run-Id: <子run_id>` 與 `Parent-Run-Id: <父run_id>`（後者讓主 session 一次 grep `Parent-Run-Id: <父run_id>` 撈全族 commit）。禁止 push、禁止切 branch、禁止把自己的 branch 合進 main（同 `parallel-run` skill 的背景 agent 規則；起手的 `git merge main` 是反方向同步，允許且必要）。
 - **BUGLOG 條目寫進回報內容、不 append 檔案**：沿 `parallel-run` skill 規則——各 worktree grep 自己的快照會漏看對方的條目，兩層制升級判定由主 session 於 merge 後統一做。
 - **blocker 出在 main 既有 code 時禁止在 item worktree 修**：標明後依 `parallel-run` skill 的「卡住／HITL 協定」停下，由主 session 在 main 上走 bugfix 流程，修完後各 item worktree `git merge main` 同步（修一次、多支受惠）。
@@ -98,12 +92,12 @@ item agent 起手仍必須依 `parallel-run` 步驟 6 的「起手三步」`git 
 
 角色確認（retro 約束，R-002 投放路徑）：
 - 主 flow 能開 worktree、讀寫 manifest（成立）
-- 背景 agent 在隔離 worktree 內具 Bash／Write／Edit、hook gate 照常生效且能 commit 自己 branch（成立——gate 生效以上一項的 root 解析前提為條件）
+- 背景 agent 在隔離 worktree 內具命令執行與檔案寫入能力、hook gate 照常生效且能 commit 自己 branch（成立——gate 生效以上一項的 root 解析前提為條件）
 - 引用 `parallel-run` skill 的收尾步驟確實存在於該 skill（收尾序列見 `parallel-run/SKILL.md` 步驟 7–10，機械檢查①②見步驟 8 的子項 8.1／8.2，已 Read 佐證）
 
 **③ Rolling merge 段**
 
-直接引用 `skills/parallel-run/SKILL.md` 的收尾序列（步驟 7–10）執行，不重寫、不在此摘要——機械檢查①②、後合者同步、全套 baseline gate、BUGLOG 帶回與 worktree 清理的完整子步驟以該 skill 步驟 8 之子項 1–5 為準（R-007 單一來源）。誰先完成先收，不等全批。
+直接引用 `.agents/skills/parallel-run/SKILL.md` 的收尾序列（步驟 7–10）執行，不重寫、不在此摘要——機械檢查①②、後合者同步、全套 baseline gate、BUGLOG 帶回與 worktree 清理的完整子步驟以該 skill 步驟 8 之子項 1–5 為準（R-007 單一來源）。誰先完成先收，不等全批。
 
 一族 commit 完成後，可用 `git log --grep "Parent-Run-Id: <父run_id>"` 反查全族。
 

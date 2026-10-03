@@ -9,8 +9,8 @@ description: skill／流程文件瘦身的檢查清單：範圍界定、不可�
 
 ## 1. 範圍界定（動工前先圈）
 
-- 瘦身對象＝**會進 LLM context 的 prose**：`skills/*/SKILL.md` 與其 `references/`、`.claude/agents/*.md`、CLAUDE.md。
-- **不屬瘦身對象**：script（`.claude/hooks/*.py` 等）、tests、fixtures、`run/` 溯源檔——它們不進 context，壓了沒收益；要改是 refactor，另走判級。
+- 瘦身對象＝**會進 LLM context 的 prose**：`.agents/skills/*/SKILL.md` 與其 `references/`、`.agent-flow/roles/*.md`、.agent-flow/ROUTER.md。
+- **不屬瘦身對象**：script（`.agent-flow/scripts/*.py` 等）、tests、fixtures、`run/` 溯源檔——它們不進 context，壓了沒收益；要改是 refactor，另走判級。
 - 動工前列出本次要壓的檔案清單與各檔現行行數（收尾對照）。
 
 ## 2. 不可弱化清單（壓縮只改表述，不得改語義）
@@ -35,5 +35,5 @@ description: skill／流程文件瘦身的檢查清單：範圍界定、不可�
 ## 5. 驗收（收尾必做）
 
 - **逐條語義保持核對**：對第 2 節四類硬規則，壓縮前後逐條對照（原句 → 新句），確認語義不變——不接受「整段重寫、大意相同」式驗收。
-- **實體副本同步**：被壓的檔若有部署副本（`~/.claude/skills/`、`~/.claude/agents/` 鏡像），同 diff 同步並貼 `diff -q` 無差異憑據；漏同步＝doctor 會報、且兩份漂移比沒瘦身更糟。
+- **實體副本同步**：被壓的檔若有部署副本（`~/.claude/skills/`、`~/.agent-flow/roles/` 鏡像），同 diff 同步並貼 `diff -q` 無差異憑據；漏同步＝doctor 會報、且兩份漂移比沒瘦身更糟。
 - 回報行數對照（各檔壓縮前 → 後）與停損留痕。

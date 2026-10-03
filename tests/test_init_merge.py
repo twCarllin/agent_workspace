@@ -39,13 +39,11 @@ def build_framework_dir(dest):
     只複製 step 3（hooks，含 gate-check.sh，chmod +x 需要它存在）與 step 4（settings.json，
     合併行為的測試對象）依賴的檔案；CLAUDE.md／agents／skills／seed 皆不提供，
     對應步驟會走既有「不存在則 Skipped」分支，不影響本測試對象。"""
-    os.makedirs(dest / ".claude", exist_ok=True)
-    shutil.copy(ROOT / "init.sh", dest / "init.sh")
-    shutil.copytree(
-        ROOT / ".claude" / "hooks", dest / ".claude" / "hooks",
-        ignore=shutil.ignore_patterns("__pycache__"),
-    )
-    shutil.copy(ROOT / ".claude" / "settings.json", dest / ".claude" / "settings.json")
+    dest.mkdir(parents=True, exist_ok=True)
+    for name in ("init.sh", "install_harness.py"):
+        shutil.copy(ROOT / name, dest / name)
+    for name in (".agent-flow", "skills", "seed", "retro"):
+        shutil.copytree(ROOT / name, dest / name, ignore=shutil.ignore_patterns("__pycache__"))
     return dest
 
 
@@ -93,7 +91,7 @@ class SettingsMergeEndToEndTest(unittest.TestCase):
                          "matcher 應被就地更新為框架現值")
         self.assertEqual(
             pre[0]["hooks"][0]["command"],
-            "$CLAUDE_PROJECT_DIR/.claude/hooks/gate-check.sh",
+            "python3 \"$CLAUDE_PROJECT_DIR/.agent-flow/scripts/eval_gates.py\" --hook",
         )
 
         session_start = dst["hooks"]["SessionStart"]
@@ -115,7 +113,7 @@ class SettingsMergeEndToEndTest(unittest.TestCase):
         after_second = self._dst_settings()
 
         self.assertEqual(after_first, after_second)
-        self.assertIn("already up to date", p2.stdout)
+        self.assertIn("installed both", p2.stdout)
 
 
 if __name__ == "__main__":

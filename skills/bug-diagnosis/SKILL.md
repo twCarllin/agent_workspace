@@ -1,6 +1,6 @@
 ---
 name: bug-diagnosis
-description: Bug 診斷紀律：從回授迴圈建立到根因定位與收尾清單。觸發語：「診斷這個 bug」、「debug 這個問題」、需求是修 bug 且進入 CLAUDE.md「診斷先行」流程時。不適用於：根因已明的微調（直接走 Tier 0 bugfix）、非 bug 類需求（新功能、refactor、文案調整）。
+description: Bug 診斷紀律：從回授迴圈建立到根因定位與收尾清單。觸發語：「診斷這個 bug」、「debug 這個問題」、需求是修 bug 且進入 .agent-flow/ROUTER.md「診斷先行」流程時。不適用於：根因已明的微調（直接走 Tier 0 bugfix）、非 bug 類需求（新功能、refactor、文案調整）。
 ---
 
 # Bug 診斷紀律
@@ -9,7 +9,7 @@ description: Bug 診斷紀律：從回授迴圈建立到根因定位與收尾清
 
 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
 
-判級規則與 BUGLOG append 格式見 CLAUDE.md「工作型態前判」節，本 skill 只管診斷方法。
+判級規則與 BUGLOG append 格式見 .agent-flow/ROUTER.md「工作型態前判」節，本 skill 只管診斷方法。
 
 ---
 
@@ -113,7 +113,7 @@ Phase 1 完成 = 能指名**一條命令**（測試呼叫／curl／script 路徑
 修法：<一句>
 ```
 
-此三行即後續判級的 `spec_inline`，帶入 CLAUDE.md「工作型態前判」流程。
+此三行即後續判級的 `spec_inline`，帶入 .agent-flow/ROUTER.md「工作型態前判」流程。
 
 ### 預防問
 

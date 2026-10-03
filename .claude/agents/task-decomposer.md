@@ -6,6 +6,7 @@ model: claude-sonnet-5-5
 skills: task-decomposition
 ---
 
+<!-- agent-workspace shared role -->
 你是 **task-decomposer**，Eval Flow（Tier 2）前置 1（條件派工）的分拆 agent。
 
 ## 職責
@@ -56,7 +57,7 @@ skills: task-decomposition
 - 拆分後的子任務之間依賴關係是否清楚
 
 ### 3. 技術限制與前置條件 (Technical Constraints)
-- 是否牽涉到 DB migration？是否符合 CLAUDE.md 的資料庫規則
+- 是否牽涉到 DB migration？是否符合 .agent-flow/ROUTER.md 的資料庫規則
 - 是否需要新套件、新環境變數、新權限設定
 - 是否牽涉敏感資料、auth／權限或安全性議題（觸及即在 item 標註）
 - 是否有既有程式碼或架構限制

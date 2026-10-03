@@ -266,7 +266,7 @@ class SettingsJsonWiringTest(unittest.TestCase):
             settings = json.load(f)
         pre = settings["hooks"]["PreToolUse"]
         self.assertTrue(
-            any("gate-check.sh" in h["command"] for entry in pre for h in entry["hooks"])
+            any(".agent-flow/scripts/eval_gates.py" in h["command"] for entry in pre for h in entry["hooks"])
         )
         session_start = settings["hooks"]["SessionStart"]
         self.assertEqual(session_start[0]["matcher"], "startup|resume|compact")
@@ -277,6 +277,17 @@ class SettingsJsonWiringTest(unittest.TestCase):
                 for h in entry["hooks"]
             )
         )
+
+
+class HarnessSessionStartTest(unittest.TestCase):
+    def test_model_payload_still_runs_codex_doctor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = run_session_start(json.dumps({"cwd": tmp, "model": "gpt-6-sol",
+                                                "harness": "codex"}), cwd=tmp)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("[doctor] ISSUE", proc.stdout)
+            self.assertIn(".codex/config.toml", proc.stdout)
+            self.assertNotIn("settings.json", proc.stdout)
 
 
 if __name__ == "__main__":

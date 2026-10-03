@@ -1,4 +1,4 @@
-> 本檔由 skills/eval-flow/SKILL.md 的「Tier 2 完整路徑」節按需載入，不單獨作為 skill 入口。Tier 2 的四個前置步驟住本檔；進場檢查、循環步驟 1–7、派工機制、憑據紀律與各 gate 住 `SKILL.md`。
+> 本檔由 .agents/skills/eval-flow/SKILL.md 的「Tier 2 完整路徑」節按需載入，不單獨作為 skill 入口。Tier 2 的四個前置步驟住本檔；進場檢查、循環步驟 1–7、派工機制、憑據紀律與各 gate 住 `SKILL.md`。
 
 # Tier 2 前置（四步，依序執行；步驟清單見 SKILL.md「路徑選擇」表）
 

@@ -1,0 +1,28 @@
+{
+  "routers": [
+    "dfe624a45b9a31b2a212fb09552305f1dd02022f481beef7d251f09c4fc53236"
+  ],
+  "agents": {
+    "code-reviewer": [
+      "8f17e481f8562f823df51748aaa888f5c88699daa45d07b1633153293f18a039"
+    ],
+    "impact-analyzer": [
+      "33eae461ab28095d81347cec47ce3baa7ce7a6b09cd295354a4b3e0a10763d36"
+    ],
+    "task-decomposer": [
+      "23b81989352e045a4b4d78a60d9eee94df3037c61307cc75cb51c44749275a71"
+    ],
+    "code-writer": [
+      "68ffaea84d2008abd83f93205f980c4c5c3cea36df4776029b8655ccc94424d7"
+    ],
+    "retro": [
+      "62af1c2c94e3acb422d3b35230688cf2da80317fbf8a68cd79f5edf1d1432b41"
+    ],
+    "usage-analyzer": [
+      "707cf2a7841db10c4c9c3c86ed7b2d2fbf3951c2bb6498b4b1d9e0cce051b169"
+    ],
+    "task-verifier": [
+      "e946f5f8f776436c4944af0809d21342003d5f34133eb3d053159306e9cd2add"
+    ]
+  }
+}

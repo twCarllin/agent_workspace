@@ -6,14 +6,14 @@ description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無
 # Test Strategy（本地測試 gate 執行細節）
 
 > 核心原則：**測試是 pipeline 的護欄，不是路障**——gate 擋的是「你新弄壞的東西」，不是「專案裡所有壞掉的東西」。gate 條件不是「全綠」，而是「**無新增穩定失敗**」。
-> 判定一律由 script `.claude/hooks/test_baseline.py` 執行（baseline 比對、重跑確認可重現都是確定性邏輯，**不留給模型憑感覺判**）；本文件規範何時跑、結果怎麼處置。
+> 判定一律由 script `.agent-flow/scripts/test_baseline.py` 執行（baseline 比對、重跑確認可重現都是確定性邏輯，**不留給模型憑感覺判**）；本文件規範何時跑、結果怎麼處置。
 >
 > 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
 
 ## Baseline（run 的測試基準，第一次 step 5 前建立）
 
 ```
-python3 .claude/hooks/test_baseline.py baseline
+python3 .agent-flow/scripts/test_baseline.py baseline
 ```
 
 - **全套測試指令從 manifest 的 `test_command` 讀**（single source of truth；`--cmd` 僅供覆寫）。manifest 尚無此欄時，先確認指令並寫入 manifest 再跑——不要每個 run 各猜一套，baseline 與 check 範圍不一致就會出現「無關的既有失敗」
@@ -31,10 +31,10 @@ python3 .claude/hooks/test_baseline.py baseline
 
 ```
 # Tier 1／2（eval_state.json 存在）：run_id 與測試指令都自動解析
-python3 .claude/hooks/test_baseline.py mine
+python3 .agent-flow/scripts/test_baseline.py mine
 
 # Tier 0（無 eval_state.json、無 manifest）：兩個旗標都必須給
-python3 .claude/hooks/test_baseline.py mine --run-id <任意識別字串> --cmd "<全套測試指令>"
+python3 .agent-flow/scripts/test_baseline.py mine --run-id <任意識別字串> --cmd "<全套測試指令>"
 ```
 
 - **參數解析順序（實作為準）**：`--run-id` → `eval_state.json` 的 `run_id` → 失敗中止；`--cmd` → `run/<run_id>.json` 的 `test_command` → 失敗中止。故 **Tier 0 兩個都要給**——沒有 eval_state 也沒有 manifest 可查。`--run-id` 在 mine 的唯一用途是定位 manifest 取 `test_command`，給了 `--cmd` 之後它只是為了通過解析（已知小瑕疵，見本節末）
@@ -46,7 +46,7 @@ python3 .claude/hooks/test_baseline.py mine --run-id <任意識別字串> --cmd 
 - **`[P]` item 的 mine 模式均適用**：`[P]` item 在 fan-out（各開 worktree，隔離樹）或門檻不足的循序退回（逐個執行）下，mine 範圍推導**均成立**（未提交變更只屬當前 item）；兩路徑均無多 writer 並發共樹
 - **已知小瑕疵（不影響正確性）**：`cmd_mine` 無條件先跑 `resolve_run_id()` 再跑 `resolve_cmd()`，所以即使給了 `--cmd`、`--run-id` 仍為必填。Tier 0 使用時隨便給一個識別字串即可
 - **mine 不落檔**：mine 每次執行不寫任何 `run/` 檔；writer 交付時主 flow 以工作報告的「仲裁記錄」稽核（見上），改測試湊綠的退路由 checker 核對「契約 row 逐條有對應測試斷言」現形
-- writer 端的行為約束（先實作後測試、範圍外失敗照抄不修、仲裁三選一先判再動手、2 次上限帶失敗交付）住在 `.claude/agents/code-writer.md` 的「測試管轄規則」節，不在此重述
+- writer 端的行為約束（先實作後測試、範圍外失敗照抄不修、仲裁三選一先判再動手、2 次上限帶失敗交付）住在 `.agent-flow/roles/code-writer.md` 的「測試管轄規則」節，不在此重述
 
 ## 前端／UI 實機驗證的定位（best-effort，非阻塞）
 
@@ -64,21 +64,21 @@ python3 .claude/hooks/test_baseline.py mine --run-id <任意識別字串> --cmd 
    - 驗證碼不是 throwaway：它就是本 sub_task 單元測試的草稿，直接寫進該 item 的測試檔（單元測試隨實作 item，見 task-decomposition skill）
 1. **選相關測試（累積聯集）**：
    ```
-   python3 .claude/hooks/test_baseline.py related --files $(python3 .claude/hooks/eval_state.py list-files)
+   python3 .agent-flow/scripts/test_baseline.py related --files $(python3 .agent-flow/scripts/eval_state.py list-files)
    ```
    `--files` 餵的是**本 run 至今所有 sub_task 的 files 聯集**（`eval_state.py list-files` 直接輸出），不是只有本 item。
    - 跨 item 破壞幾乎都落在本 run 碰過的檔案輻射範圍內，累積回歸集讓破壞在**肇因 item 當場爆、歸因免費**（唯一的新變數就是現在這個 item，在循環內修即可），而不是拖到收尾全套才發現、走昂貴的重開路徑
    - script 用「測試檔命名慣例 + grep 引用」找；**輸出只是候選起點**，agent 要補上：本 sub_task 新寫的測試、以及改到 shared module 時自己判斷的追加範圍。寧可多選不可少選
 2. **假測試 lint**（跑測試前先驗測試本身）：
    ```
-   python3 .claude/hooks/test_lint.py <本 sub_task 新增/修改的測試檔>
+   python3 .agent-flow/scripts/test_lint.py <本 sub_task 新增/修改的測試檔>
    ```
    抓機械可辨的假測試模式：if-guard 藏斷言、無斷言測試、恆真斷言（機械可辨的模式用 lint 擋，不靠散文約束）。
    - exit 2 → 修測試；確認誤報（如「不拋例外即通過」型測試）→ 行尾加 `# testlint: allow` 並在 `local_test_evidence` 註明理由
    - commit 時 hook 會對 staged 測試檔再跑一次（硬防線）
 3. **跑 gate 判定**：
    ```
-   python3 .claude/hooks/test_baseline.py check --cmd "<相關測試指令>" --strike-key sub_task_<id>
+   python3 .agent-flow/scripts/test_baseline.py check --cmd "<相關測試指令>" --strike-key sub_task_<id>
    ```
    - exit 0（無新增穩定失敗）→ gate 通過：`local_test_passed: true`，`local_test_evidence` 填 script 輸出摘要（指令＋PASS 行＋略過的 baseline 失敗數）
    - 本步跑過的每一條驗證指令另以 `add-verification` 逐條記入 `verification_commands`（純記錄、無 gate；與 `local_test_evidence` 並存，語義與操作見 `eval-flow` skill，此處不重述）
@@ -141,8 +141,8 @@ step 6 收尾**之前**（Tier 2 歸檔 eval_state 前）跑一次收尾檢查�
 
 | Tier | 收尾檢查範圍 | 指令 |
 |---|---|---|
-| **Tier 1** | **累積聯集**（本 run staged 檔的相關測試），**不跑全套** | `python3 .claude/hooks/test_baseline.py check --cmd 'python3 -m pytest -q $(python3 .claude/hooks/test_baseline.py related --files $(git diff --cached --name-only))' --strike-key wrapup_related`（`--cmd` **必須單引號**：讓 `$(…)` 在 test_baseline 的 sh 內展開才會依換行分詞，外層 shell 先展開會把換行塞進單一字串、pytest 之後的檔名被當命令執行而報 `__suite__`；測試框架指令依專案 `test_command` 的直譯器改寫；Tier 1 無 `eval_state.json`，files 聯集取 staged 清單） |
-| **Tier 2** | **全套**（manifest `test_command`） | `python3 .claude/hooks/test_baseline.py check --strike-key full_suite`（省略 `--cmd` → 讀 manifest，與 baseline 同源同範圍） |
+| **Tier 1** | **累積聯集**（本 run staged 檔的相關測試），**不跑全套** | `python3 .agent-flow/scripts/test_baseline.py check --cmd 'python3 -m pytest -q $(python3 .agent-flow/scripts/test_baseline.py related --files $(git diff --cached --name-only))' --strike-key wrapup_related`（`--cmd` **必須單引號**：讓 `$(…)` 在 test_baseline 的 sh 內展開才會依換行分詞，外層 shell 先展開會把換行塞進單一字串、pytest 之後的檔名被當命令執行而報 `__suite__`；測試框架指令依專案 `test_command` 的直譯器改寫；Tier 1 無 `eval_state.json`，files 聯集取 staged 清單） |
+| **Tier 2** | **全套**（manifest `test_command`） | `python3 .agent-flow/scripts/test_baseline.py check --strike-key full_suite`（省略 `--cmd` → 讀 manifest，與 baseline 同源同範圍） |
 | parallel-run merge gate | 全套（規則住 parallel-run skill，不變） | 同 Tier 2 |
 
 - Tier 1 的 related 輸出為空（純 prose 變更等）→ `local_test_evidence` 記「wrapup_related：無相關測試」，以 step 5 既有憑據收尾；**不得改跑全套湊憑據**（全套在 Tier 1 不是憑據要求）
@@ -162,14 +162,14 @@ step 6 收尾**之前**（Tier 2 歸檔 eval_state 前）跑一次收尾檢查�
 | legacy、Tier 2 | **第一個 Tier 2 run 順路建框架**：分拆時第一個 task 加「建立最小測試框架＋本功能的測試」item（比照共用基礎抽前置 task 的慣例）。「最小」＝能跑單元測試＋覆蓋本次新行為，不要求 e2e、不補歷史覆蓋。建完立刻跑 `baseline`（此時 baseline 天然乾淨） |
 | 連最小框架都建不起來 | 這本身就是舉手訊號：停下回報，由使用者裁決走運行驗證＋manifest 記 `debt: ["test-framework"]`（攔截級，還清前 hook 擋新 run——防「建不起來」變永久後門） |
 
-## 驗證豁免窗口（全 tier 通則，總則住在 CLAUDE.md）
+## 驗證豁免窗口（全 tier 通則，總則住在 .agent-flow/ROUTER.md）
 
 - 跳過本地驗證**僅限使用者明示豁免**；agent 不可自行認定、**不可主動建議豁免**（與 hotfix 宣告緊急同一防濫用原則）
 - **豁免單次有效**：只管當次需求，不延續、不存在口頭的專案級常態豁免
 - 留痕方式按 tier：
   - **Tier 1／2**：manifest 記 `test_policy: "waived_by_user"` ＋一句豁免範圍與使用者原話（manifest 為冷溯源檔，留在工作目錄不進版控）。waive 率可統計（比照 tier 分佈統計）——豁免比例異常升高是制度失效的警報
   - **Tier 0**：不為豁免建檔（維持零建檔哲學）。豁免記在 Tier 0 本來就要交付的**變更回報**裡：驗證欄寫「使用者豁免（引用原話）」。此為**弱留痕，屬有意取捨**（Tier 0 已排除高風險面，稽核價值低）
-- 豁免不改變 Tier 準入條件：信任邊界／公開契約的本體變更照樣進不了 Tier 0／1（判準住 CLAUDE.md Router 防濫用規則）
+- 豁免不改變 Tier 準入條件：信任邊界／公開契約的本體變更照樣進不了 Tier 0／1（判準住 .agent-flow/ROUTER.md Router 防濫用規則）
 
 ## 硬 gate 與誠實回報的邊界（明寫取捨）
 

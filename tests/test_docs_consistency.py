@@ -12,7 +12,8 @@ MD_FILES = (
     list((ROOT / "skills").glob("*/SKILL.md"))
     + list((ROOT / "skills").glob("*/references/*.md"))
     + list((ROOT / ".claude" / "agents").glob("*.md"))
-    + [ROOT / "CLAUDE.md", ROOT / "README.md"]
+    + list((ROOT / ".agent-flow/roles").glob("*.md"))
+    + [ROOT / "CLAUDE.md", ROOT / "README.md", ROOT / ".agent-flow/ROUTER.md"]
 )
 
 
@@ -22,11 +23,11 @@ def read(path):
 
 class HookScriptReferencesTest(unittest.TestCase):
     def test_all_referenced_hook_scripts_exist(self):
-        pattern = re.compile(r"\.claude/hooks/([\w.-]+\.(?:py|sh))")
+        pattern = re.compile(r"(\.claude/hooks|\.agent-flow/scripts)/([\w.-]+\.(?:py|sh))")
         for md in MD_FILES:
-            for name in pattern.findall(read(md)):
+            for folder, name in pattern.findall(read(md)):
                 self.assertTrue(
-                    (ROOT / ".claude" / "hooks" / name).exists(),
+                    (ROOT / folder / name).exists(),
                     f"{md.relative_to(ROOT)} 引用了不存在的 hook script：{name}",
                 )
 

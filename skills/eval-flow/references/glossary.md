@@ -1,4 +1,4 @@
-> 本檔由 skills/eval-flow/SKILL.md 的指向句按需載入，不單獨作為 skill 入口。流程文件（CLAUDE.md、skills、.claude/agents）一詞一義，以本表為準；「禁用變體」欄是 `tests/test_prose_lint.py` 術語 lint 的單一枚舉點——**純英數變體由 lint 機械強制**（行內 code 中的 CLI 旗標與識別字不受限），**中文變體靠審查者人審**。
+> 本檔由 .agents/skills/eval-flow/SKILL.md 的指向句按需載入，不單獨作為 skill 入口。流程文件（.agent-flow/ROUTER.md、skills、.claude/agents）一詞一義，以本表為準；「禁用變體」欄是 `tests/test_prose_lint.py` 術語 lint 的單一枚舉點——**純英數變體由 lint 機械強制**（行內 code 中的 CLI 旗標與識別字不受限），**中文變體靠審查者人審**。
 
 # 術語表
 

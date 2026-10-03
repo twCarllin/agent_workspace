@@ -187,5 +187,35 @@ class HooksListTest(unittest.TestCase):
         self.assertIn("dispatch.py", doctor.HOOKS)
 
 
+class HarnessDoctorTest(unittest.TestCase):
+    def test_codex_only_project_and_legacy_entry_use_same_core(self):
+        root = Path(__file__).resolve().parents[1]
+        legacy = root / ".claude/hooks/doctor.py"
+        core = root / ".agent-flow/scripts/doctor.py"
+        self.assertTrue(legacy.is_symlink())
+        self.assertEqual(legacy.resolve(), core.resolve())
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / ".codex/agents").mkdir(parents=True)
+            (project / ".codex/config.toml").write_text(
+                '[agents.code-writer]\nconfig_file = "agents/code-writer.toml"\n')
+            (project / ".codex/agents/code-writer.toml").write_text('name = "code-writer"\n')
+            (project / ".codex/hooks.json").write_text('{"hooks":{"PreToolUse":[{"hooks":[{"command":"python3 .agent-flow/scripts/eval_gates.py --hook"}]}]}}')
+            (project / "AGENTS.md").write_text("Flow instructions\n")
+            (project / "retro").mkdir()
+            (project / "retro/RETRO.md").write_text("Seed\n")
+            shutil.copytree(root / "skills", project / ".agents/skills",
+                            ignore=shutil.ignore_patterns("_deprecated", ".*"))
+            for entry in (legacy, core):
+                proc = subprocess.run([sys.executable, str(entry), "--harness", "codex"],
+                                      cwd=project, capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn("Codex 角色設定已部署", proc.stdout)
+            proc = subprocess.run([sys.executable, str(core), "--harness", "both"],
+                                  cwd=project, capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 1)
+            self.assertIn("settings.json", proc.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

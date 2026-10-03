@@ -1,8 +1,8 @@
-# Model 政策表（單一枚舉點）
+# Model 政策表
 
-> agent→model 指派的**唯一枚舉點**。各 agent 定義檔（`.claude/agents/*.md`）frontmatter 的 `model` 欄是執行端載體（Claude Code harness 實際讀取處），`tests/test_model_policy.py` 強制兩者一致——**改 model 時，本表與對應 frontmatter 必須同一個 diff 改齊**，只改一邊測試會紅。
-> frontmatter 的 `model` 欄不帶行內註解；指派理由只住本表（變更史住 HISTORY.md）。
-> headless 派工（`.claude/hooks/dispatch.py` → `claude -p --agent <role>`，2026-09-29 起）由 `--agent` 讀同一份 frontmatter，本表仍是唯一枚舉點；Codex 後端另讀 `.codex/agents/*.toml`（`install_codex.py` 的 `CODEX_MODELS`）。
+可執行設定唯一來源：`.agent-flow/harnesses/models.json`。共用角色不含模型 ID；安裝器產生各 harness 載體。本表保留指派理由，測試核對來源、載體與政策一致。
+
+模型設定由共用安裝器讀取 profiles，產生 Claude frontmatter 與 Codex TOML。下表記指派理由，測試核對設定與生成載體一致。模型修改須同一 diff 更新來源與生成檔。
 
 | agent | model | 指派理由 |
 |---|---|---|
@@ -16,7 +16,7 @@
 
 ## Codex 政策表
 
-> Codex 後端（`dispatch.py --backend codex`／manifest `harness: "codex"`）的 agent→model 指派。執行端載體＝`install_codex.py` 的 `CODEX_MODELS`（安裝時產生 `.codex/agents/<role>.toml` 與 `.agent-flow/CODEX_MODEL_POLICY.md`；dispatch.py 讀 toml 的 `model`／`model_reasoning_effort`）。**改 model 時本表、`CODEX_MODELS`、repo 內 `.codex/agents/*.toml` 三處同一個 diff 改齊**，`tests/test_model_policy.py` 強制三方一致。
+> Codex 後端（`dispatch.py --backend codex`／manifest `harness: "codex"`）的 agent→model 指派。執行端載體＝`install_harness.py` 讀取 `.agent-flow/harnesses/models.json` 產生的 `CODEX_MODELS`（安裝時產生 `.codex/agents/<role>.toml` 與 `.agent-flow/CODEX_MODEL_POLICY.md`；dispatch.py 讀 toml 的 `model`／`model_reasoning_effort`）。**改 model 時本表、`CODEX_MODELS`、repo 內 `.codex/agents/*.toml` 三處同一個 diff 改齊**，`tests/test_model_policy.py` 強制三方一致。
 
 | role | model | reasoning effort | 指派理由 |
 |---|---|---|---|

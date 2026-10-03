@@ -272,6 +272,17 @@ class DispatchTest(unittest.TestCase):
         self.dispatch("task-verifier", "--prompt-file", self.prompt, stdout=claude_json())
         self.assertEqual([c["exe"] for c in self.calls_made()], ["codex", "claude"])
 
+    def test_invalid_manifest_harness_blocks_even_explicit_backend(self):
+        for harness in ("unknown", "", None, 1):
+            with self.subTest(harness=harness):
+                self.write_manifest(harness=harness)
+                proc = self.dispatch("task-verifier", "--prompt-file", self.prompt,
+                                     "--backend", "claude", stdout=claude_json())
+                self.assertEqual(proc.returncode, 1, proc.stderr)
+                self.assertIn("harness 非法", proc.stderr)
+        self.assertEqual(self.calls_made(), [])
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "run", RUN_ID + ".dispatch.jsonl")))
+
     def test_k4_codex_resume(self):
         """K4 [組合]：--backend codex --resume tid → argv 以 exec resume tid 開頭且含 --json。"""
         self.write_codex_toml()

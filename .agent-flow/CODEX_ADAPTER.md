@@ -1,23 +1,12 @@
 <!-- agent-workspace managed -->
-# Codex adapter for Eval Flow
+# Codex adapter
 
-The installed `.agent-flow/ROUTER.md` and `.agents/skills/` contain the shared process. This file defines how Codex executes instructions that name Claude Code facilities.
+共用執行契約見 .agent-flow/HARNESS.md。Codex 入口為 AGENTS.md，專案 skills 為 .agents/skills/，角色設定為 .codex/agents/*.toml，hooks 為 .codex/hooks.json。
 
-| Flow term | Codex execution |
-|---|---|
-| `CLAUDE.md` Router | `.agent-flow/ROUTER.md` |
-| `skills/<name>/SKILL.md` | `.agents/skills/<name>/SKILL.md` |
-| `.claude/agents/<role>.md` | `.codex/agents/<role>.toml` |
-| Claude `Task` / `Agent` | Codex custom agent with the matching role name |
-| `.claude/settings.json` gate | `.codex/hooks.json` `PreToolUse` gate |
-| `CLAUDE_PROJECT_DIR` | The hook resolves the Git root from Codex's `cwd` |
+角色所需的讀取、搜尋、寫入、命令能力使用目前 Codex session 工具。角色工具可用時使用相符的角色名稱；CLI 派工用 dispatch.py --backend codex。模型與推理設定由 harnesses/models.json 的 Codex 設定產生。
 
-The core Python scripts stay in `.claude/hooks/` because both platforms call the same state and gate code. The Git `commit-msg` hook validates the final commit message even when it came from `-F` or an editor. If the project already has a `commit-msg` hook or `core.hooksPath`, the installer preserves it and prints the integration step; add a call to `.claude/hooks/commit_message_gate.py "$1"` before relying on commit gating.
+子 agent 沿用父 session 權限。背景與 worktree 依目前工具能力執行。Claude 的 Bash 批准、run_in_background 與 Agent isolation 欄位不適用。CLI 相容路徑沿用既有全放行旗標，只在 session 已授權時使用。
 
-For Tier 1 and Tier 2, set `harness: "codex"` and `evidence_schema: 2` in the new manifest. Run the final full test command through `run_verify.py --run-id <run_id> --cmd "<command>"` so the commit gate can compare the source tree snapshot. Finish with `run_commit.py prepare <run_id>`, `git commit`, then `run_commit.py finalize <run_id>`. On resume, a `ready_to_commit` run with a matching HEAD trailer needs only `finalize`.
+Codex 回報不使用 Claude PostToolUse payload；主 flow 或 dispatch.py 檢查必要節與 Self-check 終行。主 session 用量無資料時記 unknown_codex，不改為零。
 
-Codex subagents inherit permissions from their parent. Claude instructions about `run_in_background`, Claude Bash approvals, and `Agent isolation: "worktree"` do not apply. For parallel work, use independent Git worktrees and launch a Codex session in each worktree after installing this adapter there. Follow the `parallel-run` skill's dependency and merge order. If each worktree cannot have its own manifest, staging area, and active hooks, execute the items sequentially in one worktree.
-
-The Claude `PostToolUse` report envelope script is specific to Claude's agent response payload. Codex's parent agent must check the required report sections and `Self-check:` line before accepting a subagent report. Codex token usage remains `unknown_codex` because the transcript format is not a stable metering interface for this script. Do not convert unknown usage into zero.
-
-Codex project hooks require review and trust in `/hooks` before they execute. Tool hooks cover supported local tool paths; the Git hook also applies to ordinary terminal commits. For a protected branch, rerun repository validation in CI.
+新 run 記 harness: codex 與 evidence_schema: 2；以共用 run_verify.py、run_commit.py 完成驗證與提交。hooks 安裝後仍須依客戶端要求檢查與信任。既有 commit-msg hook 與 core.hooksPath 保留，依安裝輸出接入共用提交 gate。SessionStart 透過 AGENT_FLOW_HARNESS=codex 明示 harness。
