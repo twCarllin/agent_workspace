@@ -24,7 +24,7 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 
 | phase | 代表已完成 | 恢復動作 |
 |---|---|---|
-| `init` | 前置 0（manifest + eval_state 已建） | 檢查 `task_file`：非空 → 分拆已完成但 `phase` 未更新，核對 task 檔內容後補設 `"decomposed"`；為 `null` → 檢查 `hitl_confirmed_at`：已記 → HITL 已過但分拆未完成或未觸發，回報現況請使用者決定重新分拆（直建或派 task-decomposer）；未記 → 尚未進入分拆，從前置 1（分拆 task）開始，依 SKILL.md 條件派工門檻（**≤2 tasks 且 ≤8 items，含界**）判斷主 flow 直建或派 task-decomposer |
+| `init` | 前置 0（manifest + eval_state 已建） | 檢查 `task_file`：非空 → 分拆已完成但 `phase` 未更新，核對 task 檔內容後補設 `"decomposed"`；為 `null` → 檢查 `hitl_confirmed_at`：已記 → HITL 已過但分拆未完成或未觸發，回報現況請使用者決定重新分拆（直建或派 task-decomposer）；未記 → 尚未進入分拆，從前置 1（分拆 task）開始，依 `references/tier2-prep.md` 條件派工門檻（**≤2 tasks 且 ≤8 items，含界**）判斷主 flow 直建或派 task-decomposer |
 | `decomposed` | 前置 1（分拆完成，HITL 已確認） | 進 Step 3（循環內恢復） |
 | `completed` | 全部完成 | 無事可做；若 `eval_state.json` 竟仍存在 → 收尾被中斷，補歸檔流程（step 6 收尾順序） |
 

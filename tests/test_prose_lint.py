@@ -26,7 +26,7 @@ PROSE_FILES = SKILL_FILES + REFERENCE_FILES + AGENT_FILES + [CLAUDE_MD]
 # 字元預算（以字元計，不以行計——中文 prose 單行可達 900+ 字元，行數不反映 context 成本）。
 # 數值＝2026-10-03 去歷史化後各類最大檔的現值取整到千位，餘裕 10–16%；超標時的正確動作是依
 # progressive disclosure 拆到 references/，不是擴寫。description 兩條刻意更緊：它們每個 session 預載。
-BUDGET_SKILL_CHARS = 28_000        # eval-flow SKILL.md 現值 25.4K（餘裕約 10%）
+BUDGET_SKILL_CHARS = 24_000        # eval-flow SKILL.md 現值 23.8K（Tier 2 前置外移後；餘裕僅 0.6%，刻意——再長就該分檔）
 BUDGET_REFERENCE_CHARS = 16_000    # formats.md 現值 14.1K（餘裕約 13%）
 BUDGET_AGENT_CHARS = 8_000         # code-reviewer.md 現值 7.2K（餘裕約 10%）
 BUDGET_CLAUDE_MD_CHARS = 6_000     # CLAUDE.md 現值 5.2K（餘裕約 16%；每個 session 必載，最貴的一份）
