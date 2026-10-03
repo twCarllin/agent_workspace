@@ -6,7 +6,7 @@ description: |
   追加寫入 retro/RETRO.md 單一檔案，供主 flow 前置貼進 code-writer prompt 的硬性約束區。
   不修改任何程式碼檔案。
 tools: Read, Grep, Glob, Write, Edit
-model: claude-sonnet-5-5  # 2026-09-29 由 sonnet-4-6 升級
+model: claude-sonnet-5-5
 skills: root-cause-table
 ---
 
@@ -26,7 +26,7 @@ skills: root-cause-table
 
 ### 2. 歸納教訓（約束句式）
 
-將分析結果歸納為**約束句式**的教訓（格式見下方**輸出格式**小節）：一條一行，背景一句＋約束一句。約束必須具體到「單獨貼給沒讀過本檔的 writer 也能照做」——這是它的實際用途：主 flow 會挑相關條目原文貼進 code-writer prompt 的硬性約束區（實測證明 writer 通讀散文教訓無效，只有 prompt 明文約束擋得住模式重現）。
+將分析結果歸納為**約束句式**的教訓（格式見下方**輸出格式**小節）：一條一行，背景一句＋約束一句。約束必須具體到「單獨貼給沒讀過本檔的 writer 也能照做」——這是它的實際用途：主 flow 會挑相關條目原文貼進 code-writer prompt 的硬性約束區（writer 通讀散文教訓無效，只有 prompt 明文約束擋得住模式重現——R-011 的教訓）。
 
 ### 3. 寫入記錄
 

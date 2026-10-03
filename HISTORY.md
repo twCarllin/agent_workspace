@@ -119,3 +119,37 @@
 ### skills/root-cause-table/SKILL.md
 
 - 2026-10-03｜—｜root-cause-table:description｜由「根因分類參考表與分析框架，供 retro 回顧反思時使用」擴為含觸發語與不適用於的三段式
+
+## 2026-10-03 搬出（run 2026-10-03-agents-claudemd-dehistorize：agent 定義與 CLAUDE.md）
+
+### .claude/agents/*.md frontmatter `model:` 行內註解（model 變更史；現行指派與理由住 MODEL_POLICY.md）
+
+- 2026-09-29｜使用者裁決｜code-reviewer.md:model｜opus-4-8 → claude-sonnet-5-5（全部 sonnet-5-5）；與 writer 的去相關化改由 session 層承擔（MODEL_POLICY.md 約束節）
+- 2026-08-10／2026-09-29｜—｜code-writer.md:model｜sonnet-4-6 → sonnet-5（08-10）→ claude-sonnet-5-5（09-29，近 Opus 級 coding）
+- 2026-09-29｜使用者裁決｜impact-analyzer.md／usage-analyzer.md／task-decomposer.md:model｜opus-4-8 → claude-sonnet-5-5
+- 2026-09-29｜—｜retro.md:model｜sonnet-4-6 → claude-sonnet-5-5
+- 2026-09-29｜使用者裁決｜task-verifier.md:model｜haiku-4-5 → claude-sonnet-5-5（實測 haiku 首輪曾 1 turn 無憑據交付）；驗證以 DoD 逐條對照為主、含少量覆蓋語意判定；假通過率為回退依據
+
+### .claude/agents/*.md description 與本體
+
+- 2026-09-05｜—｜code-reviewer.md:description｜eval-flow 循環 step 3 預設由 code-reviewer 改派 task-verifier（checker），reviewer 退為升級路徑專用
+- 2026-07-25｜—｜code-reviewer.md:審查流程 4｜完成度核對自 2026-07-25 起由 reviewer 接手原 task-verifier 職責
+- 2026-07-28～30｜實測｜code-reviewer.md:工作守則 行號必須現查｜5 次行號漂移（引文為真、行號偏 1～16 行）皆出自推算或記憶
+- 2026-09-05／2026-09-22｜—｜task-verifier.md:description｜checker 成為審查層預設位（09-05）；審查改以 task 為單位（09-22）
+- 2026-09-22｜D1｜task-verifier.md:四種升級情況｜升級碼由五類收斂為四類，原「對照 mine_log 摘要」一類隨機制刪除
+- 2026-09-22｜D1｜code-writer.md:測試管轄規則 2／5／8｜mine_log 落檔指紋稽核刪除；mine 端 `--strike-key` 消費者消失；原「strike-key 改用 `_sabotage` 後綴分開執行帳」規則作廢
+- 2026-09-06｜使用者裁決｜code-writer.md:輸出格式 批次派工｜批次派工（一 task 多 item）逐 item 分節的生效日
+- —｜實測｜retro.md:工作流程 2｜「writer 通讀散文教訓無效」為實測結論（R-011 同源）
+- 2026-09-22｜Q1｜task-decomposer.md:交付前自檢 3｜「供風險分析對照」隨風險分析刪除而失去對照對象
+- —｜—｜task-decomposer.md:交付規則｜原流程於自檢後另呼叫獨立審查 agent，已改為自檢即交付
+- 2026-09-22｜D2｜impact-analyzer.md／usage-analyzer.md:description｜由 Tier 2 預設前置改為具名問題觸發
+- 2026-09-22｜Q1／D2｜usage-analyzer.md:交付規則｜`usage_confirmed` 隨 phase 值域收斂移除；本 agent 不再是獨立 HITL 卡點
+
+### CLAUDE.md
+
+- 2026-09-06｜v2｜CLAUDE.md:Router 第一步｜「本地開發工具鏈不因檔案類別自動觸碼」的出生證：run 2026-09-06-baseline-suite-guard，25 行本機可復原修改被類別制排除送 Tier 2，前置佔成本 44%
+- —｜實測｜CLAUDE.md:Router 第一步｜「行數不預測執行時間」為實測結論
+- 2026-09-06｜v2｜CLAUDE.md:Router 第二步 Minimality 尾註｜本節 v2 借 agentflow 理由碼制；被否決的更大替代（devlog 對話制、四層模型 profile、Tier 2 前置 trigger 制）與出生證數據見 `run/2026-09-06-tier-router-v2.json` 的 `spec_inline`
+- 2026-09-06｜v2｜CLAUDE.md:防濫用規則｜「本地開發工具鏈不在此清單」為 v2 變更
+- 2026-09-22｜Q1｜CLAUDE.md:防濫用規則 升級逃生門／Eval Flow 執行｜前置風險分析移除；eval-flow 前置 0–1 括註原列「風險分析已刪除不設替代、使用情境／影響面盤點改具名問題觸發」
+- 2026-09-22｜Q1／D2｜CLAUDE.md:Task Principle｜`usage/`／`impact/`／`risk/` 三目錄自 2026-09-22 起不再是任何步驟的預設輸出目標
