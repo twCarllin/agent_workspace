@@ -2,12 +2,19 @@
 >
 > 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
 
+## 目錄
+
+- Tier B Bootstrap 路徑（骨架工作，無業務邏輯）
+- Hotfix 通道（先止血、後補債；債是硬性的）
+- 單一 run 原則與併發（worktree 隔離）
+- Tier 2 [P] fan-out（worktree 並行）：門檻與退回／三段式執行協定／錯誤路徑與批次中斷恢復
+
 ## Tier B Bootstrap 路徑（骨架工作，無業務邏輯）
 
 空專案或新模組的純結構性工作：目錄結構、框架接線、CI、工具鏈。**沒有使用者情境可盤（usage 分析跳過）、行數天然爆表（不適用 5 items／300 行上限）**，但選型是使用者的決定，且這是引入測試框架成本最低的時點——路徑圍繞這兩點設計：
 
 1. **Bootstrap 清單取代 Spec**：產出 `spec/<run_id>-bootstrap.md`，內容三段——要建什麼（逐項）、選型與理由（語言／框架／工具鏈，含捨棄的選項）、明確不做什麼（業務邏輯零容忍，出現即回 Router 重新判級）
-2. **精簡風險分析**：只跑部署、資料兩面向（其餘四面向對空骨架無意義），結論併入清單檔，不另建 `risk/` 檔
+2. **精簡風險分析**：只檢視部署與資料兩面向的風險（其餘面向對空骨架無意義），結論併入清單檔，不另建 `risk/` 檔
 3. **一次 HITL（硬性）**：清單交使用者確認**選型**後才動工——選型錯了整個骨架重來，這是 Tier B 唯一真正的風險
 4. **建 manifest**：`tier: "B"`、`spec_path` 指向清單檔、`usage_report_path: "skipped"`、`risk_report_path: "inline"`、確認後 `phase: "decomposed"`。**不建 `eval_state.json`**（骨架多為 CLI 與樣板產出，不走循環評分——eval 維度對 scaffolding 不對口）
 5. **DoD 固定兩條（hook 強制）**：①本地 build／run 指令跑得通 ②**測試框架已建立且有至少一個會跑的示範測試**——此後這個專案所有 run 的本地測試 gate 都沒有「無測試框架」的後門可走
@@ -19,10 +26,9 @@
 僅限**使用者明確宣告**緊急（線上事故／資損進行中）時啟用，agent 不可自行認定。Bugfix 的診斷前判規則見 CLAUDE.md「工作型態前判」。
 
 1. **止血**：診斷（重現 → 根因 → 修法）→ 直接修 ＋ 本地測試驗證（部署規則不豁免：未經本地驗證仍不可 commit／部署）
-2. **精簡溯源**：建 manifest `run/<run_id>.json`，填 `tier: "hotfix"`、`tier_rationale`（含使用者宣告緊急的依據）、`spec_inline`（診斷結論）、`phase: "hotfix"`、`risk_report_path` / `usage_report_path: "deferred"`、**`debt: ["risk", "test", "retro"]`**。**不建 `eval_state.json`**（不走循環評分）
+2. **精簡溯源**：建 manifest `run/<run_id>.json`，填 `tier: "hotfix"`、`tier_rationale`（含使用者宣告緊急的依據）、`spec_inline`（診斷結論）、`phase: "hotfix"`、`usage_report_path: "deferred"`、**`debt: ["test", "retro"]`**。**不建 `eval_state.json`**（不走循環評分）
 3. **commit**：跑 `run_commit.py prepare <run_id>` 後隨修正一併 commit，message 附 `Run-Id: <run_id>` 與 `Hotfix: true` trailer，成功後跑 `run_commit.py finalize <run_id>`（hook 對 `tier: "hotfix"` 的 manifest 豁免 eval 歸檔檔要求，但 intent gate 照常）
 4. **補債（事後必須，不是可選）**：事故解除後依序還債，還清一項就從 manifest 的 `debt` 移除一項：
-   - `risk`：補跑 task-risk-analysis，產出 `risk/<run_id>.md`、回填 `risk_report_path`（發現 🔴 → 立即回報使用者，可能需要 follow-up run 修正）
    - `test`：補上覆蓋該 bug 的回歸測試，本地跑過後隨 follow-up commit 進 git（同樣附 `Run-Id: <run_id>` trailer）
    - `retro`：強制呼叫 retro subagent，根因寫入 `retro/RETRO.md`
 5. **欠帳 gate（hook 強制）**：任一 manifest 的 `debt` 非空時，**不可啟動新 run**（流程管制的 subagent 呼叫會被擋，還債所屬的原 run 不受影響）——防止「緊急」變成常態逃生門
@@ -33,12 +39,12 @@
 - **要並行 → 開 `git worktree`**：每個 run 在自己的 worktree／branch 裡跑，單例假設在 worktree 內自然成立，收尾各自 commit 後合回主線。**≥2 個互不相依的 Tier 1 需求同時進來時，依 `parallel-run` skill 執行**（批次 HITL、背景 agent、merge 收尾的細節住在該 skill）
 - **插單（run 跑到一半來了急件）**：原 run 的 worktree **原地凍結**（狀態已全在 manifest／`eval_state.json`／staging area 裡，不需要任何「暫停」操作），急件在新 worktree 處理，完成後回原 worktree 依 `eval-flow-resume` skill 接續
 - hook 強制：呼叫流程管制的 subagent 時，若本工作區存在**其他** in_progress 的 manifest（run_id 與 `eval_state.json` 不一致）→ 擋，並提示「先收尾／封存既有 run，或開 worktree 並行」
-- **`[P]` item 的並行執行由 fan-out 達成，不再有共用同一棵樹的併發 writer**：門檻滿足（`[P]` item ≥2 且各自預估 ≥150 行）→ 走「## Tier 2 [P] fan-out（worktree 並行）」節，各開 worktree 隔離，mine 模式在各自樹內正常生效；門檻不足 → 退回主 worktree **循序**執行（一次一個 item），亦無共用樹併發
-  - 舊「shared-tree join barrier」概念隨共用樹模型一併移除；跨 item 的全套測試把關由 rolling merge 段的全套 baseline gate（見 `parallel-run` skill 步驟 8）負責
+- **`[P]` item 的並行執行由 fan-out 達成，沒有共用同一棵樹的併發 writer**：門檻滿足（`[P]` item ≥2 且各自預估 ≥150 行）→ 走「## Tier 2 [P] fan-out（worktree 並行）」節，各開 worktree 隔離，mine 模式在各自樹內正常生效；門檻不足 → 退回主 worktree **循序**執行（一次一個 item），亦無共用樹併發
+  - 跨 item 的全套測試把關由 rolling merge 段的全套 baseline gate（見 `parallel-run` skill 步驟 8）負責
 
 ## Tier 2 [P] fan-out（worktree 並行）
 
-Tier 2 run 內符合門檻的 `[P]` item 各開 git worktree 並行執行，取得真正的 worktree 隔離：每個 item 在自己的樹裡，`git diff --cached` 天生乾淨、mine 模式復活。
+Tier 2 run 內符合門檻的 `[P]` item 各開 git worktree 並行執行，取得真正的 worktree 隔離：每個 item 在自己的樹裡，`git diff --cached` 天生乾淨、mine 模式正常生效。
 
 本節描述三段式 fan-out 執行協定，由**主 flow**（前景，判門檻／開 worktree／rolling merge）編排、**背景 item agent**（在各自 worktree 跑迷你 run，具備 Bash／Write／Edit 工具）執行、收尾序列**直接引用 `skills/parallel-run/SKILL.md`**（避免兩處漂移）。
 
@@ -80,7 +86,7 @@ item agent 起手仍必須依 `parallel-run` 步驟 6 的「起手三步」`git 
 
 - **子 manifest**：`run/<父run_id>-item-<id>.json`，填入 `parent_run_id: <父run_id>`、`spec_path` 指回父 Spec（`spec/<父run_id>.md`）、`tier: 2`、`status: "in_progress"`，以及自己的 `run_id`、`created_at`、`phase`。
 - **自己的 `eval_state.json`**（在自己 worktree 初始化），自己的 eval_state 貫穿自己的 code-writer → review（含完成度節）→ step 5 本地測試 → 自己歸檔。
-- **mine 模式在隔離樹下復活**：各 worktree diff 乾淨，未提交變更只屬於自己，`python3 .claude/hooks/test_baseline.py mine` 可正常推導範圍（不傳 `--strike-key`，見 test-strategy skill mine 節）。
+- **mine 模式在隔離樹下正常生效**：各 worktree diff 乾淨，未提交變更只屬於自己，`python3 .claude/hooks/test_baseline.py mine` 可正常推導範圍（不傳 `--strike-key`，見 test-strategy skill mine 節）。
 - **hook gate 在各 worktree 內獨立生效（有前提，非天然成立）**：每個 worktree 有自己的 staging area 與 `eval_state.json`，所有現行 gate 照常運作、零後門——**前提是 hook 以該次 tool call 的實際 cwd（payload 的 `cwd`）解析所屬 worktree 根後才 chdir**。
   - `CLAUDE_PROJECT_DIR` 由 Claude Code 釘死在 session 啟動目錄、**不隨 worktree 移動**（`EnterWorktree` 與背景 subagent 皆然），若 gate 逕以它決定工作區，worktree 內的 run 會誤用主工作區狀態：subagent 呼叫 gate 誤判、commit gate 因讀主工作區空 index 而靜默失效
   - 此解析住在 `.claude/hooks/eval_gates.py`，改動該處等同動搖本節前提
