@@ -7,7 +7,7 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
 
 > 本 skill 由主 flow 在 Router 判定 **Tier 1 或 Tier 2** 後載入執行。Router 分級表與防濫用規則住在 CLAUDE.md，不在此重述。Tier 2 走完整路徑（前置 0–1 ＋循環）；Tier 1 走「Tier 1 精簡路徑」節（跳過部分前置，共用循環）。
 >
-> 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。
+> 本文件中標 `（R-NNN）` 的規則源自真實失敗——改或刪該規則前，先讀 retro/RETRO.md 對應條目確認變更不會重開該失敗。流程術語一詞一義，正式詞與禁用變體見 `references/glossary.md`（寫流程文件時查，執行 run 不需載入）。
 
 ## Tier 2 完整路徑
 
