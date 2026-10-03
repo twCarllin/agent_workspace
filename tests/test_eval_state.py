@@ -3,6 +3,7 @@
 執行：python3 -m unittest discover -s tests -v
 在暫存目錄操作真實檔案（helper 以 cwd 的 eval_state.json 為對象）。
 """
+import contextlib
 import io
 import json
 import os
@@ -541,17 +542,59 @@ class Tier01TelemetryTest(unittest.TestCase):
         self.assertEqual([e["cmd"] for e in self.read_events("t1-run")],
                          ["init_done", "item_reviewed"])
 
-    def test_tier0_appends_entry_with_four_keys(self):
+    # --- tier0 自算行數（item 13.3）---
+    #
+    # 下三條原本綁「收信自報 --lines、留痕恰 4 個鍵」的舊契約（無 git、檔案不必存在）。
+    # 有意的行為變更（非改弱測試）：Tier 0 直寫無任何 gate，自報行數從未被核對，13 筆歷史
+    # 留痕的 lines 全未經核。新契約自算並機械執行 CLAUDE.md 的檔數／行數上限，故三條改為
+    # 在真實 git fixture 上驗新契約。
+
+    def git_repo(self):
+        """在 cwd 建一個有 baseline commit 的 git repo（tier0 自算需要 git diff HEAD）。"""
+        import subprocess
+        for cmd in (["git", "init", "-q"], ["git", "config", "user.email", "t@t.com"],
+                    ["git", "config", "user.name", "T"]):
+            subprocess.run(cmd, check=True, capture_output=True)
+        with open("seed.txt", "w", encoding="utf-8") as f:
+            f.write("seed\n")
+        subprocess.run(["git", "add", "seed.txt"], check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "baseline"], check=True, capture_output=True)
+
+    def tracked_file(self, name, lines):
+        """建一個已追蹤檔並改 lines 行（git diff HEAD 可見）。"""
+        import subprocess
+        with open(name, "w", encoding="utf-8") as f:
+            f.write("x\n")
+        subprocess.run(["git", "add", name], check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", f"add {name}"], check=True, capture_output=True)
+        with open(name, "w", encoding="utf-8") as f:
+            f.write("".join(f"line{i}\n" for i in range(lines)))
+
+    def test_tier0_appends_entry_with_verified_lines(self):
+        """新契約：留痕的 lines 來自 git diff 實得，並多記 lines_verified／per_file_lines。"""
+        self.git_repo()
+        self.tracked_file("a.py", 8)   # 1 行刪 + 8 行增 = 9
+        with open("b.md", "w", encoding="utf-8") as f:
+            f.write("m1\nm2\nm3\n")  # 未追蹤：3 行全新增
         run_cli("tier0", "--summary", "文案微調", "--files", "a.py, b.md", "--lines", "12")
         entries = self.read_tier0()
         self.assertEqual(len(entries), 1)
         e = entries[0]
-        self.assertEqual(set(e), {"ts", "summary", "files", "lines"})
+        self.assertEqual(set(e), {"ts", "summary", "files", "lines", "lines_verified",
+                                  "per_file_lines", "mechanical"})
         self.assertEqual(e["summary"], "文案微調")
         self.assertEqual(e["files"], ["a.py", "b.md"])
         self.assertEqual(e["lines"], 12)
+        self.assertTrue(e["lines_verified"])
+        self.assertEqual(e["per_file_lines"], {"a.py": 9, "b.md": 3})
+        self.assertFalse(e["mechanical"])
 
     def test_tier0_is_append_only(self):
+        self.git_repo()
+        with open("a.py", "w", encoding="utf-8") as f:
+            f.write("one\n")
+        with open("b.py", "w", encoding="utf-8") as f:
+            f.write("one\ntwo\n")
         run_cli("tier0", "--summary", "第一筆", "--files", "a.py", "--lines", "1")
         run_cli("tier0", "--summary", "第二筆", "--files", "b.py", "--lines", "2")
         self.assertEqual([e["summary"] for e in self.read_tier0()], ["第一筆", "第二筆"])
@@ -559,6 +602,299 @@ class Tier01TelemetryTest(unittest.TestCase):
     def test_tier0_rejects_blank_summary(self):
         with self.assertRaises(SystemExit):
             run_cli("tier0", "--summary", "  ", "--files", "a.py", "--lines", "1")
+
+    def test_tier0_rejects_self_reported_mismatch(self):
+        """核心：自報與實得不符 → 拒絕留痕，並同時印兩個數字。"""
+        self.git_repo()
+        self.tracked_file("a.py", 8)
+        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit) as cm:
+                run_cli("tier0", "--summary", "s", "--files", "a.py", "--lines", "999")
+            err = buf.getvalue()
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("自報 999", err)
+        self.assertIn("實得 9", err)
+        self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
+
+    def test_tier0_rejects_too_many_files(self):
+        """檔數 >3 → 拒絕並提示 --mechanical 或改判 Tier 1。"""
+        self.git_repo()
+        names = []
+        for i in range(4):
+            n = f"f{i}.txt"
+            with open(n, "w", encoding="utf-8") as f:
+                f.write("x\n")
+            names.append(n)
+        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit):
+                run_cli("tier0", "--summary", "s", "--files", ",".join(names), "--lines", "4")
+            err = buf.getvalue()
+        self.assertIn("上限為 3 個檔案", err)
+        self.assertIn("--mechanical", err)
+
+    def test_tier0_rejects_over_line_budget(self):
+        """合計 >80 行 → 拒絕並說應判 Tier 1。"""
+        self.git_repo()
+        with open("big.txt", "w", encoding="utf-8") as f:
+            f.write("".join(f"l{i}\n" for i in range(81)))
+        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit):
+                run_cli("tier0", "--summary", "s", "--files", "big.txt", "--lines", "81")
+            err = buf.getvalue()
+        self.assertIn("合計 80 行", err)
+        self.assertIn("Tier 1", err)
+
+    def test_tier0_mechanical_allows_many_files_within_per_file_cap(self):
+        """--mechanical：5 檔各 10 行 → 放行（不限檔數）。"""
+        self.git_repo()
+        names = []
+        for i in range(5):
+            n = f"m{i}.txt"
+            with open(n, "w", encoding="utf-8") as f:
+                f.write("".join(f"l{j}\n" for j in range(10)))
+            names.append(n)
+        run_cli("tier0", "--summary", "同一句文案換 5 處", "--files", ",".join(names),
+                "--lines", "50", "--mechanical")
+        e = self.read_tier0()[0]
+        self.assertTrue(e["mechanical"])
+        self.assertEqual(e["lines"], 50)
+
+    def test_tier0_mechanical_rejects_file_over_fifty_lines(self):
+        """--mechanical 的每檔上限 50 行 → 超標印該檔名。"""
+        self.git_repo()
+        with open("m0.txt", "w", encoding="utf-8") as f:
+            f.write("".join(f"l{j}\n" for j in range(51)))
+        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit):
+                run_cli("tier0", "--summary", "s", "--files", "m0.txt", "--lines", "51",
+                        "--mechanical")
+            err = buf.getvalue()
+        self.assertIn("每檔 ≤50 行", err)
+        self.assertIn("m0.txt", err)
+
+    def test_tier0_rejects_binary_change(self):
+        """🟡-2：二進位檔的 numstat 為 `-`，以 0 計會讓任意大小的改動偷渡 → 直接拒絕。"""
+        import subprocess
+        self.git_repo()
+        with open("b.bin", "wb") as f:
+            f.write(b"\x00" * 16)
+        subprocess.run(["git", "add", "b.bin"], check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "add bin"], check=True, capture_output=True)
+        with open("b.bin", "wb") as f:
+            f.write(b"\x01" * 5000)
+        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit):
+                run_cli("tier0", "--summary", "s", "--files", "b.bin", "--lines", "0")
+            err = buf.getvalue()
+        self.assertIn("二進位檔", err)
+        self.assertIn("b.bin", err)
+        self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
+
+    def test_tier0_supports_deleted_file(self):
+        """🟡-3：合法的 Tier 0 刪檔（工作區已無、git diff 看得到）須能留痕。"""
+        import subprocess
+        self.git_repo()
+        with open("gone.txt", "w", encoding="utf-8") as f:
+            f.write("a\nb\nc\n")
+        subprocess.run(["git", "add", "gone.txt"], check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "add gone"], check=True, capture_output=True)
+        os.remove("gone.txt")
+        run_cli("tier0", "--summary", "刪掉過期文案檔", "--files", "gone.txt", "--lines", "3")
+        e = self.read_tier0()[0]
+        self.assertEqual(e["per_file_lines"], {"gone.txt": 3})
+
+    def test_tier0_rejects_directory_pathspec(self):
+        """🟡-B：目錄會讓檔數上限失效（git diff 展開目錄下全部檔案）→ 拒絕，要求逐檔列出。"""
+        import subprocess
+        self.git_repo()
+        os.makedirs("d", exist_ok=True)
+        for i in range(5):
+            with open(os.path.join("d", f"f{i}.txt"), "w", encoding="utf-8") as f:
+                f.write("x\n")
+        subprocess.run(["git", "add", "d"], check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "add d"], check=True, capture_output=True)
+        for i in range(5):
+            with open(os.path.join("d", f"f{i}.txt"), "w", encoding="utf-8") as f:
+                f.write("changed\n")
+        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit):
+                run_cli("tier0", "--summary", "s", "--files", "d", "--lines", "10")
+            err = buf.getvalue()
+        self.assertIn("不接受目錄", err)
+        self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
+
+    def test_tier0_rejects_missing_file(self):
+        """[邊界] --files 列出不存在的路徑 → 拒絕並印該路徑。"""
+        self.git_repo()
+        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit):
+                run_cli("tier0", "--summary", "s", "--files", "nope.py", "--lines", "1")
+            err = buf.getvalue()
+        self.assertIn("nope.py", err)
+
+    def test_tier0_outside_git_repo_refuses(self):
+        """[邊界] 非 git 工作區 → 拒絕記帳（不靜默留痕）。"""
+        with open("a.py", "w", encoding="utf-8") as f:
+            f.write("x\n")
+        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit):
+                run_cli("tier0", "--summary", "s", "--files", "a.py", "--lines", "1")
+            err = buf.getvalue()
+        self.assertIn("不在 git 工作區", err)
+        self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
+
+
+class HitlConfirmTest(unittest.TestCase):
+    """item 13.2 契約：hitl-confirm 寫三欄並推進 phase；前置不過一律 exit 1 不寫檔。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        os.makedirs("run", exist_ok=True)
+        # 釘住「有人看管」：本框架的派工（dispatch.py）與評測都是 headless（ATTENDED=0），
+        # 不釘的話成功路徑會被「無人看管拒絕」擋掉而誤紅——誤紅會打在自己的驗證與收尾 gate 上。
+        # 需要驗無人看管行為的測試自行覆寫（見 test_unattended_session_cannot_self_confirm）。
+        # 本釘樁是否承重，只能靠在 headless 環境跑整套來驗（實測：拿掉釘樁、ATTENDED=0 → 2 failed）；
+        # 測試無法對自己所在套件的環境穩健性下斷言，故不另設假鎖。
+        patcher = mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ATTENDED": "1"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self):
+        os.chdir(self.old_cwd)
+        self.tmp.cleanup()
+
+    RID = "2026-10-03-probe"
+
+    def write_manifest(self, **over):
+        m = {"run_id": self.RID, "tier": 1, "status": "in_progress", "phase": "init",
+             "spec_inline": "一句需求", "task_file": "task/2026-10-03.md",
+             "hitl_confirmed_at": None, "hitl_rulings": None}
+        m.update(over)
+        with open(os.path.join("run", f"{self.RID}.json"), "w", encoding="utf-8") as f:
+            json.dump(m, f, ensure_ascii=False)
+        return m
+
+    def read_manifest(self):
+        with open(os.path.join("run", f"{self.RID}.json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    def read_events(self):
+        path = os.path.join("run", f"{self.RID}.events.jsonl")
+        if not os.path.exists(path):
+            return []
+        with open(path, encoding="utf-8") as f:
+            return [json.loads(line) for line in f if line.strip()]
+
+    def _expect_exit1(self, *argv):
+        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit) as cm:
+                run_cli(*argv)
+            err = buf.getvalue()
+        self.assertEqual(cm.exception.code, 1)
+        return err
+
+    def test_confirms_and_advances_phase(self):
+        self.write_manifest()
+        run_cli("hitl-confirm", self.RID, "--note", "確認 2 tasks／4 items", "--rulings", "2")
+        m = self.read_manifest()
+        self.assertEqual(m["phase"], "decomposed")
+        self.assertEqual(m["hitl_rulings"], 2)
+        self.assertIn("確認 2 tasks／4 items", m["hitl_confirmed_at"])
+        self.assertRegex(m["hitl_confirmed_at"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2} — ")
+        self.assertEqual([e["cmd"] for e in self.read_events()], ["hitl_confirmed"])
+
+    def test_rulings_defaults_to_zero(self):
+        self.write_manifest()
+        run_cli("hitl-confirm", self.RID, "--note", "無裁示，照計畫")
+        self.assertEqual(self.read_manifest()["hitl_rulings"], 0)
+
+    def test_blank_note_refused_and_manifest_untouched(self):
+        self.write_manifest()
+        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "   ")
+        self.assertIn("--note 不可為空", err)
+        m = self.read_manifest()
+        self.assertEqual(m["phase"], "init")
+        self.assertIsNone(m["hitl_confirmed_at"])
+
+    def test_missing_task_file_refused(self):
+        self.write_manifest(task_file=None)
+        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "x")
+        self.assertIn("HITL 掛在分拆之後", err)
+        self.assertEqual(self.read_manifest()["phase"], "init")
+
+    def test_intent_gate_refused(self):
+        self.write_manifest(spec_inline=None, spec_path=None)
+        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "x")
+        self.assertIn("intent gate", err)
+
+    def test_non_in_progress_refused(self):
+        self.write_manifest(status="completed")
+        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "x")
+        self.assertIn("非 in_progress", err)
+
+    def test_existing_confirmation_not_overwritten(self):
+        self.write_manifest(hitl_confirmed_at="2026-10-01 09:00 — 原確認")
+        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "新確認")
+        self.assertIn("已有 hitl_confirmed_at", err)
+        self.assertIn("原確認", err)
+        self.assertEqual(self.read_manifest()["hitl_confirmed_at"], "2026-10-01 09:00 — 原確認")
+
+    def test_unattended_session_cannot_self_confirm(self):
+        """無人看管（ATTENDED=0）→ exit 1、三欄不變。出生證：headless 評測中模型自行確認後動工。"""
+        self.write_manifest()
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ATTENDED": "0"}):
+            err = self._expect_exit1("hitl-confirm", self.RID, "--note", "自己確認")
+        self.assertIn("無人看管", err)
+        self.assertIn("停在這一步", err)
+        m = self.read_manifest()
+        self.assertEqual(m["phase"], "init")
+        self.assertIsNone(m["hitl_confirmed_at"])
+
+    def test_attended_session_records_attended_flag(self):
+        """互動 session（ATTENDED=1）→ 照常確認並留痕 hitl_attended。"""
+        self.write_manifest()
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ATTENDED": "1"}):
+            run_cli("hitl-confirm", self.RID, "--note", "確認計畫")
+        m = self.read_manifest()
+        self.assertEqual(m["phase"], "decomposed")
+        self.assertIs(m["hitl_attended"], True)
+
+    def test_missing_attended_env_is_recorded_as_unknown(self):
+        """環境未提供該變數（例如直接在終端跑）→ 不擋，但留痕為 None 供稽核。"""
+        self.write_manifest()
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ATTENDED"}
+        with mock.patch.dict(os.environ, env, clear=True):  # clear 後 setUp 的釘樁不生效
+            run_cli("hitl-confirm", self.RID, "--note", "終端手動確認")
+        m = self.read_manifest()
+        self.assertEqual(m["phase"], "decomposed")
+        self.assertIsNone(m["hitl_attended"])
+
+    def test_phase_cannot_be_rolled_back(self):
+        """🟡-1：phase 已 ≥ decomposed 時拒絕，不把前進過的 phase 倒退回去。"""
+        self.write_manifest(phase="completed")
+        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "x")
+        self.assertIn("不可把已前進的 phase 倒退", err)
+        self.assertEqual(self.read_manifest()["phase"], "completed")
+
+    def test_refusal_message_does_not_leak_env_var_name(self):
+        """🟡-4：拒絕訊息不印環境變數名（被擋的一方不需要知道哪個變數決定判定）。"""
+        self.write_manifest()
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ATTENDED": "0"}):
+            err = self._expect_exit1("hitl-confirm", self.RID, "--note", "x")
+        self.assertIn("無人看管", err)
+        self.assertNotIn("CLAUDE_CODE_SESSION_ATTENDED", err)
+
+    def test_unknown_run_id_refused(self):
+        err = self._expect_exit1("hitl-confirm", "2026-01-01-nope", "--note", "x")
+        self.assertIn("不存在", err)
+
+    def test_invalid_json_manifest_refused_without_traceback(self):
+        with open(os.path.join("run", f"{self.RID}.json"), "w", encoding="utf-8") as f:
+            f.write("{not json")
+        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "x")
+        self.assertIn("非合法 JSON", err)
 
 
 if __name__ == "__main__":

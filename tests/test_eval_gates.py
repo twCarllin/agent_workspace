@@ -1897,5 +1897,169 @@ class DispatchCommandGateTest(unittest.TestCase):
                 self.assertEqual(result.stderr, "")
 
 
+class WriteGateTest(unittest.TestCase):
+    """item 13.1 契約：HITL 未過（phase < decomposed）不得以 Write／Edit 寫實作檔。
+    全部走真實 `--hook` 子程序路徑（R-005），Tier 1 manifest、無 eval_state.json。"""
+
+    def setUp(self):
+        import os
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = os.path.realpath(self.tmp.name)  # macOS /var → /private/var：兩側同基準
+        self.eval_gates_py = str(
+            Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "eval_gates.py"
+        )
+        for d in ("run", "task", "spec", ".claude/hooks"):
+            os.makedirs(os.path.join(self.repo, d), exist_ok=True)
+        with open(os.path.join(self.repo, ".claude", "hooks", "stats.py"), "w", encoding="utf-8") as f:
+            f.write("print('stats')\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write_manifest(self, phase="init", status="in_progress", task_file="task/x.md",
+                        spec_inline="s", run_id="2026-10-03-probe"):
+        import json
+        import os
+        m = {"run_id": run_id, "tier": 1, "status": status, "phase": phase,
+             "spec_inline": spec_inline, "task_file": task_file}
+        with open(os.path.join(self.repo, "run", f"{run_id}.json"), "w", encoding="utf-8") as f:
+            json.dump(m, f)
+
+    def _run(self, file_path, tool_name="Write", extra_input=None):
+        import json
+        import os
+        import subprocess
+        tool_input = {"file_path": file_path}
+        if extra_input:
+            tool_input.update(extra_input)
+        payload = {"tool_name": tool_name, "tool_input": tool_input, "cwd": self.repo}
+        env = {**os.environ, "CLAUDE_PROJECT_DIR": self.repo}
+        return subprocess.run(
+            [sys.executable, self.eval_gates_py, "--hook"],
+            input=json.dumps(payload), env=env, capture_output=True, text=True,
+        )
+
+    def _abs(self, rel):
+        import os
+        return os.path.join(self.repo, rel)
+
+    def test_impl_file_blocked_before_hitl(self):
+        """核心契約：in_progress＋phase init＋寫 .claude/hooks/stats.py → exit 2。"""
+        self._write_manifest("init")
+        result = self._run(self._abs(".claude/hooks/stats.py"))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("HITL 未過", result.stderr)
+        self.assertIn("phase=init", result.stderr)
+        self.assertIn("hitl-confirm 2026-10-03-probe", result.stderr)
+        self.assertIn("aborted", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_trace_and_spec_paths_exempt(self):
+        """豁免清單：前置階段要寫的溯源與規格檔照常可寫。"""
+        self._write_manifest("init")
+        for rel in ("task/2026-10-03.md", "spec/x.md", "run/2026-10-03-probe.json",
+                    "eval_state.json", "retro/RETRO.md", "evals/results/r.json"):
+            with self.subTest(rel=rel):
+                result = self._run(self._abs(rel))
+                self.assertEqual(result.returncode, 0, f"{rel} 應豁免：{result.stderr}")
+
+    def test_allowed_after_hitl(self):
+        """phase decomposed（HITL 已過）→ 放行。"""
+        self._write_manifest("decomposed")
+        result = self._run(self._abs(".claude/hooks/stats.py"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_no_pending_run_is_not_gated(self):
+        """無任何 in_progress manifest（Tier 0 與日常工作）→ 不擋。"""
+        result = self._run(self._abs(".claude/hooks/stats.py"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_aborted_and_failed_runs_do_not_gate(self):
+        """status aborted／failed 的封存現場不算進行中 → 不擋。"""
+        for status in ("aborted", "failed"):
+            with self.subTest(status=status):
+                self._write_manifest("init", status=status)
+                result = self._run(self._abs(".claude/hooks/stats.py"))
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_edit_and_notebook_tools_also_gated(self):
+        """Write 之外的寫入工具同受攔截（notebook 走 notebook_path 鍵）。"""
+        self._write_manifest("init")
+        r1 = self._run(self._abs(".claude/hooks/stats.py"), tool_name="Edit")
+        self.assertEqual(r1.returncode, 2, r1.stderr)
+        import json as _json
+        import os as _os
+        import subprocess as _sp
+        payload = {"tool_name": "NotebookEdit",
+                   "tool_input": {"notebook_path": self._abs("nb.ipynb")}, "cwd": self.repo}
+        env = {**_os.environ, "CLAUDE_PROJECT_DIR": self.repo}
+        r2 = _sp.run([sys.executable, self.eval_gates_py, "--hook"],
+                     input=_json.dumps(payload), env=env, capture_output=True, text=True)
+        self.assertEqual(r2.returncode, 2, r2.stderr)
+
+    def test_blocking_gate_precedes_permissive_early_return(self):
+        """R-008 組合測試：放行型早回的條件成立（payload 帶空 command，非 commit 指令）
+        但攔截型也該觸發 → 仍須 exit 2。順序寫錯（攔截型排在早回之後）時本測試會綠轉紅。"""
+        self._write_manifest("init")
+        result = self._run(self._abs(".claude/hooks/stats.py"), extra_input={"command": ""})
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("HITL 未過", result.stderr)
+
+    def test_path_outside_repo_not_gated(self):
+        """[邊界] repo 外的檔案不屬本 gate 管轄。"""
+        self._write_manifest("init")
+        result = self._run("/tmp/outside_probe.py")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_symlinked_alias_path_still_gated(self):
+        """[邊界] 經 symlink 別名目錄指向 repo 內的實作檔 → 仍擋（兩側 realpath，R-020）。"""
+        import os
+        self._write_manifest("init")
+        alias = os.path.join(os.path.dirname(self.repo), "alias-" + os.path.basename(self.repo))
+        os.symlink(self.repo, alias)
+        self.addCleanup(os.unlink, alias)
+        result = self._run(os.path.join(alias, ".claude", "hooks", "stats.py"))
+        self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_missing_file_path_key_does_not_raise(self):
+        """[邊界] file_path 缺鍵 → exit 0 且不拋例外。"""
+        import json
+        import os
+        import subprocess
+        self._write_manifest("init")
+        payload = {"tool_name": "Write", "tool_input": {}, "cwd": self.repo}
+        env = {**os.environ, "CLAUDE_PROJECT_DIR": self.repo}
+        result = subprocess.run([sys.executable, self.eval_gates_py, "--hook"],
+                                input=json.dumps(payload), env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_non_string_file_path_does_not_raise(self):
+        """🟡-6 [邊界]：file_path 為非字串的真值 → exit 0 且不拋 TypeError。"""
+        import json
+        import os
+        import subprocess
+        self._write_manifest("init")
+        payload = {"tool_name": "Write", "tool_input": {"file_path": {"nested": 1}}, "cwd": self.repo}
+        env = {**os.environ, "CLAUDE_PROJECT_DIR": self.repo}
+        result = subprocess.run([sys.executable, self.eval_gates_py, "--hook"],
+                                input=json.dumps(payload), env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_bash_payload_unaffected_by_write_gate(self):
+        """既有 Bash 路徑不受影響：phase init 下的普通指令照常放行。"""
+        import json
+        import os
+        import subprocess
+        self._write_manifest("init")
+        payload = {"tool_name": "Bash", "tool_input": {"command": "git status"}, "cwd": self.repo}
+        env = {**os.environ, "CLAUDE_PROJECT_DIR": self.repo}
+        result = subprocess.run([sys.executable, self.eval_gates_py, "--hook"],
+                                input=json.dumps(payload), env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

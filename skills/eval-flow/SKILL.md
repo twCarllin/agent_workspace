@@ -46,7 +46,7 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
    - 「寫的人 ≠ 審的人」防線不變（審的人預設為 `task-verifier`（checker），照常獨立審；升級走循環 step 3 四類觸發同一套規則，改派 `code-reviewer`）
    - 知識前置（三源，見循環 step 1）改由主 flow 自查並在回報留痕
    - 需要獨立 context 的 item（多檔複雜邏輯、主 flow context 已重）仍派 `code-writer`
-   - hook 對 code-writer 的 phase gate 不受影響（直寫路徑不經該 gate，phase 仍須 decomposed 才動工——由輕量 HITL 保證）
+   - **直寫路徑同受 hook 攔截**：PreToolUse 的 Write／Edit gate 在 manifest `phase` 未達 `decomposed` 時擋下對實作檔的寫入（溯源與規格檔例外：`run/`／`task/`／`spec/`／`retro/`／`eval_state.json`）。確認只認檔不認對話——以 `python3 .claude/hooks/eval_state.py hitl-confirm <run_id> --note "<一句>" [--rulings N]` 留痕並推進 phase；**無人看管的 session（headless）不得自行確認**，該指令會拒絕，正確行為是停在此步、回報計畫與待裁示項後結束，由有人看管的 session 接手。**此 gate 只攔 Write／Edit 類工具，不防以 Bash 寫檔**（同其他 gate 的防護層級：防照規則推進的誤用，不防刻意繞道）
 5. **共用循環**：進入下方循環的步驟 1–7（code-writer → review（per-task，含完成度節）→ 本地測試 → commit）。收尾**不歸檔**（無 `eval_state.json`）：
    - **收尾檢查只跑累積聯集**（step 6 ⓪ 的 Tier 1 範圍：`--strike-key wrapup_related`，不跑全套；指令與空集合處置住 test-strategy skill「Commit 前收尾檢查與重開路徑」節）
    - **事件留痕（時間戳，接續步驟 1 的留痕點）**：每 task 審查完成後跑 `eval_state.py event <run_id> reviewed`、step 5 驗證完成後 `event <run_id> verified`、收尾 commit 前 `event <run_id> completed`——Tier 2 的同等資訊由 eval_state.py 各子命令自動附掛，Tier 1 靠這三個呼叫點補齊（消費端 stats.py 事件節不分 tier）

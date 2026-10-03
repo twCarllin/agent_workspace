@@ -87,7 +87,10 @@ class SettingsMergeEndToEndTest(unittest.TestCase):
 
         dst = self._dst_settings()
         pre = dst["hooks"]["PreToolUse"]
-        self.assertEqual(len(pre), 1)
+        # 同指令者就地更新 matcher，不新增重複項（框架改 matcher 時已部署專案不該累積舊筆）
+        self.assertEqual(len(pre), 1, f"PreToolUse 不該累積重複項：{pre}")
+        self.assertEqual(pre[0]["matcher"], "Bash|Task|Agent|Write|Edit|MultiEdit|NotebookEdit",
+                         "matcher 應被就地更新為框架現值")
         self.assertEqual(
             pre[0]["hooks"][0]["command"],
             "$CLAUDE_PROJECT_DIR/.claude/hooks/gate-check.sh",

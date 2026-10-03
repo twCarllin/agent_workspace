@@ -77,6 +77,17 @@ AGENT_MIN_PHASE = {
 }
 
 
+# 直寫 gate（Write／Edit）的攔截工具與豁免路徑。
+# 為何需要：Tier 1 的「主 flow 直寫捷徑」不經 code-writer，故 phase gate 原本只靠 eval-flow skill
+# 的一句 prose 自律。評測情境 tier1-hitl-stop 實測：headless session 判對 tier、建了 task 檔、
+# 回報計畫請確認，卻在確認前就改了實作檔（phase 仍為 init，未造假）——prose 守不住，改由本 gate 攔。
+WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+# 豁免：前置階段（phase 仍為 init）本來就要寫這些溯源與規格檔；evals/results 為評測輸出
+WRITE_GATE_EXEMPT_PREFIXES = ("run/", "task/", "spec/", "retro/", "usage/", "impact/", "risk/",
+                              "evals/results/")
+WRITE_GATE_EXEMPT_EXACT = ("eval_state.json",)
+
+
 # hook 模式下被擋時附上；流程細節不在常駐 context，被擋常代表 skill 未載入或已被 compact
 SKILL_HINT = "（流程細節住在 eval-flow skill：若尚未載入或 context 被 compact，先載入 skills/eval-flow/SKILL.md，再依檔案狀態修正）"
 _hint_enabled = False
@@ -435,6 +446,63 @@ def _find_unique_tier1_inprogress():
     return found[0] if len(found) == 1 else None
 
 
+def _rel_to_cwd(file_path):
+    """payload 的 file_path 轉 cwd（repo 根）相對路徑；repo 外或無法解析回 None。
+
+    兩側都 realpath 不用 abspath：`--retro` 式的 symlink 與別名目錄（macOS `/tmp` → `/private/tmp`）
+    會讓字串比對失效，路徑判定靜默走偏（R-020 同型）。
+    """
+    if not isinstance(file_path, str) or not file_path:
+        return None  # 缺鍵或非字串（payload 形狀不可信任）→ 不屬本 gate 管轄，不拋例外
+    try:
+        rel = os.path.relpath(os.path.realpath(file_path), os.path.realpath(os.getcwd()))
+    except (ValueError, OSError, TypeError):
+        return None
+    if rel == ".." or rel.startswith(".." + os.sep):
+        return None
+    return rel
+
+
+def _runs_before_hitl():
+    """回傳 [(manifest_path, manifest)]：status==in_progress 且 phase < decomposed 者。
+
+    沿用同路徑既有基準（R-009）：MANIFEST_RE 辨識檔名、load_json_quiet 讀檔、manifest_phase 推導
+    phase（含舊值域映射）、PHASES 比大小——不自行另寫解析或推導。
+    status 為 aborted／failed 者不算進行中（與 _find_unique_tier1_inprogress 的判定一致）。
+    """
+    out = []
+    for path in sorted(glob.glob("run/*.json")):
+        if not MANIFEST_RE.match(path):
+            continue
+        m = load_json_quiet(path)
+        if not isinstance(m, dict) or m.get("status") != "in_progress":
+            continue
+        if PHASES.index(manifest_phase(m)) < PHASES.index("decomposed"):
+            out.append((path, m))
+    return out
+
+
+def check_write_gate(tool_input):
+    """HITL 未過不得寫實作檔（攔截型，exit 2）。無進行中的 run 一律放行。"""
+    rel = _rel_to_cwd(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
+    if rel is None:
+        sys.exit(0)  # repo 外的檔案不屬本 gate 管轄
+    if rel in WRITE_GATE_EXEMPT_EXACT or rel.startswith(WRITE_GATE_EXEMPT_PREFIXES):
+        sys.exit(0)
+    pending = _runs_before_hitl()
+    if not pending:
+        sys.exit(0)  # 無進行中的 run（含 Tier 0 與日常工作）→ 不擋
+    manifest_path, manifest = pending[0]
+    run_id = MANIFEST_RE.match(manifest_path).group("run_id")
+    block(
+        f"{manifest_path} 的 HITL 未過（phase={manifest_phase(manifest)}）：不可在使用者確認計畫前寫 {rel}\n"
+        f"→ 補救一：把「N tasks／M items」計畫回報使用者，確認後跑 "
+        f"`python3 .claude/hooks/eval_state.py hitl-confirm {run_id} --note \"<時間＋確認範圍一句>\" [--rulings N]`\n"
+        f"→ 補救二：本 run 不再續跑 → 由使用者裁決把該 manifest 的 status 改 aborted（並填 failed_reason）\n"
+        f"（溯源與規格檔不受本 gate 限制：{'／'.join(WRITE_GATE_EXEMPT_PREFIXES)} 與 eval_state.json 照常可寫）"
+    )
+
+
 def check_task_gate(tool_input):
     agent = tool_input.get("subagent_type") or tool_input.get("agent_type") or ""
     required = AGENT_MIN_PHASE.get(agent)
@@ -555,6 +623,11 @@ def run_hook():
 
     if tool_name in ("Task", "Agent"):
         check_task_gate(tool_input)
+
+    # 攔截型先行（R-008）：本 gate 必須排在下方「非 commit 指令 → sys.exit(0)」這個放行型早回
+    # 之前，否則 Write／Edit 的 payload 無 command、會先被放行型帶離，攔截型永不執行
+    if tool_name in WRITE_TOOLS:
+        check_write_gate(tool_input)
 
     command = tool_input.get("command", "")
     # 派工辨識排在 commit 辨識之前：一條 Bash 指令不會同時是兩者（check_task_gate 內部 sys.exit）

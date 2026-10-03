@@ -78,18 +78,27 @@ import json, sys
 src_path, dst_path = sys.argv[1], sys.argv[2]
 with open(src_path) as f: src = json.load(f)
 with open(dst_path) as f: dst = json.load(f)
-added = 0
+added = updated = 0
+# 身分鍵＝該筆的 hooks 指令清單，不是整筆內容：matcher 會隨框架演進改（例如新增 Write|Edit
+# 攔截），若以整筆相等比對，已部署的專案會多留一筆舊 matcher 的重複項、gate 對同一個工具
+# 呼叫跑兩次。故同指令者就地更新 matcher，只有指令真的沒見過才 append。
 for event, src_entries in src.get("hooks", {}).items():
     entries = dst.setdefault("hooks", {}).setdefault(event, [])
     for entry in src_entries:
-        if entry not in entries:
+        if entry in entries:
+            continue
+        same_cmd = next((e for e in entries if e.get("hooks") == entry.get("hooks")), None)
+        if same_cmd is not None:
+            same_cmd["matcher"] = entry.get("matcher")
+            updated += 1
+        else:
             entries.append(entry)
             added += 1
-if added:
+if added or updated:
     with open(dst_path, "w") as f:
         json.dump(dst, f, indent=2, ensure_ascii=False)
         f.write("\n")
-print(f"[4/6] Merged settings.json: {added} hook entry(ies) added" if added
+print(f"[4/6] Merged settings.json: {added} added, {updated} matcher updated" if (added or updated)
       else "[4/6] settings.json already up to date")
 PYEOF
   fi
