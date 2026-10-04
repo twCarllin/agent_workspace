@@ -53,6 +53,10 @@ Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改
 - **學習**：每次 review 抓到的問題，由 retro agent 歸因寫進 `retro/RETRO.md`，下一輪直接貼進 code-writer 的硬性約束——同一個坑不踩第二次。
 - **瘦身**：每個 run 留下結構化溯源，`stats.py` 彙總 tier 分佈、gate 命中、HITL 裁示與執行成本，用實際資料審查流程步驟。
 
+## 日常操作
+
+在專案根目錄執行 `python3 .agent-flow/scripts/flow.py status --run-id <id>` 查看紀錄進度。`preflight` 提早檢查環境；`watch` 顯示狀態變更；`finish` 串接驗證與提交。完整用法見 [.agent-flow/FLOW_CLI.md](.agent-flow/FLOW_CLI.md)。
+
 ## 安裝與更新
 
 ```bash

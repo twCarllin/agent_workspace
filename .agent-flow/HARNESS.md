@@ -26,3 +26,5 @@ CLI 與事件適配由 `.agent-flow/scripts/harness_adapter.py` 提供 build_arg
 安裝器先在暫存區產生計畫，--dry-run 不修改目標。ownership manifest 記已安装內容雜湊；使用者修改與更新衝突時停止。可捕捉的寫入失敗會還原檔案、連結與 Git hook；斷電或強制終止不在 rollback 保證內。
 
 驗證分兩層：本地確定性整合測試，以及 harness_smoke.py --live 的原生 CLI 證據。後者涵蓋檔案修改、hook 阻擋、測試失敗留痕與恢復定位；完整 skill 行為用 skill_eval.py 評測。CLI、帳號、模型或 trust 不可用時記 blocked，不宣稱 pass。
+
+本地操作入口為 `python3 .agent-flow/scripts/flow.py`：`preflight` 檢查環境，`status/watch` 讀取進度，`finish` 串接既有驗證與提交。用法與能力邊界見 [FLOW_CLI.md](FLOW_CLI.md)。
