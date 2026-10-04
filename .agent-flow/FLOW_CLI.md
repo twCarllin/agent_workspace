@@ -10,11 +10,15 @@ python3 .agent-flow/scripts/flow.py preflight --harness codex --run-id <id> --js
 python3 .agent-flow/scripts/flow.py preflight --harness codex --run-id <id> --live --timeout 30
 ```
 
+首次尚未建立 manifest 時省略 `--run-id`；manifest 已存在時再指定。
+
 靜態檢查涵蓋安裝檔案、模型設定、CLI、登入、工作目錄寫入和測試命令。測試命令只檢查入口，正式驗證由 `finish` 執行。模型來源是 `harnesses/models.json`，Codex 使用 `gpt-6.1-sol`。
 
 `--live` 才啟動有時間上限的 Codex 模型探針。探針會使用模型用量，只驗證模型與登入；無工具呼叫的成功結果不能證明 hooks 已信任或已執行。設定存在與原生執行證據分開回報，未確認項目記為 `unknown`。
 
 Claude 的原生 CLI 測試延後。本入口不啟動 Claude CLI。退出碼：0 為 ready；1 為 blocked；2 為 unknown 或操作錯誤。靜態檢查有 unknown 時仍可讀取具體檢查結果。
+
+`inputs-v2` 快照檢查內嵌 repository。一般未追蹤的內嵌 repository 只有在 Git 已批准的忽略範圍內才跳過；工具不自行修改 exclude。尚未排除時提前回報具體路徑，排除政策變動會使舊證據失效。已追蹤 gitlink／submodule 目前明確拒絕，須先解決工作目錄支援限制，不能以只記 HEAD 當作已驗證。既有 inputs-v1 與 legacy 紀錄沿用原格式。
 
 ## 查看進度
 
@@ -27,6 +31,10 @@ python3 .agent-flow/scripts/flow.py watch --run-id <id> --timeout 30 --interval 
 輸出包括紀錄狀態、task 步驟、耗時、失敗原因與下一個動作。省略 run ID 時只能自動選取唯一未完成的 run；有多個 run 時必須指定。紀錄的步驟表示執行意圖，不能當成 agent 仍在執行的證明。
 
 `watch` 只在狀態改變時輸出，達到時間上限或 run 結束時退出。可用 Ctrl+C 停止監看。監看不會暫停工作，也不修改證據。
+
+## 獨立檢核資料
+
+派 checker 前依 [REVIEW_PACKET.md](REVIEW_PACKET.md) 組裝資料包，標準派工使用 `dispatch.py task-verifier --review-packet <檔案>`。必要資料缺漏時先補齊，ready 只表示資料與來源有效，不代表審查通過；checker 保留四類升級判斷。
 
 ## 收尾
 
@@ -47,4 +55,4 @@ python3 .agent-flow/scripts/flow.py finish --run-id <id> \
 
 明確加上 `--push` 才推送至目前分支的 `origin` 遠端；不使用 force。完成後 push 失敗，可重跑帶 `--push` 的指令。同一 Git repository（含 worktree）同時只允許一個 finish；程序中斷留下的鎖須先核對程序已停止再處理。
 
-本版提供 `preflight/status/watch/finish`。需求分級與 run 初始化沿用 Router；工作暫停與恢復沿用 eval-flow-resume，尚未提供 `start/pause/resume` 命令。
+本版提供 `preflight/status/watch/review-packet/finish`。需求分級與 run 初始化沿用 Router；工作暫停與恢復沿用 eval-flow-resume，尚未提供 `start/pause/resume` 命令。

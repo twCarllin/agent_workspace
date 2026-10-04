@@ -16,6 +16,6 @@ Tier 2 實作期間使用 test-strategy 的累積相關測試；最後一次才�
 
 `run_verify.py --reuse --run-id <id> [--sub-task <n>] --cmd '<本地指令>'` 明確請求重用。只使用同 run、同指令、同驗證輸入與環境的成功結果；失敗不重用。live 模型執行不可走本地快取。強制重新執行時省略 `--reuse`。
 
-新快照 `inputs-v1` 以檔案內容、mode、symlink 為準；忽略清單以 `verification_snapshot.py` 為唯一來源。純說明文件不觸發功能重驗，流程 skills、測試、程式與設定保持在驗證輸入中。舊快照沿用舊語義，不把既有結果靜默換成新格式。
+新快照 `inputs-v2` 以檔案內容、mode、symlink 為準；忽略清單以 `verification_snapshot.py` 為唯一來源。純說明文件不觸發功能重驗，流程 skills、測試、程式與設定保持在驗證輸入中。既有 `inputs-v1` 與 legacy 快照沿用舊語義，不把既有結果靜默換成新格式。
 
 指令執行期間輸入有變化，不記可重用的成功快照；修復後重新執行。記錄 `elapsed_seconds`、`reused` 與原始證據來源，快取命中也要留下憑據。提交 gate 仍核對最後成功證據與目前驗證輸入。

@@ -155,6 +155,8 @@ def _validate_evidence_snapshot(manifest, source):
             current = verification_snapshot.snapshot()
         elif kind == "inputs-v1":
             current = verification_snapshot.input_snapshot()
+        elif kind == "inputs-v2":
+            current = verification_snapshot.input_snapshot_v2()
         else:
             block(f"{source} 未知驗證快照格式：{kind}")
     except (OSError, subprocess.CalledProcessError) as error:

@@ -55,7 +55,7 @@ Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改
 
 ## 日常操作
 
-在專案根目錄執行 `python3 .agent-flow/scripts/flow.py status --run-id <id>` 查看紀錄進度。`preflight` 提早檢查環境；`watch` 顯示狀態變更；`finish` 串接驗證與提交。完整用法見 [.agent-flow/FLOW_CLI.md](.agent-flow/FLOW_CLI.md)。
+在專案根目錄執行 `python3 .agent-flow/scripts/flow.py status --run-id <id>` 查看紀錄進度。`preflight` 提早檢查環境；`watch` 顯示狀態變更；`finish` 串接驗證與提交。完整用法見 [.agent-flow/FLOW_CLI.md](.agent-flow/FLOW_CLI.md)。派 checker 前用 `flow.py review-packet build` 自動整理資料；缺漏先補齊，資料包不代替獨立審查。用法見 [.agent-flow/REVIEW_PACKET.md](.agent-flow/REVIEW_PACKET.md)。
 
 ## 安裝與更新
 

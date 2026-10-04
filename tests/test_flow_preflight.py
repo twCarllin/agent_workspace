@@ -53,6 +53,23 @@ class PreflightTests(unittest.TestCase):
     def check(self, result, name):
         return next(c for c in result['checks'] if c['name'] == name)
 
+    def test_nested_repository_is_reported_before_verification(self):
+        git = shutil.which('git', path=self.old_path)
+        (self.root / 'bin/git').symlink_to(git)
+        subprocess.run([git, 'init', '-q'], check=True, capture_output=True)
+        (self.root / 'agent_workspace').mkdir()
+        subprocess.run([git, '-C', 'agent_workspace', 'init', '-q'], check=True, capture_output=True)
+        (self.root / 'agent_workspace/code.py').write_text('one')
+        result = flow_preflight.preflight()
+        nested = self.check(result, 'nested_repositories')
+        self.assertEqual(nested['status'], 'failed')
+        self.assertIn('agent_workspace', nested['detail'])
+        self.assertIn('approval', nested['detail'])
+        self.assertEqual(result['readiness'], 'blocked')
+        (self.root / '.git/info/exclude').write_text('agent_workspace/\n')
+        self.assertEqual(self.check(flow_preflight.preflight(), 'nested_repositories')['status'], 'ok')
+        self.assertTrue((self.root / 'agent_workspace/code.py').exists())
+
     def test_static_unknown_trust_is_never_ready_and_output_redacted(self):
         result = flow_preflight.preflight()
         self.assertEqual(result['readiness'], 'unknown')

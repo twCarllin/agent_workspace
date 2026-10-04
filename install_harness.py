@@ -8,10 +8,13 @@ import shutil
 import subprocess
 import tomllib
 import re
+import sys
 from harness_install_transaction import build_plan, apply_plan, snapshot
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parent
+sys.path.insert(0, str(SOURCE / '.agent-flow/scripts'))
+from document_inventory import skill_directories
 PROFILES = json.loads((SOURCE / '.agent-flow/harnesses/models.json').read_text())
 CODEX_MODELS = {r: (v['model'], v['reasoning_effort']) for r, v in PROFILES['codex'].items()}
 MANAGED = '<!-- agent-workspace managed -->'
@@ -79,7 +82,7 @@ def install_core(target, repo_mode=False):
                     link_file(target / '.claude/hooks' / path.name, destination)
     skills = target / '.agents/skills'
     skills.mkdir(parents=True, exist_ok=True)
-    names = {p.name for p in (SOURCE / 'skills').iterdir() if p.is_dir() and p.name != '_deprecated'}
+    names = {p.name for p in skill_directories(SOURCE)}
     for path in skills.iterdir():
         if path.name not in names and (path / '.agent-workspace-managed').exists():
             if path.is_symlink():

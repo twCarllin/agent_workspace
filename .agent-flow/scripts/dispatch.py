@@ -226,6 +226,7 @@ def main():
     parser.add_argument("role")
     parser.add_argument("--prompt-file", required=True, dest="prompt_file")
     parser.add_argument("--backend", choices=sorted(BACKENDS), default=None)
+    parser.add_argument("--review-packet", help="validated review data for task-verifier only")
     parser.add_argument("--resume", default=None)
     parser.add_argument("--permissions", choices=harness_adapter.PERMISSIONS, default="inherit",
                         help="inherit: keep CLI settings; unrestricted: explicit full access")
@@ -239,6 +240,17 @@ def main():
         fail(f"角色 {args.role} 無對應 {AGENTS_DIR}/{args.role}.md", 1)
     prompt = read_prompt(args.prompt_file)
     run_id = resolve_run_id()
+    if args.review_packet:
+        if args.role != "task-verifier":
+            fail("--review-packet is only supported for task-verifier", 1)
+        if not run_id:
+            fail("--review-packet requires an active run", 1)
+        import review_packet
+        try:
+            packet = review_packet.validate(args.review_packet, run_id)
+        except (ValueError, OSError, TypeError) as error:
+            fail(str(error), 1)
+        prompt += "\n\n" + review_packet.render(packet)
     manifest_backend = default_backend(run_id)
     backend = args.backend or manifest_backend
     allowed = {p.strip() for p in args.files.split(",") if p.strip()} if args.files is not None else None

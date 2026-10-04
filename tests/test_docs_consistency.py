@@ -4,13 +4,15 @@
 檢查對象是 repo 本身的靜態一致性，不跑任何流程。
 """
 import re
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / ".agent-flow/scripts"))
+from document_inventory import skill_directories, skill_documents
 MD_FILES = (
-    list((ROOT / "skills").glob("*/SKILL.md"))
-    + list((ROOT / "skills").glob("*/references/*.md"))
+    skill_documents(ROOT)
     + list((ROOT / ".claude" / "agents").glob("*.md"))
     + list((ROOT / ".agent-flow/roles").glob("*.md"))
     + [ROOT / "CLAUDE.md", ROOT / "README.md", ROOT / ".agent-flow/ROUTER.md"]
@@ -39,7 +41,7 @@ class SkillReferencesTest(unittest.TestCase):
             re.compile(r"[`*]([a-z][a-z0-9-]+)[`*]+ skill"),
             re.compile(r"skills/([a-z][a-z0-9-]+)/SKILL\.md"),
         ]
-        skill_dirs = {p.name for p in (ROOT / "skills").iterdir() if p.is_dir()}
+        skill_dirs = {p.name for p in skill_directories(ROOT)}
         for md in MD_FILES:
             text = read(md)
             for pat in patterns:
@@ -50,7 +52,7 @@ class SkillReferencesTest(unittest.TestCase):
                     )
 
     def test_agent_frontmatter_skills_exist(self):
-        skill_dirs = {p.name for p in (ROOT / "skills").iterdir() if p.is_dir()}
+        skill_dirs = {p.name for p in skill_directories(ROOT)}
         for md in (ROOT / ".claude" / "agents").glob("*.md"):
             m = re.search(r"^skills:\s*(.+)$", read(md), re.M)
             if not m:

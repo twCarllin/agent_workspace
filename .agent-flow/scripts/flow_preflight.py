@@ -15,6 +15,7 @@ import tomllib
 
 import doctor
 import harness_adapter
+import verification_snapshot
 
 
 def _command(argv, timeout, prompt=None):
@@ -151,6 +152,16 @@ def preflight(harness='codex', run_id=None, live=False, timeout=30):
         add('test_command', status, detail)
     except (OSError, ValueError, TypeError):
         add('test_command', 'failed', 'Run manifest or test command is invalid.')
+    try:
+        verification_snapshot.check_nested_repositories()
+        add('nested_repositories', 'ok', 'No unsupported nested repository inputs.')
+    except subprocess.CalledProcessError:
+        add('nested_repositories', 'unknown', 'Git repository metadata is unavailable.')
+    except OSError as error:
+        if isinstance(error, FileNotFoundError):
+            add('nested_repositories', 'unknown', 'Git executable is unavailable.')
+        else:
+            add('nested_repositories', 'failed', str(error))
     executable = shutil.which(harness)
     add('cli', 'ok' if executable else 'failed', 'CLI found.' if executable else 'CLI not found.')
     # Claude CLI execution is intentionally deferred, including --version/auth.

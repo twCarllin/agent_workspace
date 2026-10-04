@@ -67,12 +67,12 @@ def main():
         print("[run-verify] --reuse 只適用 schema 2 本地驗證", file=sys.stderr)
         sys.exit(2)
     started = time.monotonic()
-    record = {"command": args.cmd, "reused": False}
+    record = {"command": args.cmd, "reused": False, "executed": False}
     before = None
     if schema2:
-        record.update(snapshot_kind="inputs-v1", context={"environment": environment_digest()})
+        record.update(snapshot_kind="inputs-v2", context={"environment": environment_digest()})
         try:
-            before = verification_snapshot.input_snapshot()
+            before = verification_snapshot.input_snapshot_v2()
         except (OSError, subprocess.CalledProcessError) as error:
             record["error"] = str(error)
     target = eval_state.find_subtask(eval_state.load(), args.sub_task) if use_state else manifest
@@ -81,7 +81,7 @@ def main():
                            if history[index].get("command") == args.cmd), None)
     previous = history[previous_index] if previous_index is not None else {}
     reusable = (args.reuse and before is not None and previous.get("exit_code") == 0
-                and previous.get("snapshot_kind") == "inputs-v1"
+                and previous.get("snapshot_kind") == "inputs-v2"
                 and previous.get("snapshot") == before
                 and previous.get("context") == record.get("context"))
     if schema2 and before is None:
@@ -92,10 +92,11 @@ def main():
         record["reused_from"] = {"run_id": args.run_id, "sub_task": args.sub_task,
                                  "record_index": previous_index}
     else:
+        record["executed"] = True
         exit_code = subprocess.run(args.cmd, shell=True).returncode
     if schema2 and before is not None:
         try:
-            after = verification_snapshot.input_snapshot()
+            after = verification_snapshot.input_snapshot_v2()
             if after != before:
                 record["error"] = "Verification inputs changed during command"
                 exit_code = exit_code or 2

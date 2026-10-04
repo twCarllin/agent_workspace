@@ -84,8 +84,8 @@ class InputSnapshotTest(unittest.TestCase):
         self.write('code.py')
         self.git('add', '.')
         self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'initial')
-        for kind in (None, 'inputs-v1'):
-            record = {'exit_code': 0, 'snapshot': verification_snapshot.snapshot() if kind is None else self.snap()}
+        for kind in (None, 'inputs-v1', 'inputs-v2'):
+            record = {'exit_code': 0, 'snapshot': (verification_snapshot.snapshot() if kind is None else verification_snapshot.input_snapshot_v2() if kind == 'inputs-v2' else self.snap())}
             if kind:
                 record['snapshot_kind'] = kind
             manifest = {'evidence_schema': 2, 'tier': 1, 'verification_commands': [record]}
@@ -102,3 +102,64 @@ class InputSnapshotTest(unittest.TestCase):
         os.symlink('/etc/hosts', 'README.md')
         with self.assertRaises(OSError):
             self.snap()
+
+
+class InputSnapshotV2Test(InputSnapshotTest):
+    def nested(self):
+        self.write('agent_workspace/code.py')
+        self.git('-C', 'agent_workspace', 'init', '-q')
+
+    def test_untracked_nested_fails_with_action_then_approved_ignore_works(self):
+        self.nested()
+        with self.assertRaisesRegex(OSError, 'Untracked nested repository: agent_workspace; obtain approval'):
+            verification_snapshot.input_snapshot_v2()
+        with self.assertRaisesRegex(OSError, 'Unsupported verification input'):
+            self.snap()  # v1 semantics remain unchanged.
+        Path('.git/info/exclude').write_text('agent_workspace/\n')
+        before = verification_snapshot.input_snapshot_v2()
+        self.write('agent_workspace/code.py', 'changed')
+        self.assertEqual(before, verification_snapshot.input_snapshot_v2())
+        self.assertTrue(Path('agent_workspace/code.py').exists())
+
+    def test_ignore_policy_drift_and_tracked_excluded_code_are_inputs(self):
+        self.write('code.py')
+        self.git('add', 'code.py')
+        before = verification_snapshot.input_snapshot_v2()
+        Path('.git/info/exclude').write_text('code.py\n')
+        ignored = verification_snapshot.input_snapshot_v2()
+        self.assertNotEqual(before, ignored)
+        self.write('code.py', 'changed')
+        self.assertNotEqual(ignored, verification_snapshot.input_snapshot_v2())
+        with tempfile.TemporaryDirectory() as directory:
+            policy = Path(directory) / 'ignore'
+            policy.write_text('output\n')
+            self.git('config', 'core.excludesfile', str(policy))
+            before = verification_snapshot.input_snapshot_v2()
+            policy.write_text('other\n')
+            self.assertNotEqual(before, verification_snapshot.input_snapshot_v2())
+
+    def test_gitlink_cannot_be_hidden_by_ignore_or_missing_checkout(self):
+        self.nested()
+        self.git('-C', 'agent_workspace', 'add', '.')
+        self.git('-C', 'agent_workspace', '-c', 'user.name=Test', '-c',
+                 'user.email=test@example.com', 'commit', '-qm', 'child')
+        self.git('add', 'agent_workspace')
+        Path('.git/info/exclude').write_text('agent_workspace/\n')
+        for changed in (False, True):
+            if changed:
+                self.write('agent_workspace/code.py', 'dirty')
+            with self.assertRaisesRegex(OSError, 'Tracked gitlink verification is unsupported: agent_workspace'):
+                verification_snapshot.input_snapshot_v2()
+        import shutil
+        shutil.rmtree('agent_workspace')
+        with self.assertRaisesRegex(OSError, 'Tracked gitlink'):
+            verification_snapshot.input_snapshot_v2()
+
+    def test_missing_gitlink_checkout_must_not_be_treated_as_deleted_file(self):
+        self.write('seed')
+        self.git('add', 'seed')
+        self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'seed')
+        head = subprocess.run(['git', 'rev-parse', 'HEAD'], check=True, capture_output=True, text=True).stdout.strip()
+        self.git('update-index', '--add', '--cacheinfo', '160000,' + head + ',missing-child')
+        with self.assertRaisesRegex(OSError, 'Tracked gitlink'):
+            verification_snapshot.input_snapshot_v2()

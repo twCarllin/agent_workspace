@@ -10,10 +10,14 @@
 執行：python3 -m pytest tests/test_evalflow_structure.py -q
 """
 import re
+import sys
 import unittest
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / ".agent-flow/scripts"))
+from document_inventory import skill_documents
 SKILL = ROOT / "skills" / "eval-flow" / "SKILL.md"
 TIER2_PREP = ROOT / "skills" / "eval-flow" / "references" / "tier2-prep.md"
 
@@ -79,12 +83,87 @@ def anchor_present(text, anchor):
     return bool(pat.search(text))
 
 
+
+LINK = re.compile(r"\[[^\]]+\]\((references/[a-z0-9-]+\.md)\)")
+STAGE_LINK = re.compile(r"^\| step (\d)(?:–(\d))? \| \[[^\]]+\]\((references/[a-z0-9-]+\.md)\)", re.M)
+
+
+def reachable_references(entry):
+    """Only actual root links count; orphan files cannot satisfy a safety anchor."""
+    found = [entry]
+    for rel in dict.fromkeys(LINK.findall(read(entry))):
+        target = entry.parent / rel
+        if not target.is_file():
+            raise FileNotFoundError(f"必要 reference 缺席：{rel}")
+        found.append(target)
+    return found
+
+
+def stage_references(entry):
+    rows = STAGE_LINK.findall(read(entry))
+    covered = [n for first, last, _ in rows
+               for n in range(int(first), int(last or first) + 1)]
+    if covered != list(range(1, 8)):
+        raise ValueError(f"必讀步驟導覽未完整涵蓋 1–7：{covered}")
+    return [entry.parent / rel for _, _, rel in rows]
+
+
+class MandatoryDeliveryTest(unittest.TestCase):
+    def test_stage_rules_are_on_mandatory_load_path(self):
+        root = read(SKILL)
+        self.assertIn("開始當前階段前，必須完整讀取", root)
+        self.assertIn("執行前必讀", root)
+        refs = reachable_references(SKILL)
+        stages = stage_references(SKILL)
+        self.assertTrue(all(p in refs for p in stages))
+        for p, expected in zip(stages, ({1, 2}, {3, 4}, {5, 6, 7})):
+            numbers = [int(m.group(1)) for m in
+                       (STEP_HEAD.match(l) for l in read(p).splitlines()) if m]
+            self.assertEqual(set(numbers), expected)
+            self.assertEqual(len(numbers), len(expected), "實際規則不可重列")
+
+    def test_safety_rules_have_one_reachable_source(self):
+        text = "\n".join(read(p) for p in reachable_references(SKILL))
+        for anchor in (
+            "**四類升級觸發", "**修正迭代上限（僅數升級輪）**",
+            "**契約前置與仲裁句（硬性）**", "**知識前置（硬性步驟）**",
+            "**發現不得自我授權（scope 防線）**", "**🔴 重裁條款**",
+            "**引文核實（重裁不限 🔴）**", "**機械退件門檻**",
+            "**冷溯源檔的進版控範圍**", "**`Run-Id: <run_id>` trailer 是硬要求**",
+            "**`[憑據:step5]` 條目在本步收口**", "**intent gate（不可鬆）**",
+            "**無人看管的 session（headless）不得自行確認**",
+        ):
+            self.assertEqual(text.count(anchor), 1, f"硬規則缺席或重列：{anchor}")
+
+    def test_missing_reference_is_not_satisfied_by_orphan(self):
+        with tempfile.TemporaryDirectory() as d:
+            entry = Path(d) / "SKILL.md"
+            entry.write_text("[必讀](references/missing.md)")
+            with self.assertRaises(FileNotFoundError):
+                reachable_references(entry)
+            entry.write_text("| step 1–2 | [必讀](references/writing.md) |")
+            with self.assertRaises(ValueError):
+                stage_references(entry)
+
+    def test_entry_load_is_bounded_and_new_control_is_delivered(self):
+        root = read(SKILL)
+        self.assertLessEqual(len(root), 5000)
+        self.assertIn(".agent-flow/REVIEW_PACKET.md", root)
+        self.assertIn(".agent-flow/FLOW_CLI.md", root)
+        review = read(SKILL.parent / "references/review.md")
+        finish = read(SKILL.parent / "references/testing-finish.md")
+        self.assertIn("ready 只表示資料結構與來源可用，不是審查通過", review)
+        self.assertIn("失敗、疑似注入與實質疑慮仍依本文件四類升級", review)
+        self.assertIn("工具不填審查／測試通過旗標、不自動 stage", finish)
+        self.assertIn("prepare → commit（Run-Id）→ finalize", finish)
+
+
 class ReferencedAnchorsTest(unittest.TestCase):
     def test_all_externally_referenced_anchors_present(self):
-        both = read(SKILL) + "\n" + read(TIER2_PREP)
+        both = "\n".join(read(p) for p in reachable_references(SKILL))
         missing = [f"{a}（引用者：{who}）" for a, who in REFERENCED_ANCHORS
                    if not anchor_present(both, a)]
-        self.assertEqual(missing, [], "外部引用的錨點在 SKILL.md∪tier2-prep.md 中缺席或被改名，引用會靜默懸空：\n"
+        self.assertEqual(missing, [], "外部引用的錨點在 根入口與可到達必讀文件 中缺席或被改名，引用會靜默懸空：\n"
                                       + "\n".join(missing))
 
 
@@ -105,7 +184,9 @@ class ReferenceDepthTest(unittest.TestCase):
         SKILL.md 或別的 skill 不算互指。
         """
         offenders = []
-        for f in sorted(ROOT.glob("skills/*/references/*.md")):
+        for f in skill_documents(ROOT):
+            if f.parent.name != "references":
+                continue
             for hit in set(re.findall(r"references/([a-z0-9-]+\.md)", read(f))):
                 if hit != f.name:
                     offenders.append(f"{f.relative_to(ROOT)} → references/{hit}")
@@ -116,10 +197,11 @@ class CycleChecklistTest(unittest.TestCase):
     def test_checklist_matches_step_headings(self):
         """checklist 與步驟標題是同一枚舉的兩份副本（R-007）——以本測試代替人工同步。"""
         cycle = section(read(SKILL), CYCLE_HEAD, NEXT_AFTER_CYCLE)
+        real_steps = "\n".join(read(p) for p in stage_references(SKILL))
         checklist = [CHECKLIST_LINE.match(l) for l in cycle]
         checklist = [m for m in checklist if m]
         heads = {int(m.group(1)): m.group(2) for m in
-                 (STEP_HEAD.match(l) for l in cycle) if m}
+                 (STEP_HEAD.match(l) for l in real_steps.splitlines()) if m}
 
         self.assertEqual([int(m.group(1)) for m in checklist], [1, 2, 3, 4, 5, 6, 7],
                          "checklist 須恰 7 行、step 編號 1–7 依序")

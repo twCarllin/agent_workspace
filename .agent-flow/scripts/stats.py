@@ -46,6 +46,7 @@ import argparse
 import datetime
 import glob
 import json
+import math
 import os
 import re
 import sys
@@ -99,7 +100,9 @@ def _parse_events(path):
             if not line:
                 continue
             try:
-                events.append(json.loads(line))
+                row = json.loads(line)
+                if isinstance(row, dict):
+                    events.append(row)
             except json.JSONDecodeError:
                 continue
     return events
@@ -111,7 +114,7 @@ def _events_summary(events):
     timestamps = []
     for e in events:
         ts = e.get("ts")
-        if not ts:
+        if not isinstance(ts, str) or not ts:
             continue
         try:
             timestamps.append(datetime.datetime.fromisoformat(ts))
@@ -122,7 +125,8 @@ def _events_summary(events):
     step_hits = Counter()
     for e in events:
         if e.get("cmd") == "set-step":
-            args = e.get("args", {})
+            args = e.get("args")
+            args = args if isinstance(args, dict) else {}
             step_hits[(args.get("id"), args.get("step"))] += 1
     reentry = sum(cnt - 1 for cnt in step_hits.values() if cnt >= 2)
 
@@ -130,15 +134,101 @@ def _events_summary(events):
     full_suite = 0
     for e in events:
         if e.get("cmd") in ("verify_cmd", "add-verification"):
-            cmd_text = (e.get("args") or {}).get("verify_command")
+            args = e.get("args")
+            cmd_text = args.get("verify_command") if isinstance(args, dict) else None
             if isinstance(cmd_text, str) and "--strike-key full_suite" in cmd_text:
                 full_suite += 1
 
     return {"count": len(events), "span_seconds": span_seconds, "reentry": reentry, "full_suite": full_suite}
 
 
+def _duration(value):
+    """未知、布林、非有限值及負值不作時間樣本；零是有效樣本。"""
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) and value >= 0)
+
+
+def _verification_efficiency(rows, efficiency, commands):
+    if not isinstance(rows, list):
+        return
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("command"), str):
+            efficiency["invalid_rows"] += 1
+            continue
+        reused = row.get("reused", False)  # 舊實跑記錄沒有 reused 欄。
+        if not isinstance(reused, bool):
+            efficiency["invalid_rows"] += 1
+            continue
+        executed = row.get("executed")
+        if "executed" in row and not isinstance(executed, bool):
+            efficiency["invalid_rows"] += 1
+            continue
+        if reused and executed is True:
+            efficiency["invalid_rows"] += 1
+            continue
+        if reused:
+            kind = "reused"
+        elif executed is False:
+            efficiency["blocked"] += 1
+            continue
+        elif executed is None and "error" in row:
+            # 舊 error 記錄可能在執行前或後發生，無法判斷是否實跑。
+            efficiency["execution_unknown"] += 1
+            continue
+        else:
+            kind = "executed"
+        efficiency[kind] += 1
+        if kind == "executed":
+            commands[row["command"]] += 1
+        value = row.get("elapsed_seconds")
+        if _duration(value):
+            efficiency[kind + "_seconds"] += value
+            efficiency[kind + "_timed"] += 1
+
+
+def _packet_efficiency(events, efficiency):
+    if events is None:
+        efficiency["packet_missing_runs"] += 1
+        return
+    for event in events:
+        args = event.get("args")
+        if event.get("cmd") != "review-packet" or not isinstance(args, dict):
+            continue
+        action = args.get("action")
+        if action not in ("build", "validate"):
+            continue
+        efficiency["packet_actions"][action] += 1
+        value = args.get("elapsed_seconds")
+        if _duration(value):
+            efficiency["packet_seconds"][action] += value
+            efficiency["packet_timed"][action] += 1
+        missing = args.get("missing")
+        if isinstance(missing, list):
+            efficiency["packet_missing"].update(x for x in missing if isinstance(x, str))
+
+
+def append_efficiency(out, data):
+    e = data["efficiency"]
+    out.append(f"驗證效率：實跑 {e['executed']}／沿用 {e['reused']}／相同指令重複實跑 {e['repeated']}"
+               f"／執行前阻擋 {e['blocked']}／是否實跑未知 {e['execution_unknown']}"
+               f"（各 run 內依指令原文計算，不推定原因）；無記錄 {len(data['runs']) - data['verif_runs']} 個 run；無效列 {e['invalid_rows']}")
+    def elapsed(total, count):
+        return f"{total:.3f}s（{count} 筆有時間記錄）" if count else "n/a（無時間記錄）"
+    out.append("驗證已記錄時間：" + "／".join(
+        label + " " + elapsed(e[kind + "_seconds"], e[kind + "_timed"])
+        for kind, label in (("executed", "實跑"), ("reused", "沿用"))))
+    out.append("審查資料包：" + "／".join(
+        f"{action} {e['packet_actions'][action]} 筆，" + elapsed(e["packet_seconds"][action], e["packet_timed"][action])
+        for action in ("build", "validate")) + f"；無 events 記錄 {e['packet_missing_runs']} 個 run")
+    out.append(f"資料包缺少輸入原因：{dict(e['packet_missing'].most_common())}（事件出現次數；資料包就緒不代表 checker 通過）")
+
+
 def collect(run_dir="run"):
     data = {
+        "efficiency": {"executed": 0, "reused": 0, "blocked": 0, "execution_unknown": 0, "repeated": 0, "invalid_rows": 0,
+                       "executed_seconds": 0, "reused_seconds": 0, "executed_timed": 0, "reused_timed": 0,
+                       "packet_actions": Counter(), "packet_seconds": Counter(), "packet_timed": Counter(),
+                       "packet_missing": Counter(), "packet_missing_runs": 0},
         "runs": [], "tiers": Counter(), "statuses": Counter(),
         "waived": 0, "hitl_confirmed": 0, "hitl_rejections": 0,
         # sub_tasks／rework／checked_by_*：分母語義斷點（PER_TASK_CUTOFF）——本組無 `_new` 後綴的鍵
@@ -202,14 +292,20 @@ def collect(run_dir="run"):
 
         # verification_commands：Tier 1 記在 manifest、Tier 2 記在各 sub_task（下方 archive 迴圈併計）。
         # 鍵不存在＝該 run 無記錄（不計入平均分母）；存在但為空陣列＝有記錄但 0 條
+        commands = Counter()
+        _verification_efficiency(m.get("verification_commands"), data["efficiency"], commands)
         verif_recorded = isinstance(m.get("verification_commands"), list)
         verif_cmds = len(m["verification_commands"]) if verif_recorded else 0
 
         archive = load(os.path.join(run_dir, f"{m['run_id']}.eval.json"))
         if isinstance(archive, dict):
             period = _period(m["run_id"])  # "old"（一筆＝item）或 "new"（一筆＝task，Q2/Q9）
-            for st in archive.get("sub_tasks", []):
-                rounds = st.get("rounds", [])
+            sub_tasks = archive.get("sub_tasks")
+            for st in sub_tasks if isinstance(sub_tasks, list) else []:
+                if not isinstance(st, dict):
+                    continue
+                rounds = st.get("rounds")
+                rounds = [r for r in rounds if isinstance(r, dict)] if isinstance(rounds, list) else []
                 if period == "new":
                     data["sub_tasks_new"] += 1
                 else:
@@ -235,6 +331,7 @@ def collect(run_dir="run"):
                         data["scores"].append(score)
                 # 維度分佈：優先讀 review_dimensions（維度→問題數）
                 sub_vc = st.get("verification_commands")
+                _verification_efficiency(sub_vc, data["efficiency"], commands)
                 if isinstance(sub_vc, list):
                     verif_recorded = True
                     verif_cmds += len(sub_vc)
@@ -279,6 +376,7 @@ def collect(run_dir="run"):
                                 data["dim_counter"][d.get("dimension", "?")] += pts
                                 data["has_legacy_dims"] = True
 
+        data["efficiency"]["repeated"] += sum(n - 1 for n in commands.values() if n > 1)
         if verif_recorded:
             data["verif_runs"] += 1
             data["verif_cmds"] += verif_cmds
@@ -290,6 +388,7 @@ def collect(run_dir="run"):
             )
 
         events = _parse_events(os.path.join(run_dir, f"{m['run_id']}.events.jsonl"))
+        _packet_efficiency(events, data["efficiency"])
         data["events"].append(
             (m["run_id"], _events_summary(events) if events is not None else None)
         )
@@ -443,6 +542,7 @@ def report(data):
         trend = "、".join(f"{r}: stable {s}" for r, s in data["baseline"])
         out.append(f"baseline 欠帳走勢：{trend}")
     append_subagent_usage(out, data)
+    append_efficiency(out, data)
     if data["events"]:
         parts = []
         for run_id, info in data["events"]:

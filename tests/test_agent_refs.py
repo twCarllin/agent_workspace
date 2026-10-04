@@ -4,16 +4,19 @@
 宣告的 skill，不檢查被文件引用的 agent 本身是否存在。本測試補齊此缺口。
 
 執行：python3 -m unittest tests.test_agent_refs -v
-掃描來源：skills/*/SKILL.md、.claude/agents/*.md、CLAUDE.md、README.md。
+掃描來源：skills/*/SKILL.md、skills/*/references/*.md、.claude/agents/*.md、CLAUDE.md、README.md。
 """
 import re
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / ".agent-flow/scripts"))
+from document_inventory import skill_documents
 
 SCAN_FILES = (
-    list((ROOT / "skills").glob("*/SKILL.md"))
+    skill_documents(ROOT)
     + list((ROOT / ".claude" / "agents").glob("*.md"))
     + [ROOT / "CLAUDE.md", ROOT / "README.md"]
 )
@@ -28,7 +31,7 @@ SCAN_FILES = (
 EXCEPTION_LIST = {
     # 目前無例外。原有的 eval-scorer 條目已於 run 2026-07-30-deprecate-orphan-skills
     # 移除——該條目的說明本身即預告「待 eval-scoring skill 汰除後清理」，而該 skill 已
-    # 移入 skills/_deprecated/、脫離上方 SCAN_FILES 的單層 glob，全 repo 再無 eval-scorer
+    # 移入 skills/_deprecated/、脫離共同清單的活 skill 範圍，全 repo 再無 eval-scorer
     # 的引用來源，hygiene 檢查（清單內 agent 已無人引用即 fail）如設計般要求清理本條目。
     # 移除是收緊而非放寬：主檢查不再豁免 eval-scorer，涵蓋範圍變大。
 }
@@ -85,14 +88,17 @@ def extract_agent_refs(text: str) -> set:
     return refs
 
 
-def scan_all_refs() -> dict:
+def scan_all_refs(root=ROOT) -> dict:
     """掃描所有來源檔案，回傳 {agent_name: [來源檔相對路徑, ...]} 的字典。"""
     refs: dict = {}
-    for f in SCAN_FILES:
+    files = (skill_documents(root)
+             + list((root / ".claude" / "agents").glob("*.md"))
+             + [root / "CLAUDE.md", root / "README.md"])
+    for f in files:
         if not f.exists():
             continue
         text = read(f)
-        rel = str(f.relative_to(ROOT))
+        rel = str(f.relative_to(root))
         for name in extract_agent_refs(text):
             refs.setdefault(name, []).append(rel)
     return refs

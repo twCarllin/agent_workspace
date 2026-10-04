@@ -55,6 +55,35 @@ class RunVerifyTest(unittest.TestCase):
         with open(os.path.join("run", f"{run_id}.events.jsonl"), encoding="utf-8") as f:
             return [json.loads(line) for line in f if line.strip()]
 
+    def test_real_subprocess_v2_rejects_nested_then_reuses_approved_exclusion(self):
+        subprocess.run(['git', 'init', '-q'], check=True, capture_output=True)
+        self.write_manifest()
+        manifest = self.read_manifest()
+        manifest['evidence_schema'] = 2
+        Path('run/r1.json').write_text(json.dumps(manifest))
+        Path('agent_workspace').mkdir()
+        subprocess.run(['git', '-C', 'agent_workspace', 'init', '-q'], check=True, capture_output=True)
+        Path('agent_workspace/code.py').write_text('child')
+        entry = Path(__file__).resolve().parents[1] / '.agent-flow/scripts/run_verify.py'
+        argv = [sys.executable, str(entry), '--run-id', 'r1', '--cmd', 'python3 -c pass']
+        blocked = subprocess.run(argv, capture_output=True, text=True)
+        self.assertEqual(blocked.returncode, 2, blocked.stderr)
+        self.assertIn('Untracked nested repository', self.read_manifest()['verification_commands'][-1]['error'])
+        self.assertFalse(self.read_manifest()['verification_commands'][-1]['executed'])
+        Path('.git/info/exclude').write_text('agent_workspace/\n')
+        first = subprocess.run(argv, capture_output=True, text=True)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        record = self.read_manifest()['verification_commands'][-1]
+        self.assertEqual(record['snapshot_kind'], 'inputs-v2')
+        reused = subprocess.run(argv + ['--reuse'], capture_output=True, text=True)
+        self.assertEqual(reused.returncode, 0, reused.stderr)
+        self.assertTrue(self.read_manifest()['verification_commands'][-1]['reused'])
+        with Path('.git/info/exclude').open('a') as stream:
+            stream.write('# approved scope changed\n')
+        changed = subprocess.run(argv + ['--reuse'], capture_output=True, text=True)
+        self.assertEqual(changed.returncode, 0, changed.stderr)
+        self.assertFalse(self.read_manifest()['verification_commands'][-1]['reused'])
+
     def test_tier1_success_records_to_manifest_and_events(self):
         self.write_manifest()
         code = run_cli("--run-id", "r1", "--cmd", "python3 -c pass")
@@ -74,6 +103,7 @@ class RunVerifyTest(unittest.TestCase):
         self.assertEqual(code, 3)
         cmds = self.read_manifest()["verification_commands"]
         self.assertEqual(cmds[0]["exit_code"], 3)
+        self.assertTrue(cmds[0]["executed"])
 
     def test_tier2_records_to_subtask_not_manifest(self):
         self.write_manifest()
@@ -123,6 +153,7 @@ class RunVerifyCacheTest(RunVerifyTest):
         self.assertEqual(self.verify(True), 0)
         self.assertEqual(Path("counter").read_text(), "1")
         self.assertTrue(self.read_manifest()["verification_commands"][-1]["reused"])
+        self.assertFalse(self.read_manifest()["verification_commands"][-1]["executed"])
         Path("README.md").write_text("doc")
         self.assertEqual(self.verify(True), 0)
         Path("input.py").write_text("two")
@@ -136,9 +167,36 @@ class RunVerifyCacheTest(RunVerifyTest):
         self.assertEqual(self.verify(command="python3 -c \"from pathlib import Path; Path('input.py').write_text('changed')\""), 2)
         record = self.read_manifest()["verification_commands"][-1]
         self.assertNotIn("snapshot", record)
-        with mock.patch.object(run_verify.verification_snapshot, "input_snapshot", side_effect=OSError("error")):
+        with mock.patch.object(run_verify.verification_snapshot, "input_snapshot_v2", side_effect=OSError("error")):
             self.assertEqual(self.verify(True), 2)
         self.assertNotIn("snapshot", self.read_manifest()["verification_commands"][-1])
+
+    def test_snapshot_before_failure_records_blocked_without_command_side_effect(self):
+        Path("agent_workspace").mkdir()
+        subprocess.run(["git", "-C", "agent_workspace", "init", "-q"], check=True, capture_output=True)
+        entry = Path(__file__).resolve().parents[1] / ".agent-flow/scripts/run_verify.py"
+        proc = subprocess.run([sys.executable, str(entry), "--run-id", "r1", "--cmd", self.command],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertFalse(Path("counter").exists())
+        record = self.read_manifest()["verification_commands"][-1]
+        self.assertFalse(record["executed"])
+        self.assertFalse(record["reused"])
+        self.assertIn("Untracked nested repository", record["error"])
+        self.assertIn("agent_workspace", record["error"])
+
+    def test_snapshot_after_failure_records_actual_execution(self):
+        entry = Path(__file__).resolve().parents[1] / ".agent-flow/scripts/run_verify.py"
+        command = self.command + " && git init -q agent_workspace"
+        proc = subprocess.run([sys.executable, str(entry), "--run-id", "r1", "--cmd", command],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertEqual(Path("counter").read_text(), "1")
+        record = self.read_manifest()["verification_commands"][-1]
+        self.assertTrue(record["executed"])
+        self.assertFalse(record["reused"])
+        self.assertIn("Untracked nested repository", record["error"])
+        self.assertIn("agent_workspace", record["error"])
 
     def test_latest_failure_prevents_reusing_earlier_success(self):
         self.assertEqual(self.verify(), 0)

@@ -284,6 +284,8 @@ def finish(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
+    import review_packet
+    review_packet.parser_arguments(commands.add_parser('review-packet'))
     pre = commands.add_parser('preflight')
     pre.add_argument('--harness', choices=('codex', 'claude'), default='codex')
     pre.add_argument('--run-id')
@@ -306,6 +308,8 @@ def main(argv=None):
     end.add_argument('--reuse', action='store_true')
     args = parser.parse_args(argv)
     try:
+        if args.command == 'review-packet':
+            return review_packet.execute(args)
         if args.command == 'preflight':
             import flow_preflight
             result = flow_preflight.preflight(harness=args.harness, run_id=args.run_id,

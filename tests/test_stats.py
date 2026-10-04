@@ -30,6 +30,78 @@ class StatsCollectTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_efficiency_executions_reuse_and_exact_repeats(self):
+        write(os.path.join(self.run_dir, "r.json"), {
+            "run_id": "r", "verification_commands": [
+                {"command": "check", "elapsed_seconds": 2},
+                {"command": "check", "reused": True, "elapsed_seconds": 0},
+                {"command": "check ", "elapsed_seconds": 3},
+            ]})
+        write(os.path.join(self.run_dir, "r.eval.json"), {"sub_tasks": [None, {
+            "verification_commands": [{"command": "check", "reused": False}]}]})
+        e = stats.collect(self.run_dir)["efficiency"]
+        self.assertEqual((e["executed"], e["reused"], e["repeated"]), (3, 1, 1))
+        self.assertEqual((e["executed_seconds"], e["executed_timed"]), (5, 2))
+        self.assertEqual((e["reused_seconds"], e["reused_timed"]), (0, 1))
+        report = stats.report(stats.collect(self.run_dir))
+        self.assertIn("沿用 0.000s（1 筆有時間記錄）", report)
+        self.assertIn("相同指令重複實跑 1", report)
+
+    def test_efficiency_blocked_and_legacy_errors_do_not_claim_execution(self):
+        write(os.path.join(self.run_dir, "r.json"), {"run_id": "r", "verification_commands": [
+            {"command": "check", "executed": False, "reused": False, "error": "before", "elapsed_seconds": 20},
+            {"command": "check", "error": "ambiguous", "elapsed_seconds": 30},
+            {"command": "check", "executed": True, "error": "after", "elapsed_seconds": 2},
+            {"command": "check", "executed": False, "reused": True, "elapsed_seconds": 0},
+            {"command": "legacy", "elapsed_seconds": 3},
+            {"command": "invalid", "executed": None},
+            {"command": "invalid", "executed": True, "reused": True}]})
+        data = stats.collect(self.run_dir)
+        e = data["efficiency"]
+        self.assertEqual((e["executed"], e["reused"], e["blocked"], e["execution_unknown"]), (2, 1, 1, 1))
+        self.assertEqual(e["executed_seconds"], 5)
+        self.assertEqual(e["executed_timed"], 2)
+        self.assertEqual(e["repeated"], 0)
+        self.assertEqual(e["invalid_rows"], 2)
+        report = stats.report(data)
+        self.assertIn("執行前阻擋 1／是否實跑未知 1", report)
+
+    def test_efficiency_missing_zero_and_invalid_duration(self):
+        write(os.path.join(self.run_dir, "missing.json"), {"run_id": "missing"})
+        write(os.path.join(self.run_dir, "zero.json"), {"run_id": "zero", "verification_commands": []})
+        write(os.path.join(self.run_dir, "bad.json"), {"run_id": "bad", "verification_commands": [
+            None, "bad", {"command": "x", "reused": "true"},
+            *[{"command": "x", "elapsed_seconds": value} for value in
+              (None, True, -1, float("nan"), float("inf"))]]})
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["verif_runs"], 2)
+        self.assertEqual(data["efficiency"]["invalid_rows"], 3)
+        self.assertEqual(data["efficiency"]["executed_timed"], 0)
+        report = stats.report(data)
+        self.assertIn("實跑 n/a（無時間記錄）", report)
+        self.assertIn("無記錄 1 個 run", report)
+
+    def test_efficiency_actual_packet_event_shape_and_bad_rows(self):
+        write(os.path.join(self.run_dir, "r.json"), {"run_id": "r"})
+        rows = [None, [], {"cmd": "review-packet", "args": None},
+                {"cmd": "review-packet", "args": {"action": "build", "elapsed_seconds": 0,
+                 "missing": ["staged_diff", None]}},
+                {"cmd": "review-packet", "args": {"action": "validate", "elapsed_seconds": 2,
+                 "missing": ["staged_diff", "test_output"]}},
+                {"cmd": "review-packet", "args": {"action": "validate", "elapsed_seconds": True,
+                 "missing": None}}, {"cmd": "set-step", "args": None}]
+        with open(os.path.join(self.run_dir, "r.events.jsonl"), "w", encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(row) for row in rows))
+        data = stats.collect(self.run_dir)
+        e = data["efficiency"]
+        self.assertEqual(e["packet_actions"], {"build": 1, "validate": 2})
+        self.assertEqual(e["packet_timed"], {"build": 1, "validate": 1})
+        self.assertEqual(e["packet_seconds"], {"build": 0, "validate": 2})
+        self.assertEqual(e["packet_missing"], {"staged_diff": 2, "test_output": 1})
+        report = stats.report(data)
+        self.assertIn("資料包就緒不代表 checker 通過", report)
+        self.assertNotIn("首輪通過率", report)
+
     def make_fixture(self):
         write(os.path.join(self.run_dir, "r1.json"), {
             "run_id": "r1", "tier": 2, "status": "completed",
