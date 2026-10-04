@@ -16,10 +16,25 @@ import json
 import os
 import subprocess
 import sys
+import hashlib
+import shlex
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import eval_state  # noqa: E402
 import verification_snapshot  # noqa: E402
+
+
+def environment_digest():
+    """Keep environment values private; compare only their digest."""
+    return hashlib.sha256(json.dumps(dict(os.environ), sort_keys=True).encode()).hexdigest()
+
+
+def live_command(command):
+    tokens = shlex.split(command)
+    return (any(os.path.basename(token) in ("codex", "claude") for token in tokens)
+            or (any("harness_smoke" in token for token in tokens) and "--live" in tokens)
+            or (any("skill_eval" in token for token in tokens) and "--dry-run" not in tokens))
 
 
 def main():
@@ -27,6 +42,7 @@ def main():
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--sub-task", type=int, default=None, dest="sub_task")
     parser.add_argument("--cmd", required=True)
+    parser.add_argument("--reuse", action="store_true", help="Reuse matching local success in this run")
     args = parser.parse_args()
 
     manifest_path = os.path.join("run", f"{args.run_id}.json")
@@ -34,24 +50,61 @@ def main():
 
     # 前置檢查（跑指令之前）：記錄目標必須存在
     if use_state:
-        eval_state.find_subtask(eval_state.load(), args.sub_task)  # 找不到 → fail() 非零退出
+        state = eval_state.load()
+        if state.get("run_id") != args.run_id:
+            print("[run-verify] eval_state run_id 不符", file=sys.stderr)
+            sys.exit(2)
+        eval_state.find_subtask(state, args.sub_task)  # 找不到 → fail() 非零退出
     elif not os.path.exists(manifest_path):
         print(f"[run-verify] 找不到 {manifest_path}——先建 manifest（Tier 2 記 sub_task 需同時給 --sub-task 且 eval_state.json 存在）",
               file=sys.stderr)
         sys.exit(2)
 
-    proc = subprocess.run(args.cmd, shell=True)
-    exit_code = proc.returncode
-
-    record = {"command": args.cmd, "exit_code": exit_code}
     with open(manifest_path, encoding="utf-8") as stream:
-        evidence_schema = json.load(stream).get("evidence_schema")
-    if exit_code == 0 and evidence_schema == 2:
+        manifest = json.load(stream)
+    schema2 = manifest.get("evidence_schema") == 2
+    if args.reuse and (not schema2 or live_command(args.cmd)):
+        print("[run-verify] --reuse 只適用 schema 2 本地驗證", file=sys.stderr)
+        sys.exit(2)
+    started = time.monotonic()
+    record = {"command": args.cmd, "reused": False}
+    before = None
+    if schema2:
+        record.update(snapshot_kind="inputs-v1", context={"environment": environment_digest()})
         try:
-            record["snapshot"] = verification_snapshot.snapshot()
+            before = verification_snapshot.input_snapshot()
         except (OSError, subprocess.CalledProcessError) as error:
-            print(f"[run-verify] 無法取得驗證快照：{error}", file=sys.stderr)
-            sys.exit(2)
+            record["error"] = str(error)
+    target = eval_state.find_subtask(eval_state.load(), args.sub_task) if use_state else manifest
+    history = target.get("verification_commands", [])
+    previous_index = next((index for index in range(len(history) - 1, -1, -1)
+                           if history[index].get("command") == args.cmd), None)
+    previous = history[previous_index] if previous_index is not None else {}
+    reusable = (args.reuse and before is not None and previous.get("exit_code") == 0
+                and previous.get("snapshot_kind") == "inputs-v1"
+                and previous.get("snapshot") == before
+                and previous.get("context") == record.get("context"))
+    if schema2 and before is None:
+        exit_code = 2
+    elif reusable:
+        exit_code = 0
+        record["reused"] = True
+        record["reused_from"] = {"run_id": args.run_id, "sub_task": args.sub_task,
+                                 "record_index": previous_index}
+    else:
+        exit_code = subprocess.run(args.cmd, shell=True).returncode
+    if schema2 and before is not None:
+        try:
+            after = verification_snapshot.input_snapshot()
+            if after != before:
+                record["error"] = "Verification inputs changed during command"
+                exit_code = exit_code or 2
+            elif exit_code == 0:
+                record["snapshot"] = after
+        except (OSError, subprocess.CalledProcessError) as error:
+            record["error"] = str(error)
+            exit_code = exit_code or 2
+    record.update(exit_code=exit_code, elapsed_seconds=time.monotonic() - started)
     try:
         if use_state:
             state = eval_state.load()
@@ -74,7 +127,9 @@ def main():
         print(f"[run-verify] 已記錄 verification（exit={exit_code}）"
               f" -> {'eval_state.json sub_task ' + str(args.sub_task) if use_state else manifest_path}")
     except Exception as e:
-        print(f"[run-verify] 警告：verification 記錄寫入失敗（{e}），不影響指令 exit code", file=sys.stderr)
+        print(f"[run-verify] verification 記錄寫入失敗（{e}）", file=sys.stderr)
+        if schema2:
+            exit_code = exit_code or 2
 
     sys.exit(exit_code)
 

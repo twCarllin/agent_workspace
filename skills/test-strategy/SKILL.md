@@ -58,6 +58,10 @@ python3 .agent-flow/scripts/test_baseline.py mine --run-id <任意識別字串> 
 - **視覺類 DoD 的使用者驗收（`[憑據:step5]` 條目的 best-effort 收口）**：帶 `[憑據:step5]` 記號（定義住 task-decomposition skill）的 DoD 條目，實機環境備妥 → 實跑取證；備不妥 → step 5 列「待使用者驗收」清單回報使用者逐條裁決，裁決記入 `local_test_evidence`（含使用者裁決原話一句）。
   - **本路徑非豁免**——不觸發 `test_policy`、不需使用者明示豁免宣告；自動化功能測試照常硬 gate，交給人的只有「呈現對不對」這一段本來就無自動憑據的判定
 
+## 分段與重用
+
+Tier 2 實作期間跑相關測試，提交前跑一次完整回歸。輸入未變的本地成功結果可明確重用；條件、快照與 live 邊界依 eval-flow `references/efficiency.md`。失敗與輸入改變仍依下列硬性 gate 處置。
+
 ## Step 5 執行順序（每個 sub_task）
 
 0. **行為驗證紀律**：寫任何驗證程式（含臨時 harness）前，先確認實際介面——`inspect.signature`、讀函式定義，**不憑印象寫**（R-015）。

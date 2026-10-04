@@ -6,6 +6,7 @@
 import json
 import os
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -99,6 +100,79 @@ class RunVerifyTest(unittest.TestCase):
         code = run_cli("--run-id", "r1", "--cmd", "python3 -c pass")
         self.assertEqual(code, 0)
         self.assertEqual(len(self.read_manifest()["verification_commands"]), 1)
+
+
+class RunVerifyCacheTest(RunVerifyTest):
+    def setUp(self):
+        super().setUp()
+        subprocess.run(["git", "init", "-q"], check=True)
+        self.write_manifest()
+        manifest = self.read_manifest()
+        manifest["evidence_schema"] = 2
+        Path("run/r1.json").write_text(json.dumps(manifest))
+        Path(".gitignore").write_text("counter\n")
+        Path("input.py").write_text("one")
+        self.command = "python3 -c \"from pathlib import Path; p=Path('counter'); p.write_text(str(int(p.read_text())+1) if p.exists() else '1')\""
+
+    def verify(self, reuse=False, command=None):
+        return run_cli("--run-id", "r1", "--cmd", command or self.command,
+                       *(["--reuse"] if reuse else []))
+
+    def test_reuse_requires_optin_and_matching_inputs_environment(self):
+        self.assertEqual(self.verify(), 0)
+        self.assertEqual(self.verify(True), 0)
+        self.assertEqual(Path("counter").read_text(), "1")
+        self.assertTrue(self.read_manifest()["verification_commands"][-1]["reused"])
+        Path("README.md").write_text("doc")
+        self.assertEqual(self.verify(True), 0)
+        Path("input.py").write_text("two")
+        self.assertEqual(self.verify(True), 0)
+        with mock.patch.dict(os.environ, {"CACHE_TEST_ENV": "changed"}):
+            self.assertEqual(self.verify(True), 0)
+        self.assertEqual(self.verify(), 0)
+        self.assertEqual(Path("counter").read_text(), "4")
+
+    def test_input_mutation_and_snapshot_errors_fail_closed(self):
+        self.assertEqual(self.verify(command="python3 -c \"from pathlib import Path; Path('input.py').write_text('changed')\""), 2)
+        record = self.read_manifest()["verification_commands"][-1]
+        self.assertNotIn("snapshot", record)
+        with mock.patch.object(run_verify.verification_snapshot, "input_snapshot", side_effect=OSError("error")):
+            self.assertEqual(self.verify(True), 2)
+        self.assertNotIn("snapshot", self.read_manifest()["verification_commands"][-1])
+
+    def test_latest_failure_prevents_reusing_earlier_success(self):
+        self.assertEqual(self.verify(), 0)
+        real_run = subprocess.run
+        with mock.patch.object(run_verify.subprocess, "run") as runner:
+            def execute(*args, **kwargs):
+                return subprocess.CompletedProcess(args[0], 3) if kwargs.get("shell") else real_run(*args, **kwargs)
+            runner.side_effect = execute
+            self.assertEqual(self.verify(), 3)
+        self.assertEqual(self.verify(True), 0)
+        self.assertEqual(Path("counter").read_text(), "2")
+
+    def test_tier2_cache_is_scoped_to_same_run_and_subtask(self):
+        eval_state_cli("init", "--run-id", "r1")
+        eval_state_cli("add-subtask", "--id", "1", "--name", "demo")
+        args = ("--run-id", "r1", "--sub-task", "1", "--cmd", self.command)
+        self.assertEqual(run_cli(*args), 0)
+        self.assertEqual(run_cli(*args, "--reuse"), 0)
+        self.assertEqual(Path("counter").read_text(), "1")
+        self.write_manifest("r2")
+        self.assertEqual(run_cli("--run-id", "r2", "--sub-task", "1", "--cmd", self.command, "--reuse"), 2)
+
+    def test_real_cli_and_compatibility_entrypoint_share_cache(self):
+        root = Path(__file__).resolve().parents[1]
+        for entry, extra in ((root / '.agent-flow/scripts/run_verify.py', []),
+                             (root / '.claude/hooks/run_verify.py', ['--reuse'])):
+            proc = subprocess.run([sys.executable, str(entry), '--run-id', 'r1',
+                                   '--cmd', self.command, *extra], capture_output=True)
+            self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(Path('counter').read_text(), '1')
+
+    def test_live_reuse_is_rejected_before_execution(self):
+        for command in ("python3 harness_smoke.py --live", "python3 skill_eval.py", "codex exec test", "claude -p test"):
+            self.assertEqual(self.verify(True, command), 2)
 
 
 if __name__ == "__main__":

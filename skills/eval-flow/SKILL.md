@@ -99,6 +99,8 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
      - 無契約表的 item（Tier 1 無表 fallback）仲裁句改指 DoD
      - writer 以「表沒答案」帶失敗交付時，**主 flow 裁決**：讀 Spec／usage 報告判該行為的預期，把裁決結果補進契約表（表可增補、single source 不變）再回派；Spec 本身有洞才走升級逃生門問使用者
    - **交付稽核（writer 交付時）**——正常交付（記錄對得上）瞄一眼即過，不展開：核對工作報告的「仲裁記錄」——紅過的測試每條都要有仲裁行，判「測試超出契約」者核對 row 引文與 task 檔原文一致（對不上＝假仲裁，退件）。writer 的 mine 模式測試自驗不落檔、不跨對照；改測試湊綠由 checker 核對「契約 row 逐條有對應測試斷言」時現形
+修正重審與驗證重用依 `references/efficiency.md`：首輪完整獨立審；僅已審版本到目前 index 的有效 delta 可縮小重審，契約與未解問題仍完整提供。
+
 2. 將變更檔案 `git add` 進 staging area（確保 checker／code-reviewer 可透過 `git diff --cached` 讀取）。
    - **預設派 task-verifier（checker）時，prompt 附 `git diff --cached --stat -- <files>` 輸出**（僅檔名與行數統計，checker 不讀 diff 內容）
    - **升級為 code-reviewer 全 diff 審時，prompt 硬性指示改用 `git diff --cached -- <files>`**（file-scoped 完整 diff）
@@ -136,7 +138,7 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
    - **checker 通過**（完成度節無缺席、憑據節逐項有憑據）→ 主 flow 執行 set-verify，進 step 5
    - **checker 觸發任一升級①-④** → 改派 code-reviewer 全 diff 審（見步驟 3 四類升級觸發），本輪改記 `checked_by: reviewer(escalated: <理由代碼>)`（記入 `eval_state`）；reviewer 交付後依下列兩條處置
    - **升級輪（reviewer）零 🔴 且完成度節無缺席項** → 主 flow 執行 set-verify，進 step 5
-   - **升級輪（reviewer）有 🔴 或完成度節列出缺席項** → 走 fixing 迴圈（重裁條款、set-review 均不變；審查結論記 `eval_state`，見步驟 3）；修正後重跑步驟 3（升級輪，直接派 reviewer，不退回 checker）
+   - **升級輪（reviewer）有 🔴 或完成度節列出缺席項** → 走 fixing 迴圈（重裁條款、set-review 均不變；審查結論記 `eval_state`，見步驟 3）；修正後依 `references/efficiency.md` 產生增量 diff，再重跑步驟 3（升級輪，直接派 reviewer，不退回 checker）
    - **🟡-only 快速路徑（省一輪審查稅，僅升級輪適用）**：checker 輪無 🟡 分級——憑據對不上即升級，不適用本路徑。
      - 適用條件：升級輪內，零 🔴、完成度節無缺席、僅 🟡，且 🟡 全屬主 flow 可直接套用的**措辭級**修正（修錯字、對齊術語、補澄清性說明——不改邏輯、不改介面、不動 code 行為；**判斷有疑義時一律歸邏輯級**，省稅是優化、正確性是底線）
      - 適用時：主 flow 套用修正後**不重跑**，該輪即為通過輪、照常 set-verify

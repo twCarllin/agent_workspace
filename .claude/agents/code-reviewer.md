@@ -19,6 +19,7 @@ model: claude-sonnet-5-5
 ## 審查流程
 
 1. **取得 diff**：使用 `git diff --cached -- <files>` 讀取 staged 變更，`<files>` 為本次 sub_task 的涉及檔案清單（由主 flow 派工 prompt 依當前 sub_task 的 `files` 欄位提供——主 flow 讀 `eval_state.json` 該 sub_task 的 `files`；注意 `eval_state.py list-files` 回傳的是**全 sub_task 聯集**、不可當單一 sub_task 的來源）
+   - 主 flow 提供經 review_delta.py 檢查的增量 diff 時，依 `.agents/skills/eval-flow/references/efficiency.md` 審修正與未解問題；首輪仍完整審。delta 空白不自動通過，checkpoint 失效回 task 完整 staged diff。
    - 如果使用者指定了 commit 範圍，使用該範圍的 diff
    - 如果 `git diff --cached` 為空，**停止審查並回報「staging area 為空，請確認是否已 git add」**，不要自行 fallback；`-- <files>` 命中為空時同樣走空即停，不 fallback 全域 diff
    - **不使用** `git diff`（unstaged），確保審查範圍與最終 commit 一致

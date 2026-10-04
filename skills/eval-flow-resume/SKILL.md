@@ -50,6 +50,8 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 | `scoring` | （舊版 run 的相容值）無對應現行步驟 | 視同 testing 完成，直接進 step 6 收尾順序（歸檔 → 清除 eval_state → 回寫 token 用量 → commit；溯源檔不 `git add`，見 eval-flow SKILL.md step 6 子項②） |
 | `done` | 該 task 已收完 | 狀態應為 `passed`；不是 → 修正狀態後進下一個 task |
 
+恢復時若有有效 review checkpoint 與前次結論，可依 eval-flow `references/efficiency.md` 重派獨立 reviewer 做增量重審；前次結論缺失仍按本表重審，不以 checkpoint 代替審查結果。
+
 4. **輪數判定**：讀該 task 的 `review_reds`——**無值＝首輪**（重派 checker 視為首輪執行）；**有值＝已跑過至少一輪**（重派 checker 後若再有 🔴，依循環 step 3／4 的四類升級觸發改派 code-reviewer）
 5. **已知缺陷（使用者已知情接受，不另設補償機制）**：
    1. 中斷發生在「升級 reviewer 輪」時，恢復會誤降回 checker——`review_reds` 有無值只能判斷「跑過至少一輪」，讀不出上一輪究竟是 checker 輪還是已升級的 reviewer 輪

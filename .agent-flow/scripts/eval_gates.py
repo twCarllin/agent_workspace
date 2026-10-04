@@ -150,7 +150,13 @@ def _validate_evidence_snapshot(manifest, source):
         block(f"{source} 缺通過的全套驗證快照；用 run_verify.py 重新驗證")
     try:
         import verification_snapshot
-        current = verification_snapshot.snapshot()
+        kind = latest.get("snapshot_kind")
+        if kind is None:
+            current = verification_snapshot.snapshot()
+        elif kind == "inputs-v1":
+            current = verification_snapshot.input_snapshot()
+        else:
+            block(f"{source} 未知驗證快照格式：{kind}")
     except (OSError, subprocess.CalledProcessError) as error:
         block(f"{source} 無法核對驗證快照：{error}")
     if current != latest["snapshot"]:
