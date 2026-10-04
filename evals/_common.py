@@ -1,6 +1,6 @@
 """各情境 check.py 共用的斷言工具（純檔案斷言，不呼叫任何 agent）。
 
-結果 JSON 來自 `claude -p --output-format json`，欄位格式不可信任（R-003／R-018）：缺鍵、非字串一律當 FAIL 不拋例外。
+結果 JSON 來自共用 harness adapter，欄位格式不可信任（R-003／R-018）：缺鍵、非字串一律當 FAIL 不拋例外。
 """
 import glob
 import json
@@ -25,7 +25,7 @@ class Checker:
 
     def result_text(self, data):
         """取回應正文；缺 result 鍵 → 記 FAIL 並回 None（呼叫端跳過依賴文字的斷言）。"""
-        if not isinstance(data, dict) or not isinstance(data.get("result"), str):
+        if not isinstance(data, dict) or data.get("is_error") or not isinstance(data.get("result"), str):
             self.check("輸出含 result", False, "結果 JSON 缺 result 鍵或非字串")
             return None
         return data["result"]

@@ -20,3 +20,9 @@ AGENTS.md 與 CLAUDE.md 是簡短入口。安裝器由共用角色產生 .codex/
 並行執行須有獨立 Git worktree、index、run manifest 與已啟用 gate。無法滿足時改為循序執行。權限與背景方式由目前 harness 適配層決定；流程本身不授予額外權限。
 
 舊 .claude/hooks/ 使用相對連結指向共用核心。新增指令使用 .agent-flow/scripts/。
+
+CLI 與事件適配由 `.agent-flow/scripts/harness_adapter.py` 提供 build_argv、parse_result、normalize_hook、capabilities。CLI 回報統一為 result、session_id、usage、is_error 等欄位；錯誤輸出不得當成驗收通過。Codex CLI 無美元預算能力，成本未知記 null，執行以次数與 timeout 限制。
+
+安裝器先在暫存區產生計畫，--dry-run 不修改目標。ownership manifest 記已安装內容雜湊；使用者修改與更新衝突時停止。可捕捉的寫入失敗會還原檔案、連結與 Git hook；斷電或強制終止不在 rollback 保證內。
+
+驗證分兩層：本地確定性整合測試，以及 harness_smoke.py --live 的原生 CLI 證據。後者涵蓋檔案修改、hook 阻擋、測試失敗留痕與恢復定位；完整 skill 行為用 skill_eval.py 評測。CLI、帳號、模型或 trust 不可用時記 blocked，不宣稱 pass。

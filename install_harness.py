@@ -7,6 +7,8 @@ import os
 import shutil
 import subprocess
 import tomllib
+import re
+from harness_install_transaction import build_plan, apply_plan, snapshot
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parent
@@ -59,7 +61,7 @@ Use the matching role, with goal, context, constraints, and done conditions. Res
     path.write_text(existing)
 
 
-def install_core(target):
+def install_core(target, repo_mode=False):
     for path in (SOURCE / '.agent-flow').glob('*.md'):
         if path.name == 'legacy-claude-router.md':
             continue
@@ -87,7 +89,7 @@ def install_core(target):
     for name in sorted(names):
         source = SOURCE / 'skills' / name
         destination = skills / name
-        if target == SOURCE:
+        if target == SOURCE or repo_mode:
             if destination.is_symlink():
                 destination.unlink()
             elif destination.exists():
@@ -95,7 +97,7 @@ def install_core(target):
                     print(f'[harness] preserved custom skill: {destination}')
                     continue
                 shutil.rmtree(destination)
-            destination.symlink_to(os.path.relpath(source, destination.parent))
+            destination.symlink_to(os.path.relpath(target / "skills" / name if repo_mode else source, destination.parent))
             continue
         if destination.exists() or destination.is_symlink():
             if not (destination / '.agent-workspace-managed').exists():
@@ -148,7 +150,7 @@ def merge_hooks(target, harness):
     prefix = '$CLAUDE_PROJECT_DIR' if harness == 'claude' else '$(git rev-parse --show-toplevel)'
     script = f'"{prefix}/.agent-flow/scripts/'
     entries = {
-        'PreToolUse': {'matcher': 'Bash|Task|Agent|Write|Edit|MultiEdit|NotebookEdit' if harness == 'claude' else 'Bash|Agent',
+        'PreToolUse': {'matcher': 'Bash|Task|Agent|Write|Edit|MultiEdit|NotebookEdit' if harness == 'claude' else 'Bash|Agent|apply_patch',
                       'hooks': [{'type': 'command', 'command': f'python3 {script}eval_gates.py" --hook', 'timeout': 30}]},
         'SessionStart': {'matcher': 'startup|resume|compact',
                          'hooks': [{'type': 'command', 'command': f'AGENT_FLOW_HARNESS={harness} python3 {script}session_start.py"', 'timeout': 15}]},
@@ -178,6 +180,14 @@ def register_codex_agents(target):
     path = target / '.codex/config.toml'
     text = path.read_text() if path.exists() else ''
     data = tomllib.loads(text)
+    if 'default_subagent_model' not in data.get('agents', {}):
+        model = PROFILES['codex']['code-writer']['model']
+        setting = f'default_subagent_model = {json.dumps(model)}\n'
+        header = re.search(r'^\[agents\]\s*$', text, re.M)
+        if header:
+            text = text[:header.end()] + '\n' + setting + text[header.end():]
+        else:
+            text += '\n[agents]\n' + setting
     for role in PROFILES['codex']:
         if role in data.get('agents', {}):
             continue
@@ -198,7 +208,7 @@ def install_git_hook(target):
     path = Path(result.stdout.strip())
     if not path.is_absolute():
         path = target / path
-    if path.exists() and 'agent-workspace managed commit message gate' not in path.read_text():
+    if path.is_symlink() or (path.exists() and 'agent-workspace managed commit message gate' not in path.read_text()):
         print(f'[harness] preserved existing commit-msg hook: {path}; integrate: {call}')
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -206,23 +216,13 @@ def install_git_hook(target):
     path.chmod(0o755)
 
 
-def main(default='both'):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--harness', '--platform', '--p', choices=('claude', 'codex', 'both'), default=default)
-    parser.add_argument('--target', type=Path, default=SOURCE.parent)
-    parser.add_argument('--git-hook-only', action='store_true')
-    args = parser.parse_args()
-    target = args.target.resolve()
-    target.mkdir(parents=True, exist_ok=True)
-    if args.git_hook_only:
-        install_git_hook(target)
-        return
-    install_core(target)
-    for harness in ('claude', 'codex') if args.harness == 'both' else (args.harness,):
-        instructions(target, harness)
-        install_agents(target, harness)
-        merge_hooks(target, harness)
-        if harness == 'codex':
+def populate(target, harness, repo_mode=False):
+    install_core(target, repo_mode)
+    for side in ('claude', 'codex') if harness == 'both' else (harness,):
+        instructions(target, side)
+        install_agents(target, side)
+        merge_hooks(target, side)
+        if side == 'codex':
             register_codex_agents(target)
         else:
             for skill in (target / '.agents/skills').iterdir():
@@ -231,8 +231,52 @@ def main(default='both'):
                     print(f'[harness] preserved custom Claude skill: {destination}')
                 else:
                     link_file(destination, skill)
-    install_git_hook(target)
-    print(f'[harness] installed {args.harness} in {target}')
+
+
+def git_hook_path(target):
+    result = subprocess.run(['git', '-C', str(target), 'config', '--get', 'core.hooksPath'], capture_output=True, text=True)
+    if result.returncode == 0:
+        return None
+    result = subprocess.run(['git', '-C', str(target), 'rev-parse', '--git-path', 'hooks/commit-msg'], capture_output=True, text=True)
+    if result.returncode:
+        return None
+    path = Path(result.stdout.strip())
+    return path if path.is_absolute() else target / path
+
+
+def main(default='both'):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--harness', '--platform', '--p', choices=('claude', 'codex', 'both'), default=default)
+    parser.add_argument('--target', type=Path, default=SOURCE.parent)
+    parser.add_argument('--git-hook-only', action='store_true')
+    parser.add_argument('--dry-run', action='store_true', help='Preview without changing the target')
+    args = parser.parse_args()
+    # Resolve the parent, but reject a symlink target instead of following it.
+    if args.target.is_symlink():
+        parser.exit(1, f'[harness] refusing symlink target: {args.target}\n')
+    target = args.target.resolve()
+    try:
+        plan = build_plan(target, args.harness, populate, source=SOURCE) if not args.git_hook_only else {
+            'target': target, 'before': snapshot(target), 'changes': {}, 'conflicts': []}
+        for name, state in plan['changes'].items():
+            action = 'delete' if state is None else ('update' if name in plan['before'] else 'create')
+            print(f'[harness] {action}: {name}')
+        for name in plan['conflicts']:
+            print(f'[harness] conflict: {name}')
+        hook = git_hook_path(target)
+        print(f'[harness] commit-msg: {hook if hook else "preserve / not a Git project"}')
+        if plan['conflicts']:
+            parser.exit(1, '[harness] modified managed files; no target changes applied\n')
+        if args.dry_run:
+            print(f'[harness] preview {args.harness} in {target}; no target writes')
+            return
+        hook_before = ('link', os.readlink(hook), 0) if hook and hook.is_symlink() else (
+                ('file', hook.read_bytes(), hook.stat().st_mode & 0o777) if hook and hook.exists() else None)
+        apply_plan(plan, finalize=lambda: install_git_hook(target),
+                   external={hook: hook_before} if hook else {})
+        print(f'[harness] installed {args.harness} in {target}')
+    except (ValueError, OSError, json.JSONDecodeError, tomllib.TOMLDecodeError) as error:
+        parser.exit(1, f'[harness] {error}\n')
 
 
 if __name__ == '__main__':

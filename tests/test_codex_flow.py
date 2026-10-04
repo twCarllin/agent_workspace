@@ -112,8 +112,13 @@ class CodexFlowTest(unittest.TestCase):
         buglog.write_text("project buglog\n", encoding="utf-8")
         version.write_text("old version\n", encoding="utf-8")
         again = run(self.project, "bash", str(ROOT / "init.sh"), "--p", "codex", "--target", str(self.project))
+        self.assertEqual(again.returncode, 1, again.stderr)
+        self.assertIn("conflict", again.stdout)
+        self.assertEqual(version.read_text(encoding="utf-8"), "old version\n")
+        # Spec portability §作廢舊行為: user edits require an explicit resolution.
+        version.write_text((ROOT / '.agent-flow/scripts/VERSION').read_text(), encoding='utf-8')
+        again = run(self.project, 'bash', str(ROOT / 'init.sh'), '--p', 'codex', '--target', str(self.project))
         self.assertEqual(again.returncode, 0, again.stderr)
-        self.assertEqual(version.read_text(encoding="utf-8"), (ROOT / ".claude" / "hooks" / "VERSION").read_text(encoding="utf-8"))
         self.assertEqual(retro.read_text(encoding="utf-8"), "project retro\n")
         self.assertEqual(buglog.read_text(encoding="utf-8"), "project buglog\n")
 

@@ -143,7 +143,7 @@ class DispatchTest(unittest.TestCase):
         datetime.datetime.fromisoformat(rec.pop("ts"))
         self.assertIsInstance(rec.pop("duration_ms"), int)
         self.assertEqual(rec, {
-            "role": "task-verifier", "backend": "claude", "session_id": "sess-abc",
+            "role": "task-verifier", "backend": "claude", "permissions": "inherit", "session_id": "sess-abc",
             "resumed": False, "model": "claude-haiku-4-5-20251001", "turns": 3,
             "input_tokens": 10, "cache_creation_input_tokens": 19448,
             "cache_read_input_tokens": 13971, "output_tokens": 44,
@@ -152,7 +152,7 @@ class DispatchTest(unittest.TestCase):
         })
 
     def test_c2_claude_argv_and_stdin(self):
-        """C2：argv 含 -p／--agent <role>／--output-format json／--dangerously-skip-permissions；stdin == prompt 檔。"""
+        """C2：argv 含 -p／--agent <role>／--output-format json；預設無 bypass；stdin == prompt 檔。"""
         self.dispatch("task-verifier", "--prompt-file", self.prompt, stdout=claude_json())
         calls = self.calls_made()
         self.assertEqual(len(calls), 1)
@@ -161,9 +161,23 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("-p", argv)
         self.assertEqual(argv[argv.index("--agent") + 1], "task-verifier")
         self.assertEqual(argv[argv.index("--output-format") + 1], "json")
-        self.assertIn("--dangerously-skip-permissions", argv)
+        self.assertNotIn("--dangerously-skip-permissions", argv)
         self.assertNotIn("--resume", argv)
         self.assertEqual(calls[0]["stdin"], "派工 prompt 全文\n第二行\n")
+
+    def test_explicit_unrestricted_permissions_are_recorded(self):
+        for backend, output, flag in (("claude", claude_json(), "--dangerously-skip-permissions"),
+                                      ("codex", codex_jsonl(), "--dangerously-bypass-approvals-and-sandbox")):
+            with self.subTest(backend=backend):
+                if backend == "codex":
+                    directory = Path(self.dir) / ".codex/agents"
+                    directory.mkdir(parents=True, exist_ok=True)
+                    (directory / "task-verifier.toml").write_text(CODEX_TOML)
+                result = self.dispatch("task-verifier", "--prompt-file", self.prompt,
+                                       "--backend", backend, "--permissions", "unrestricted", stdout=output)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(flag, self.calls_made()[-1]["argv"])
+                self.assertEqual(self.records()[-1]["permissions"], "unrestricted")
 
     def test_c3_missing_self_check_is_blocking(self):
         """C3：缺 Self-check 終行 → exit 2；stderr 含「信封缺損」；stdout 仍全文；留痕 envelope=blocking。"""
@@ -240,7 +254,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(argv[0], "exec")
         self.assertIn("--json", argv)
         self.assertIn("--skip-git-repo-check", argv)
-        self.assertIn("--dangerously-bypass-approvals-and-sandbox", argv)
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", argv)
         self.assertEqual(argv[argv.index("-m") + 1], "gpt-6-luna")
         self.assertEqual(argv[argv.index("-c") + 1], "model_reasoning_effort=high")
         self.assertTrue(call["stdin"].startswith("Codex role adapter: checker 指令全文"))
@@ -254,7 +268,7 @@ class DispatchTest(unittest.TestCase):
         rec.pop("ts")
         rec.pop("duration_ms")
         self.assertEqual(rec, {
-            "role": "task-verifier", "backend": "codex", "session_id": "thread-xyz",
+            "role": "task-verifier", "backend": "codex", "permissions": "inherit", "session_id": "thread-xyz",
             "resumed": False, "model": "gpt-6-luna", "turns": 1,
             "input_tokens": 16296, "cache_creation_input_tokens": 12,
             "cache_read_input_tokens": 7936, "output_tokens": 5,

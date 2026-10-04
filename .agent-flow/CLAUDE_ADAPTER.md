@@ -7,7 +7,7 @@
 
 使用原生 Agent 工具時：只有使用者明示 auto-mode，writer／reviewer 才可用 run_in_background: true。未明示時以前景執行，保留 Bash 權限確認。無 Bash 需求的規劃與 retro 可背景產出，但必須等待交付與必要的 HITL gate，才可續跑。
 
-dispatch.py 的 Claude CLI 相容路徑沿用既有 claude -p --agent 與全放行旗標。只有目前 session 已授權該方式時使用；未授權時用原生工具與目前權限。
+dispatch.py 使用 Claude CLI 的 claude -p --agent。預設 --permissions inherit，不附權限覆寫，遵守子 CLI 自身設定；不能保證繼承未保存的父程序權限。只有明確指定 --permissions unrestricted 才使用完整權限旗標。
 
 worktree 的 tool payload cwd 由共用 _resolve_root 解析。CLAUDE_PROJECT_DIR 固定於 session 起點；不要直接用它讀 worktree 的 run。起點是 Git 子目錄的舊 Claude 路徑仍不支援 fan-out。模型由 harnesses/models.json 的 Claude 設定產生。用量解析僅適用 Claude transcript；session_id/config_dir 的環境變數細節屬此適配層。SessionStart 透過 AGENT_FLOW_HARNESS=claude 明示 harness。
 

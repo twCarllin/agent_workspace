@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>一套流程，多種 AI 工具｜Harness 說明</title>
+<style>
+:root{color-scheme:light;--ink:#172d34;--muted:#526970;--line:#d7e3df;--green:#126856;--paper:#f5f7f2}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.7 system-ui,-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif}main{max-width:1080px;margin:auto;padding:48px 28px 36px}h1,h2,h3,p{margin:0}h1{font-size:clamp(34px,5.5vw,60px);line-height:1.2;letter-spacing:-.035em;margin:16px 0 20px}h2{font-size:26px;line-height:1.4;margin-bottom:10px}h3{font-size:19px;line-height:1.5}p{margin-top:8px}.eyebrow,.label{font-size:12px;font-weight:750;letter-spacing:.1em;text-transform:uppercase}.eyebrow{color:var(--green)}.lead{font-size:21px;max-width:760px}.muted,small{color:var(--muted)}section{margin-top:42px}.intro{border-bottom:1px solid var(--line);padding-bottom:32px}.note{border-left:4px solid var(--green);background:#e9f1eb;padding:16px 20px;margin-top:22px;border-radius:0 12px 12px 0}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.card{background:white;border:1px solid var(--line);border-radius:16px;padding:23px}.card p{font-size:15px}.tag{display:inline-block;font-size:12px;font-weight:700;border-radius:20px;padding:3px 10px;background:#e7f2ed;color:#155a49;margin-bottom:12px}.pending{background:#fff0d9;color:#7d4d0b}.architecture{border:1px solid var(--line);border-radius:20px;background:#fff;padding:24px;text-align:center;margin-top:18px}.core{background:var(--ink);color:white;padding:22px;border-radius:12px}.core p{color:#d4e5e0;font-size:15px}.arrow{color:var(--green);font-size:24px;line-height:1.4;padding:6px}.branches{display:grid;grid-template-columns:1fr 1fr;gap:18px}.adapter{border:1px solid #a5c7ba;background:#f0f7f2;border-radius:12px;padding:16px}.tool{background:#f4f5f7;border-radius:12px;padding:16px}.diagram-caption{font-size:14px;color:var(--muted);margin-top:16px}.steps{list-style:none;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}.steps li{background:white;border-top:3px solid var(--green);padding:20px 16px;border-radius:0 0 12px 12px}.num{color:var(--green);font-size:13px;font-weight:800;display:block;margin-bottom:8px}.steps p{font-size:15px}.loop{font-size:15px;padding:14px 18px;border:1px dashed #8faf9f;border-radius:12px}.example{background:#e9eef8;border-radius:16px;padding:24px}.example .label{color:#365584}.roadmap{padding-left:22px}.roadmap li{padding:7px 0}details{background:white;border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin-top:12px}summary{cursor:pointer;font-weight:700}summary:focus-visible{outline:3px solid var(--green);outline-offset:6px}details p{font-size:15px}footer{border-top:1px solid var(--line);margin-top:36px;padding-top:20px;font-size:13px;color:var(--muted)}@media(max-width:700px){main{padding:28px 18px}.grid,.steps{grid-template-columns:1fr}.branches{grid-template-columns:1fr}.architecture{padding:16px}.lead{font-size:19px}section{margin-top:30px}}@media print{body{background:white;font-size:11pt}main{padding:0;max-width:none}h1{font-size:30pt}section{margin-top:20px}.card,.architecture,.example,li,details{break-inside:avoid}details>p{display:block}footer{margin-top:20px}}
+</style>
+</head>
+<body>
+<main>
+<header class="intro">
+<div class="eyebrow">Agent Workspace · 架構與流程說明</div>
+<h1>一套流程，<br>選擇不同的 AI 工具。</h1>
+<p class="lead">把「工作怎麼做」放在共用核心。<br>透過 Adapter，交給 Codex 或 Claude Code 執行。</p>
+<div class="note"><strong>30 秒講法：</strong>像同一份工作單，可以交給不同團隊。工作目標與驗收標準相同；Adapter 負責把指令轉成各工具能接受的格式。</div>
+</header>
+<section aria-labelledby="architecture-title">
+<div class="eyebrow">01 / 分工</div><h2 id="architecture-title">誰決定流程？誰執行工作？</h2>
+<p class="muted">Harness 在這裡指管理 AI 工作的執行環境。這個專案的目標，是讓流程能跨執行環境使用。</p>
+<div class="architecture" role="group" aria-label="目標架構：共用核心透過各自的 Adapter 連接 Codex 或 Claude Code；執行結果回到共用核心">
+<div class="core"><div class="label">共用核心 · 工作規則</div><h3>目標 → 任務 → 狀態 → 驗收 → 證據</h3><p>決定要做什麼、做到哪裡，以及什麼才算完成。</p></div>
+<div class="arrow" aria-hidden="true">↕</div>
+<div class="branches">
+<div><div class="adapter"><h3>Codex Adapter</h3><p>轉換派工命令、事件與設定</p></div><div class="arrow" aria-hidden="true">↕</div><div class="tool"><h3>Codex</h3><p>讀檔、改程式、執行命令</p></div></div>
+<div><div class="adapter"><h3>Claude Code Adapter</h3><p>轉換派工命令、事件與設定</p></div><div class="arrow" aria-hidden="true">↕</div><div class="tool"><h3>Claude Code</h3><p>讀檔、改程式、執行命令</p></div></div>
+</div>
+<p class="diagram-caption">架構與執行契約已建立，Codex 原生 CLI 四個案例已通過；Claude Code 驗證延期。通常選一個工具執行；不要求兩個工具同時運作。結果與驗證證據回到共用核心。</p>
+</div>
+</section>
+<section aria-labelledby="flow-title">
+<div class="eyebrow">02 / 一次任務</div><h2 id="flow-title">從需求到完成，走同一條路</h2>
+<ol class="steps">
+<li><span class="num">01 → 說清楚</span><h3>定義工作</h3><p>寫下目標、限制與完成條件。例如：修正登入錯誤，且原有測試仍通過。</p></li>
+<li><span class="num">02 → 選工具</span><h3>交給 Adapter</h3><p>選 Codex 或 Claude Code。Adapter 把任務與設定轉成該工具的執行方式。</p></li>
+<li><span class="num">03 → 執行與檢查</span><h3>實作、審查、測試</h3><p>工具修改檔案。依任務等級進行審查，並用完成條件檢查結果。</p></li>
+<li><span class="num">04 → 留下紀錄</span><h3>保存結果</h3><p>記錄變更、測試證據與任務狀態。符合流程規則後，再提交成果。</p></li>
+</ol>
+<div class="loop"><strong>檢查未通過：</strong>記錄原因 → 依流程修正或取得必要決策 → 再檢查。<br><strong>執行中斷：</strong>保存狀態 → 核對檔案與證據 → 從正確步驟恢復。</div>
+</section>
+<section class="example" aria-labelledby="example-title"><div class="label">用一個例子說明</div><h2 id="example-title">同樣修登入錯誤，換工具也能沿用工作單</h2><p><strong>共用內容：</strong>錯誤重現方式、預期結果、可修改範圍、測試指令。</p><p><strong>隨工具改變：</strong>派工命令、模型設定、事件格式、權限處理方式。</p><p>換工具接手時，讀取已保存的工作單、檔案與證據。工具內部的對話和推理狀態不保證能轉移；跨工具恢復仍需驗證。</p></section>
+<section aria-labelledby="status-title">
+<div class="eyebrow">03 / 目前進度</div><h2 id="status-title">Codex 實際驗證通過，Claude Code 延期</h2>
+<div class="grid">
+<article class="card"><span class="tag">已建立</span><h3>共用來源</h3><p>流程、角色與核心腳本已有共用位置。安裝器可產生 Codex 與 Claude Code 的設定。</p></article>
+<article class="card"><span class="tag">已實作</span><h3>跨工具評測</h3><p>同一組案例可選 Codex 或 Claude。測試環境改用共用安裝器，技能連結已有本地驗證。</p></article>
+<article class="card"><span class="tag">Codex 已驗證</span><h3>真實執行</h3><p>Codex 使用 gpt-6.1-sol，正常完成案例已加入驗證設定完整性檢查並重跑通過；違規阻擋、測試失敗與中斷恢復沿用先前通過證據。暫存測試專案明確使用 unrestricted 並啟用 hook。Claude Code 驗證依使用者要求延期。</p></article>
+</div>
+</section>
+<section aria-labelledby="next-title"><div class="eyebrow">04 / 接下來</div><h2 id="next-title">實作與驗證進度</h2><ol class="roadmap"><li><strong>修評測：</strong>已用共用安裝器建立測試環境；兩種工具可選。</li><li><strong>補 Adapter：</strong>已統一事件與結果格式；完整權限需明確指定。</li><li><strong>跑實際流程：</strong>本地案例與 Codex 原生 CLI 四個案例通過；Claude Code 驗證延期。</li><li><strong>改善安裝：</strong>已加入變更預覽、修改衝突偵測與寫入失敗還原。</li></ol></section>
+<section aria-labelledby="faq-title"><h2 id="faq-title">常見問題</h2>
+<details><summary>完成後，就不需要 Codex 或 Claude Code 了嗎？</summary><p>仍需要執行工具。目標是讓共用流程不綁定其中一家，能依需求選擇工具。</p></details>
+<details><summary>以後可以加入第三種工具嗎？</summary><p>可以往這個方向擴充。需要建立新的 Adapter、確認工具能力，並通過同一組驗收案例。缺少必要能力時，必須明確回報限制。</p></details>
+<details><summary>換工具後，結果會完全一樣嗎？</summary><p>不保證。模型與工具能力不同，產出的程式可能不同；工作目標、驗收條件與證據格式應保持一致。</p></details>
+</section>
+<footer>Agent Workspace · 說明日期：2026-10-04 · 此頁說明目標架構與目前進度，不代表待辦項目已完成。可離線開啟，也可用瀏覽器列印為 PDF。</footer>
+</main>
+</body>
+</html>

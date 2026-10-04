@@ -89,7 +89,7 @@ WRITE_GATE_EXEMPT_EXACT = ("eval_state.json",)
 
 
 # hook 模式下被擋時附上；流程細節不在常駐 context，被擋常代表 skill 未載入或已被 compact
-SKILL_HINT = "（流程細節住在 eval-flow skill：若尚未載入或 context 被 compact，先載入 skills/eval-flow/SKILL.md，再依檔案狀態修正）"
+SKILL_HINT = "（流程細節住在 eval-flow skill：若尚未載入或 context 被 compact，先載入 .agents/skills/eval-flow/SKILL.md，再依檔案狀態修正）"
 _hint_enabled = False
 
 
@@ -486,12 +486,12 @@ def check_write_gate(tool_input):
     """HITL 未過不得寫實作檔（攔截型，exit 2）。無進行中的 run 一律放行。"""
     rel = _rel_to_cwd(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
     if rel is None:
-        sys.exit(0)  # repo 外的檔案不屬本 gate 管轄
+        return  # repo 外的檔案不屬本 gate 管轄
     if rel in WRITE_GATE_EXEMPT_EXACT or rel.startswith(WRITE_GATE_EXEMPT_PREFIXES):
-        sys.exit(0)
+        return
     pending = _runs_before_hitl()
     if not pending:
-        sys.exit(0)  # 無進行中的 run（含 Tier 0 與日常工作）→ 不擋
+        return  # 無進行中的 run（含 Tier 0 與日常工作）→ 不擋
     manifest_path, manifest = pending[0]
     run_id = MANIFEST_RE.match(manifest_path).group("run_id")
     block(
@@ -615,6 +615,9 @@ def run_hook():
     except json.JSONDecodeError:
         sys.exit(0)  # 非預期輸入，不擋
 
+    import harness_adapter
+    payload = harness_adapter.normalize_hook(payload)
+
     root = _resolve_root(payload)
     os.chdir(root)
 
@@ -628,6 +631,11 @@ def run_hook():
     # 之前，否則 Write／Edit 的 payload 無 command、會先被放行型帶離，攔截型永不執行
     if tool_name in WRITE_TOOLS:
         check_write_gate(tool_input)
+
+    if tool_name == "apply_patch":
+        # Check every touched path before the non-command early return (R-008).
+        for path in tool_input.get("_write_paths", []):
+            check_write_gate({"file_path": path})
 
     command = tool_input.get("command", "")
     # 派工辨識排在 commit 辨識之前：一條 Bash 指令不會同時是兩者（check_task_gate 內部 sys.exit）

@@ -20,13 +20,13 @@
 
 | role | model | reasoning effort | 指派理由 |
 |---|---|---|---|
-| code-writer | gpt-6.1-sol | low | 2026-09-30 使用者指定：Codex exec 全角色統一設定 |
-| code-reviewer | gpt-6.1-sol | low | 2026-09-30 使用者指定：Codex exec 全角色統一設定 |
-| task-verifier | gpt-6.1-sol | low | 2026-09-30 使用者指定：Codex exec 全角色統一設定 |
-| task-decomposer | gpt-6.1-sol | low | 2026-09-30 使用者指定：Codex exec 全角色統一設定 |
-| usage-analyzer | gpt-6.1-sol | low | 2026-09-30 使用者指定：Codex exec 全角色統一設定 |
-| impact-analyzer | gpt-6.1-sol | low | 2026-09-30 使用者指定：Codex exec 全角色統一設定 |
-| retro | gpt-6.1-sol | low | 2026-09-30 使用者指定：Codex exec 全角色統一設定 |
+| code-writer | gpt-6.1-sol | low | 2026-10-03 使用者指定：Codex 子 agent 全角色統一設定 |
+| code-reviewer | gpt-6.1-sol | low | 2026-10-03 使用者指定：Codex 子 agent 全角色統一設定 |
+| task-verifier | gpt-6.1-sol | low | 2026-10-03 使用者指定：Codex 子 agent 全角色統一設定 |
+| task-decomposer | gpt-6.1-sol | low | 2026-10-03 使用者指定：Codex 子 agent 全角色統一設定 |
+| usage-analyzer | gpt-6.1-sol | low | 2026-10-03 使用者指定：Codex 子 agent 全角色統一設定 |
+| impact-analyzer | gpt-6.1-sol | low | 2026-10-03 使用者指定：Codex 子 agent 全角色統一設定 |
+| retro | gpt-6.1-sol | low | 2026-10-03 使用者指定：Codex 子 agent 全角色統一設定 |
 
 - 主 session（coordinator）model 不入表，沿用 `~/.codex/config.toml` 預設，與 Claude 端「主 session 不入表」一致
 - 本次參數設定未呼叫付費 Codex session 驗證模型可用性。

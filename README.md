@@ -72,6 +72,33 @@ Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改
 
 共用來源：Router 在 `.agent-flow/ROUTER.md`，角色在 `.agent-flow/roles/`，腳本在 `.agent-flow/scripts/`，skills 在 `skills/`。各 harness 的模型設定在 `.agent-flow/harnesses/models.json`，安裝器產生各自角色設定。repo 的 `.agents/skills/` 連結至來源，避免副本落後。
 
+### 安裝前預覽與更新
+
+```sh
+./init.sh --harness both --target /path/to/project --dry-run
+./init.sh --harness both --target /path/to/project
+```
+
+預覽不建立目標、不改 Git 設定。安裝以 `.agent-flow/install-manifest.json` 記錄受管理內容；若使用者修改與更新衝突，列出檔案並停止。請先比較、備份並合併修改，再重跑；安裝器不提供忽略衝突的旗標。入口區段外的指令、使用者 hook 與自訂角色保留。可捕捉的寫入失敗會還原本次修改與 Git hook；不保證斷電或強制終止也能還原。
+
+### 派工與驗證
+
+```sh
+python3 .agent-flow/scripts/dispatch.py code-writer --backend codex --prompt-file request.md --files src/app.py
+python3 .agent-flow/scripts/skill_eval.py --dry-run --harness codex
+python3 .agent-flow/scripts/harness_smoke.py
+```
+
+派工預設 `--permissions inherit`，保留 CLI 自身權限設定；只有明確指定 `--permissions unrestricted` 才附完整權限旗標。父程序未保存的權限不一定傳給子 CLI。
+
+Smoke 預設只列計畫。以下指令會呼叫模型，最多每種工具四個案例，逐次 timeout 90 秒；Claude 每次預算上限 1 美元，Codex 成本未知。`--trust-local-hooks` 只批准此次暫存環境中由本 runner 產生的 Codex hook，不修改全域 trust，也不略過流程 gate。
+
+```sh
+python3 .agent-flow/scripts/harness_smoke.py --live --trust-local-hooks --output run/harness-smoke.json
+```
+
+本地整合測試與真實 CLI 結果分開記錄。CLI smoke 驗證客戶端 hook、檔案修改、測試失敗與恢復定位；完整 skill 行為另用 skill_eval.py 評測。帳號、模型或 hook trust 受阻時記 blocked，不算 pass。Codex 的 [hook 事件與 trust 要求](https://learn.chatgpt.com/docs/hooks) 依客戶端版本而定。
+
 ## 最佳做法
 
 入口保持短小；流程按需載入。派工包含目標、背景、限制與完成條件。複雜工作先規劃，交付附驗證與獨立審查證據。這些做法已寫入兩種入口共用的 `.agent-flow/PRACTICES.md`，依 [OpenAI 指南](https://learn.chatgpt.com/guides/best-practices) 調整。外部整合與排程依實際需求建立。
@@ -89,3 +116,5 @@ Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改
 | subagent headless 派工（`claude -p`／`codex exec`） | `.agent-flow/scripts/dispatch.py` |
 | 遙測與健檢 | `.agent-flow/scripts/stats.py`、`doctor.py` |
 | gate script 的測試 | `tests/`（`python3 -m unittest discover -s tests`） |
+
+本次驗證（2026-10-04）：Codex 使用 `gpt-6.1-sol`，在暫存專案明確選擇 `--permissions unrestricted --trust-local-hooks`，正常案例已修正完整性檢查並重跑通過；其餘三個原生 CLI smoke 案例沿用先前通過證據。預設派工仍為 `inherit`。Claude Code CLI 驗證依使用者要求延期。

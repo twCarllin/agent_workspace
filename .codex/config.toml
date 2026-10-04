@@ -1,3 +1,5 @@
+[agents]
+default_subagent_model = "gpt-6.1-sol"
 
 [agents.code-reviewer]
 config_file = "agents/code-reviewer.toml"

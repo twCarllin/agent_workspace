@@ -71,11 +71,36 @@ class RunnerDefaultsTest(unittest.TestCase):
         """dry-run 路徑在 shutil.which('claude') 之前就 return：以 AST 確認 print_plan 的 return 先於 which。"""
         src = read(RUNNER)
         i_plan = src.index("print_plan(cases, args)")
-        i_which = src.index('shutil.which("claude")')
+        i_which = src.index('shutil.which(args.harness)')
         self.assertLess(i_plan, i_which, "dry-run 必須在檢查 claude CLI 之前返回")
 
 
 class RepoRootRejectionTest(unittest.TestCase):
+    def test_installed_fixture_matrix_has_resolvable_skills_and_selected_manifest(self):
+        runner = _load_runner()
+        for harness in ('claude', 'codex'):
+            with self.subTest(harness=harness), tempfile.TemporaryDirectory() as td:
+                fixture = runner.build_fixture(os.path.join(EVALS, 'resume-interrupted'), td, harness)
+                from pathlib import Path
+                root = Path(fixture)
+                entry = root / ('CLAUDE.md' if harness == 'claude' else 'AGENTS.md')
+                self.assertTrue(entry.is_file())
+                self.assertTrue((root / '.agents/skills/eval-flow/SKILL.md').is_file())
+                if harness == 'claude':  # testlint: allow -- Claude-only path; shared-skill assertions run for both harnesses.
+                    self.assertTrue((root / '.claude/skills/eval-flow/SKILL.md').is_file())
+                import json
+                manifest = json.loads((root / 'run/2026-10-01-greeting-module.json').read_text())
+                self.assertEqual(manifest['harness'], harness)
+                self.assertTrue((root / '.git/hooks/commit-msg').is_file())
+
+    def test_codex_preview_has_requested_model_without_dollar_budget(self):
+        proc = run_runner('--dry-run', '--harness', 'codex')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn('codex exec', proc.stdout)
+        self.assertIn('gpt-6.1-sol', proc.stdout)
+        self.assertNotIn('--max-budget-usd', proc.stdout)
+        self.assertNotIn('--dangerously-bypass', proc.stdout)
+
     def test_runner_refuses_repo_as_fixture(self):
         code = (
             "import importlib.util,sys\n"
@@ -150,7 +175,7 @@ class NoEmbeddedRulesTest(unittest.TestCase):
     def test_runner_copies_rules_rather_than_embedding(self):
         src = read(RUNNER)
         self.assertNotIn(CLAUDE_MD_FINGERPRINT, src)
-        self.assertIn("copytree", src)
+        self.assertIn("install_harness.py", src)
 
 
 def _load_runner():

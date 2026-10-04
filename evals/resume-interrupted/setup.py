@@ -57,7 +57,7 @@ def main(fixture):
     subprocess.run(["git", "add", "lib/greeting.py", "tests/test_greeting_farewell.py"], cwd=fixture, check=True, capture_output=True)
 
     manifest = {
-        "run_id": RUN_ID, "created_at": "2026-10-01 09:00", "evidence_schema": 2, "tier": 2,
+        "harness": os.environ.get("AGENT_FLOW_HARNESS", "claude"), "run_id": RUN_ID, "created_at": "2026-10-01 09:00", "evidence_schema": 2, "tier": 2,
         "tier_rationale": "理由碼：【未決重大決策】——farewell 的措辭由使用者裁示；不觸信任邊界",
         "spec_path": f"spec/{RUN_ID}.md", "spec_inline": None, "test_command": "python3 -m pytest tests/ -q",
         "phase": "decomposed", "hitl_confirmed_at": "2026-10-01 09:10 — 確認 2 tasks／2 items", "hitl_rulings": 1,

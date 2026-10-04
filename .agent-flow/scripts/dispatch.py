@@ -17,11 +17,8 @@
 - `--max-output-chars`：報告字元上限（預設 60000）；超量 → stdout 只印前 n 字元＋截斷末行、留痕
   `failure="output_truncated"`、exit 3、不做信封判定
 
-後端指令（權限依 2026-09-29 使用者裁決 D3 全放行）：
-  claude：`claude -p --agent <role> --output-format json --dangerously-skip-permissions [--resume <sid>] -`（prompt 走 stdin）
-  codex ：`codex exec [resume <tid>] --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox
-           -m <model> -c model_reasoning_effort=<effort> -`（model／effort 讀 `.codex/agents/<role>.toml`；
-           stdin＝該檔 developer_instructions ＋ 空行 ＋ prompt）
+權限：`--permissions inherit`（預設）不附權限覆寫，遵守各 CLI 設定；不保證自動繼承未保存的父程序權限。
+明確給 `--permissions unrestricted` 才使用各 CLI 的完整權限旗標。CLI argv 與結果格式由 harness_adapter.py 轉換。
 
 輸出契約：
   stdout ＝ 子 agent 報告全文（claude：JSON `result`；codex：最後一個 agent_message 的 text），不夾其他行
@@ -45,6 +42,7 @@ import tomllib
 
 HOOKS_DIR = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HOOKS_DIR)
+import harness_adapter  # noqa: E402
 import eval_gates  # noqa: E402
 import report_envelope_check  # noqa: E402
 
@@ -139,35 +137,24 @@ def _run(argv, stdin_text, timeout):
         raise ChildError(f"無法啟動 {argv[0]}（{e}）")
 
 
-def run_claude(role, prompt, resume, timeout):
-    argv = ["claude", "-p", "--agent", role, "--output-format", "json", "--dangerously-skip-permissions"]
-    if resume:
-        argv += ["--resume", resume]
-    argv.append("-")
-    proc = _run(argv, prompt, timeout)
-    if proc.returncode != 0:
-        raise ChildError(f"claude exit {proc.returncode}：{(proc.stderr or proc.stdout).strip()[-500:]}")
-    try:
-        data = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        raise ChildError(f"claude 輸出非 JSON：{proc.stdout.strip()[:300]}")
-    if not isinstance(data, dict):
-        raise ChildError("claude 輸出非 JSON 物件")
-    if data.get("is_error"):
-        raise ChildError(f"claude 回報 is_error：{str(data.get('result'))[:300]}")
-    report = data.get("result")
-    if not isinstance(report, str) or not report.strip():
-        raise ChildError("claude 輸出缺 result 報告")
-    usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
-    model_usage = data.get("modelUsage") if isinstance(data.get("modelUsage"), dict) else {}
-    meta = {
-        "session_id": data.get("session_id"),
-        "model": next(iter(model_usage), None),
-        "turns": _int(data.get("num_turns")),
-        "cost_usd": data.get("total_cost_usd") if isinstance(data.get("total_cost_usd"), (int, float)) else None,
-        **{k: _int(usage.get(k)) for k in TOKEN_FIELDS},
-    }
-    return report, meta
+def _child_result(backend, proc):
+    data = harness_adapter.parse_result(backend, proc.stdout, proc.returncode)
+    if data['is_error']:
+        detail = (proc.stderr or data['error'] or '').strip()[-500:]
+        raise ChildError(f"{backend}: {detail}")
+    usage = data['usage']
+    meta = {'session_id': data['session_id'], 'model': data['model'],
+            'turns': data['num_turns'] or 0, 'cost_usd': data['total_cost_usd'],
+            **{k: _int(usage.get(k)) for k in TOKEN_FIELDS}}
+    if backend == 'codex':
+        for src, dst in CODEX_USAGE_MAP.items():
+            meta[dst] = _int(usage.get(src))
+    return data['result'], meta
+
+
+def run_claude(role, prompt, resume, timeout, permissions='inherit'):
+    argv = harness_adapter.build_argv('claude', role=role, resume=resume, permissions=permissions)
+    return _child_result('claude', _run(argv, prompt, timeout))
 
 
 def load_codex_agent(role):
@@ -178,52 +165,14 @@ def load_codex_agent(role):
         return tomllib.load(f)
 
 
-def run_codex(role, prompt, resume, timeout):
+def run_codex(role, prompt, resume, timeout, permissions='inherit'):
     agent = load_codex_agent(role)
-    argv = ["codex", "exec"]
-    if resume:
-        argv += ["resume", resume]
-    argv += [
-        "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox",
-        "-m", str(agent.get("model", "")),
-        "-c", f"model_reasoning_effort={agent.get('model_reasoning_effort', 'medium')}",
-        "-",
-    ]
+    argv = harness_adapter.build_argv('codex', model=agent.get('model'),
+                                     reasoning_effort=agent.get('model_reasoning_effort', 'low'),
+                                     resume=resume, permissions=permissions)
     stdin_text = f"{agent.get('developer_instructions', '')}\n\n{prompt}"
-    proc = _run(argv, stdin_text, timeout)
-    if proc.returncode != 0:
-        raise ChildError(f"codex exit {proc.returncode}：{(proc.stderr or proc.stdout).strip()[-500:]}")
-    thread_id, report, usage = None, None, {}
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(event, dict):
-            continue
-        kind = event.get("type")
-        if kind == "thread.started":
-            thread_id = event.get("thread_id")
-        elif kind == "item.completed":
-            item = event.get("item") or {}
-            if item.get("type") == "agent_message" and isinstance(item.get("text"), str):
-                report = item["text"]
-        elif kind == "turn.completed" and isinstance(event.get("usage"), dict):
-            usage = event["usage"]
-    if not report or not report.strip():
-        raise ChildError("codex 輸出無 agent_message 報告")
-    meta = {
-        "session_id": thread_id,
-        "model": agent.get("model"),
-        "turns": 1,
-        "cost_usd": None,
-        **_zero_tokens(),
-    }
-    for src, dst in CODEX_USAGE_MAP.items():
-        meta[dst] = _int(usage.get(src))
+    report, meta = _child_result('codex', _run(argv, stdin_text, timeout))
+    meta['model'] = agent.get('model')
     return report, meta
 
 
@@ -278,6 +227,8 @@ def main():
     parser.add_argument("--prompt-file", required=True, dest="prompt_file")
     parser.add_argument("--backend", choices=sorted(BACKENDS), default=None)
     parser.add_argument("--resume", default=None)
+    parser.add_argument("--permissions", choices=harness_adapter.PERMISSIONS, default="inherit",
+                        help="inherit: keep CLI settings; unrestricted: explicit full access")
     parser.add_argument("--files", default=None, help="本 item 允許變更的檔案（逗號分隔，repo 相對路徑）")
     parser.add_argument("--timeout", type=float, default=1200)
     parser.add_argument("--max-output-chars", type=int, default=60000, dest="max_output_chars")
@@ -297,14 +248,14 @@ def main():
 
     record = {
         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "role": args.role, "backend": backend, "session_id": None,
+        "role": args.role, "backend": backend, "permissions": args.permissions, "session_id": None,
         "resumed": bool(args.resume), "model": None, "turns": 0,
         **_zero_tokens(), "cost_usd": None, "duration_ms": 0, "exit_code": 0, "envelope": None,
         "failure": None, "out_of_scope": None,
     }
     started = time.monotonic()
     try:
-        report, meta = BACKENDS[backend](args.role, prompt, args.resume, args.timeout)
+        report, meta = BACKENDS[backend](args.role, prompt, args.resume, args.timeout, args.permissions)
     except ChildError as e:
         record.update(duration_ms=int((time.monotonic() - started) * 1000), exit_code=3, failure=e.kind)
         append_record(run_id, record)

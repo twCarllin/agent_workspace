@@ -40,7 +40,7 @@ def build_framework_dir(dest):
     合併行為的測試對象）依賴的檔案；CLAUDE.md／agents／skills／seed 皆不提供，
     對應步驟會走既有「不存在則 Skipped」分支，不影響本測試對象。"""
     dest.mkdir(parents=True, exist_ok=True)
-    for name in ("init.sh", "install_harness.py"):
+    for name in ("init.sh", "install_harness.py", "harness_install_transaction.py"):
         shutil.copy(ROOT / name, dest / name)
     for name in (".agent-flow", "skills", "seed", "retro"):
         shutil.copytree(ROOT / name, dest / name, ignore=shutil.ignore_patterns("__pycache__"))

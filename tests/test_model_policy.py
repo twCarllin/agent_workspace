@@ -63,7 +63,7 @@ class ModelPolicyConsistencyTest(unittest.TestCase):
 
 CODEX_AGENTS_DIR = ROOT / ".codex" / "agents"
 # Codex 表 row：| role | gpt-... | effort | 理由 |
-CODEX_ROW_RE = re.compile(r"^\|\s*([a-z][\w-]*)\s*\|\s*(gpt-[\w.-]+)\s*\|\s*([a-z]+)\s*\|", re.M)
+CODEX_ROW_RE = re.compile(r"^\|\s*([a-z][\w-]*)\s*\|\s*((?:gpt|chatgpt)-[\w.-]+)\s*\|\s*([a-z]+)\s*\|", re.M)
 
 
 def codex_policy_table(text=None):
@@ -139,7 +139,7 @@ class CodexModelPolicyTest(unittest.TestCase):
     def test_m3_missing_role_in_table_reported(self):
         """M3 [邊界]：表少列 retro → 集合不等，差異清單含 retro。"""
         text = POLICY.read_text(encoding="utf-8")
-        text = "\n".join(line for line in text.splitlines() if not line.startswith("| retro | gpt-"))
+        text = "\n".join(line for line in text.splitlines() if not line.startswith("| retro | gpt-6.1-sol |"))
         table = codex_policy_table(text)
         self.assertNotIn("retro", table)
         self.assertIn("retro", codex_mismatches(self.codex_models(), table))
