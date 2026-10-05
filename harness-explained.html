@@ -26,7 +26,7 @@
 <div><div class="adapter"><h3>Codex Adapter</h3><p>轉換派工命令、事件與設定</p></div><div class="arrow" aria-hidden="true">↕</div><div class="tool"><h3>Codex</h3><p>讀檔、改程式、執行命令</p></div></div>
 <div><div class="adapter"><h3>Claude Code Adapter</h3><p>轉換派工命令、事件與設定</p></div><div class="arrow" aria-hidden="true">↕</div><div class="tool"><h3>Claude Code</h3><p>讀檔、改程式、執行命令</p></div></div>
 </div>
-<p class="diagram-caption">架構與執行契約已建立，Codex 原生 CLI 四個案例已通過；Claude Code 驗證延期。通常選一個工具執行；不要求兩個工具同時運作。結果與驗證證據回到共用核心。</p>
+<p class="diagram-caption">架構與執行契約已建立，Codex 與 Claude Code 原生 CLI 四個案例都已通過。通常選一個工具執行；不要求兩個工具同時運作。結果與驗證證據回到共用核心。</p>
 </div>
 </section>
 <section aria-labelledby="flow-title">
@@ -41,14 +41,14 @@
 </section>
 <section class="example" aria-labelledby="example-title"><div class="label">用一個例子說明</div><h2 id="example-title">同樣修登入錯誤，換工具也能沿用工作單</h2><p><strong>共用內容：</strong>錯誤重現方式、預期結果、可修改範圍、測試指令。</p><p><strong>隨工具改變：</strong>派工命令、模型設定、事件格式、權限處理方式。</p><p>換工具接手時，讀取已保存的工作單、檔案與證據。工具內部的對話和推理狀態不保證能轉移；跨工具恢復仍需驗證。</p></section>
 <section aria-labelledby="status-title">
-<div class="eyebrow">03 / 目前進度</div><h2 id="status-title">Codex 實際驗證通過，Claude Code 延期</h2>
+<div class="eyebrow">03 / 目前進度</div><h2 id="status-title">Codex 與 Claude Code 實際驗證都通過</h2>
 <div class="grid">
 <article class="card"><span class="tag">已建立</span><h3>共用來源</h3><p>流程、角色與核心腳本已有共用位置。安裝器可產生 Codex 與 Claude Code 的設定。</p></article>
 <article class="card"><span class="tag">已實作</span><h3>跨工具評測</h3><p>同一組案例可選 Codex 或 Claude。測試環境改用共用安裝器，技能連結已有本地驗證。</p></article>
-<article class="card"><span class="tag">Codex 已驗證</span><h3>真實執行</h3><p>Codex 使用 gpt-6.1-sol，正常完成案例已加入驗證設定完整性檢查並重跑通過；違規阻擋、測試失敗與中斷恢復沿用先前通過證據。暫存測試專案明確使用 unrestricted 並啟用 hook。Claude Code 驗證依使用者要求延期。</p></article>
+<article class="card"><span class="tag">Codex 已驗證</span><h3>真實執行</h3><p>Codex 使用 gpt-6.1-sol，正常完成案例已加入驗證設定完整性檢查並重跑通過；違規阻擋、測試失敗與中斷恢復沿用先前通過證據。暫存測試專案明確使用 unrestricted 並啟用 hook。Claude Code 於 2026-10-05 以 2.1.285 通過相同四個案例。</p></article>
 </div>
 </section>
-<section aria-labelledby="next-title"><div class="eyebrow">04 / 接下來</div><h2 id="next-title">實作與驗證進度</h2><ol class="roadmap"><li><strong>修評測：</strong>已用共用安裝器建立測試環境；兩種工具可選。</li><li><strong>補 Adapter：</strong>已統一事件與結果格式；完整權限需明確指定。</li><li><strong>跑實際流程：</strong>本地案例與 Codex 原生 CLI 四個案例通過；Claude Code 驗證延期。</li><li><strong>改善安裝：</strong>已加入變更預覽、修改衝突偵測與寫入失敗還原。</li></ol></section>
+<section aria-labelledby="next-title"><div class="eyebrow">04 / 接下來</div><h2 id="next-title">實作與驗證進度</h2><ol class="roadmap"><li><strong>修評測：</strong>已用共用安裝器建立測試環境；兩種工具可選。</li><li><strong>補 Adapter：</strong>已統一事件與結果格式；完整權限需明確指定。</li><li><strong>跑實際流程：</strong>本地案例、Codex 與 Claude Code 原生 CLI 四個案例全部通過。</li><li><strong>改善安裝：</strong>已加入變更預覽、修改衝突偵測與寫入失敗還原。</li></ol></section>
 <section aria-labelledby="faq-title"><h2 id="faq-title">常見問題</h2>
 <details><summary>完成後，就不需要 Codex 或 Claude Code 了嗎？</summary><p>仍需要執行工具。目標是讓共用流程不綁定其中一家，能依需求選擇工具。</p></details>
 <details><summary>以後可以加入第三種工具嗎？</summary><p>可以往這個方向擴充。需要建立新的 Adapter、確認工具能力，並通過同一組驗收案例。缺少必要能力時，必須明確回報限制。</p></details>

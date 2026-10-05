@@ -121,6 +121,6 @@ python3 .agent-flow/scripts/harness_smoke.py --live --trust-local-hooks --output
 | 遙測與健檢 | `.agent-flow/scripts/stats.py`、`doctor.py` |
 | gate script 的測試 | `tests/`（`python3 -m unittest discover -s tests`） |
 
-本次驗證（2026-10-04）：Codex 使用 `gpt-6.1-sol`，在暫存專案明確選擇 `--permissions unrestricted --trust-local-hooks`，正常案例已修正完整性檢查並重跑通過；其餘三個原生 CLI smoke 案例沿用先前通過證據。預設派工仍為 `inherit`。Claude Code CLI 驗證依使用者要求延期。
+本次驗證（2026-10-04）：Codex 使用 `gpt-6.1-sol`，在暫存專案明確選擇 `--permissions unrestricted --trust-local-hooks`，正常案例已修正完整性檢查並重跑通過；其餘三個原生 CLI smoke 案例沿用先前通過證據。預設派工仍為 `inherit`。Claude Code CLI 於 2026-10-05 以 Claude Code 2.1.285 跑 `harness_smoke.py --harness claude --live --permissions unrestricted`，四個案例全部通過；`flow.py preflight --harness claude` 已執行版本與登入檢查。
 
 流程效率：首輪獨立審完整 task，修正用 `review_delta.py` 產生有效增量；本地指令可用 `run_verify.py --reuse` 重用相同輸入的成功證據。Tier 2 實作期間跑相關測試，提交前一次完整回歸。詳細條件見 `skills/eval-flow/references/efficiency.md`。

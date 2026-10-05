@@ -16,7 +16,7 @@ python3 .agent-flow/scripts/flow.py preflight --harness codex --run-id <id> --li
 
 `--live` 才啟動有時間上限的 Codex 模型探針。探針會使用模型用量，只驗證模型與登入；無工具呼叫的成功結果不能證明 hooks 已信任或已執行。設定存在與原生執行證據分開回報，未確認項目記為 `unknown`。
 
-Claude 的原生 CLI 測試延後。本入口不啟動 Claude CLI。退出碼：0 為 ready；1 為 blocked；2 為 unknown 或操作錯誤。靜態檢查有 unknown 時仍可讀取具體檢查結果。
+Claude 執行 `claude --version` 與 `claude auth status`，只記錄版本與登入是否通過，不輸出帳號資料；`--live` 同樣啟動 Claude 模型探針（每次預算上限 0.10 美元）。Claude 原生 CLI smoke 已於 2026-10-05 以 Claude Code 2.1.285 通過四個案例。退出碼：0 為 ready；1 為 blocked；2 為 unknown 或操作錯誤。靜態檢查有 unknown 時仍可讀取具體檢查結果。
 
 `inputs-v2` 快照檢查內嵌 repository。一般未追蹤的內嵌 repository 只有在 Git 已批准的忽略範圍內才跳過；工具不自行修改 exclude。尚未排除時提前回報具體路徑，排除政策變動會使舊證據失效。已追蹤 gitlink／submodule 目前明確拒絕，須先解決工作目錄支援限制，不能以只記 HEAD 當作已驗證。既有 inputs-v1 與 legacy 紀錄沿用原格式。
 

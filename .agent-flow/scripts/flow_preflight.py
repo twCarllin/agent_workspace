@@ -66,14 +66,26 @@ def _models(harness):
             if default is not None and default != expected['model']:
                 raise ModelConfigurationError('.codex/config.toml default model does not match model profiles.')
         return profiles['code-writer']['model']
+    model = None
     for role, expected in profiles.items():
         frontmatter = expected['frontmatter']
-        model = re.search(r'^model:\s*(\S+)\s*$', frontmatter, re.M)
+        match = re.search(r'^model:\s*(\S+)\s*$', frontmatter, re.M)
         actual = (root / '.claude/agents' / (role + '.md')).read_text()
         header = actual.split('---', 2)
-        if len(header) != 3 or not model or not re.search(r'^model:\s*' + re.escape(model[1]) + r'\s*$', header[1], re.M):
+        if len(header) != 3 or not match or not re.search(r'^model:\s*' + re.escape(match[1]) + r'\s*$', header[1], re.M):
             raise ModelConfigurationError(f'Role {role} model does not match .agent-flow/harnesses/models.json.')
-    return None
+        if role == 'code-writer':
+            model = match[1]
+    return model
+
+
+def _logged_in(output):
+    """Claude prints account details as JSON; only loggedIn is inspected and nothing is echoed."""
+    try:
+        data = json.loads(output or '')
+    except ValueError:
+        return False
+    return isinstance(data, dict) and data.get('loggedIn') is True
 
 
 def _test_command(run_id):
@@ -164,31 +176,31 @@ def preflight(harness='codex', run_id=None, live=False, timeout=30):
             add('nested_repositories', 'failed', str(error))
     executable = shutil.which(harness)
     add('cli', 'ok' if executable else 'failed', 'CLI found.' if executable else 'CLI not found.')
-    # Claude CLI execution is intentionally deferred, including --version/auth.
-    if harness == 'claude':
-        add('version', 'unknown', 'Claude CLI execution is deferred.')
-        add('auth', 'unknown', 'Claude login status was not checked.')
-        if live:
-            add('live_probe', 'unknown', 'Claude live execution is deferred.')
-    elif executable:
+    if executable:
         status, output = _command([executable, '--version'], timeout)
         version = (output or '').strip()
-        if status == 'ok' and re.fullmatch(r'codex(?:-cli)?[ \t]+[0-9]+(?:\.[0-9]+){1,3}(?:[-+][A-Za-z0-9.-]+)?', version):
+        pattern = (r'codex(?:-cli)?[ \t]+[0-9]+(?:\.[0-9]+){1,3}(?:[-+][A-Za-z0-9.-]+)?' if harness == 'codex'
+                   else r'[0-9]+(?:\.[0-9]+){1,3}(?:[-+][A-Za-z0-9.-]+)?[ \t]+\(Claude Code\)')
+        if status == 'ok' and re.fullmatch(pattern, version):
             add('version', 'ok', version)
         else:
             add('version', 'unknown' if status == 'ok' else 'failed',
                 'CLI version format was not recognized.' if status == 'ok' else 'CLI version command failed or timed out.')
-        status, output = _command([executable, 'login', 'status'], timeout)
-        # Codex login status writes its success notice to stderr. Its exit status
-        # is the public auth contract; discard both streams to avoid credentials.
+        if harness == 'codex':
+            status, output = _command([executable, 'login', 'status'], timeout)
+            # Codex login status writes its success notice to stderr. Its exit status
+            # is the public auth contract; discard both streams to avoid credentials.
+        else:
+            status, output = _command([executable, 'auth', 'status'], timeout)
+            status = 'ok' if status == 'ok' and _logged_in(output) else 'failed'
         add('auth', status, 'Login status passed.' if status == 'ok' else 'Login check failed or timed out.')
         if live:
             if model and status == 'ok':
-                argv = harness_adapter.build_argv('codex', model=model)
+                argv = harness_adapter.build_argv(harness, model=model, budget_usd=0.10 if harness == 'claude' else None)
                 argv[0] = executable
                 state, output = _command(argv, timeout, 'Do not use tools. Reply only FLOW_PREFLIGHT_OK.\n')
-                result = harness_adapter.parse_result('codex', output or '', 0 if state == 'ok' else 1)
-                success = state == 'ok' and not result['is_error'] and result['result'].strip() == 'FLOW_PREFLIGHT_OK'
+                result = harness_adapter.parse_result(harness, output or '', 0 if state == 'ok' else 1)
+                success = state == 'ok' and not result['is_error'] and (result['result'] or '').strip() == 'FLOW_PREFLIGHT_OK'
                 add('live_probe', 'ok' if success else 'failed', 'Model response verified; hook trust was not tested.' if success else 'Model response probe failed or timed out.')
             else:
                 add('live_probe', 'failed', 'Model or login check failed; live probe was skipped.')

@@ -141,16 +141,49 @@ class PreflightTests(unittest.TestCase):
         result = flow_preflight.preflight(run_id='../escape')
         self.assertEqual(self.check(result, 'test_command')['status'], 'failed')
 
-    def test_claude_cli_never_runs_even_with_live_requested(self):
-        marker = self.root / 'CLAUDE_EXECUTED'
-        cli = self.root / 'bin/claude'
-        cli.write_text('#!' + sys.executable + '\nopen(' + repr(str(marker)) + ', "w").close()\n')
-        cli.chmod(0o755)
+    def claude_cli(self, behavior='ok'):
+        path = self.root / 'bin/claude'
+        path.write_text('#!' + sys.executable + '\n' +
+                        'import sys,time,json\n' +
+                        'args=sys.argv[1:]\n' +
+                        "print('SECRET_MUST_NOT_APPEAR',file=sys.stderr)\n" +
+                        ('time.sleep(3)\n' if behavior == 'timeout' else '') +
+                        ('sys.exit(1)\n' if behavior == 'fail' else '') +
+                        "if args[0]=='--version':\n print(" + repr('weird' if behavior == 'format' else '2.1.0 (Claude Code)') + ")\n" +
+                        "elif args[0]=='auth':\n print(" + ("'not json SECRET_MUST_NOT_APPEAR'" if behavior == 'badjson' else
+                            "json.dumps({'loggedIn':" + ('False' if behavior == 'logged_out' else 'True') + ",'email':'SECRET_MUST_NOT_APPEAR'})") + ")\n" +
+                        "else:\n print(json.dumps({'result':'FLOW_PREFLIGHT_OK','session_id':'s','is_error':False}))\n")
+        path.chmod(0o755)
+
+    def test_claude_version_auth_and_live_probe(self):
+        self.claude_cli()
         result = flow_preflight.preflight(harness='claude', live=True)
-        self.assertEqual(self.check(result, 'version')['status'], 'unknown')
-        self.assertEqual(self.check(result, 'auth')['status'], 'unknown')
-        self.assertEqual(self.check(result, 'live_probe')['status'], 'unknown')
-        self.assertFalse(marker.exists())
+        self.assertEqual(self.check(result, 'version')['detail'], '2.1.0 (Claude Code)')
+        self.assertEqual(self.check(result, 'auth')['status'], 'ok')
+        self.assertEqual(self.check(result, 'live_probe')['status'], 'ok')
+        self.assertEqual(self.check(result, 'hook_trust')['status'], 'unknown')
+        self.assertEqual(result['readiness'], 'unknown')
+        self.assertNotIn('SECRET_MUST_NOT_APPEAR', json.dumps(result))
+
+    def test_claude_without_live_never_calls_prompt_mode(self):
+        self.claude_cli()
+        marker = self.root / 'bin/claude'
+        marker.write_text(marker.read_text().replace("else:\n print(", "else:\n open('PROMPT_EXECUTED','w').close()\n print("))
+        result = flow_preflight.preflight(harness='claude')
+        self.assertFalse((self.root / 'PROMPT_EXECUTED').exists())
+        self.assertNotIn('live_probe', [c['name'] for c in result['checks']])
+
+    def test_claude_failures_block_and_hide_output(self):
+        for behavior, version, auth in (('timeout', 'failed', 'failed'), ('fail', 'failed', 'failed'),
+                                        ('logged_out', 'ok', 'failed'), ('badjson', 'ok', 'failed'), ('format', 'unknown', 'ok')):
+            with self.subTest(behavior=behavior):
+                self.claude_cli(behavior)
+                result = flow_preflight.preflight(harness='claude', timeout=0.03 if behavior == 'timeout' else 30, live=True)
+                self.assertEqual(self.check(result, 'version')['status'], version)
+                self.assertEqual(self.check(result, 'auth')['status'], auth)
+                self.assertEqual(self.check(result, 'live_probe')['status'], 'ok' if auth == 'ok' else 'failed')
+                self.assertEqual(result['readiness'], 'unknown' if auth == 'ok' else 'blocked')
+                self.assertNotIn('SECRET_MUST_NOT_APPEAR', json.dumps(result))
 
     def test_unknown_exit_and_invalid_timeout(self):
         process = subprocess.run([sys.executable, str(SCRIPTS / 'flow_preflight.py')], capture_output=True, text=True)
