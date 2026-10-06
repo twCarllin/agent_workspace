@@ -4,7 +4,8 @@
 註冊於 `.claude/settings.json`，matcher `startup|resume|compact`（全新啟動／resume／
 compaction 後 session 重建三種進入點皆觸發）。stdout 純文字，會被注入 Claude context。
 
-輸出兩部分（無則各自略過，皆無則輸出空）：
+輸出三部分（無則各自略過，皆無則輸出空）：
+  ⓪本次為 linked worktree 補建的工具鏈連結（`worktree_link.ensure_links`）
   ①殘留 in_progress run 提示（`eval_state.json` 存在，或 `run/*.json` 中有
     `status: in_progress` 的 manifest，`MANIFEST_RE` 同源判定）
   ②`doctor.py --brief` 的異常行
@@ -22,6 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import eval_gates  # noqa: E402  重用 MANIFEST_RE／load_json_quiet（單一判定點鐵律）
+import worktree_link  # noqa: E402
 
 MAX_OUTPUT_LINES = 10
 
@@ -68,8 +70,10 @@ def _doctor_brief_lines(harness=None):
     return [line for line in out.splitlines() if line]
 
 
-def build_output(codex=False, harness=None):
+def build_output(codex=False, harness=None, linked=()):
     lines = []
+    if linked:
+        lines.append("已為 worktree 建立工具鏈連結：" + ", ".join(linked))
     residual = _residual_run_id_and_phase()
     if residual is not None:
         run_id, phase = residual
@@ -91,12 +95,14 @@ def main():
 
     # 與姊妹 hook（eval_gates.run_hook()）一致：不信任 getcwd()，以 payload.cwd
     # 解析 worktree 根後才 chdir（BUGLOG 2026-07-28 worktree-root gate 靜默失效同源修正）。
-    os.chdir(eval_gates._resolve_root(payload))
+    root = eval_gates._resolve_root(payload)
+    os.chdir(root)
+    linked = worktree_link.ensure_links(root)  # 與 PreToolUse hook 同點：缺才補、fail-open
 
     harness = payload.get("harness") or os.environ.get("AGENT_FLOW_HARNESS")
     if harness not in (None, "claude", "codex", "both"):
         harness = None
-    lines = build_output(harness=harness)
+    lines = build_output(harness=harness, linked=linked)
     if lines:
         print("\n".join(lines))
     sys.exit(0)

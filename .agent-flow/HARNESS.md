@@ -11,7 +11,7 @@
 | .agent-flow/scripts/ | gate、狀態、驗證與派工核心 |
 | .agent-flow/harnesses/models.json | 各 harness 的模型與角色設定 |
 
-AGENTS.md 與 CLAUDE.md 是簡短入口。安裝器由共用角色產生 .codex/agents/ 與 .claude/agents/，不以其中一方產生另一方。生成設定的修改應回到共用來源；自訂角色檔由安裝器保留並回報。
+AGENTS.md 與 CLAUDE.local.md（本 repo 自身為 CLAUDE.md）是簡短入口。安裝器由共用角色產生 .codex/agents/ 與 .claude/agents/，不以其中一方產生另一方。生成設定的修改應回到共用來源；自訂角色檔由安裝器保留並回報。
 
 新 Tier 1／2 manifest 記 harness: claude 或 codex 與 evidence_schema: 2。舊 manifest 缺 harness 時沿用 Claude 相容行為。兩者都以 run_verify.py 記錄最後驗證，以 run_commit.py prepare、commit、finalize 收尾。
 
@@ -23,7 +23,7 @@ AGENTS.md 與 CLAUDE.md 是簡短入口。安裝器由共用角色產生 .codex/
 
 CLI 與事件適配由 `.agent-flow/scripts/harness_adapter.py` 提供 build_argv、parse_result、normalize_hook、capabilities。CLI 回報統一為 result、session_id、usage、is_error 等欄位；錯誤輸出不得當成驗收通過。Codex CLI 無美元預算能力，成本未知記 null，執行以次数與 timeout 限制。
 
-安裝器先在暫存區產生計畫，--dry-run 不修改目標。ownership manifest 記已安装內容雜湊；使用者修改與更新衝突時停止。可捕捉的寫入失敗會還原檔案、連結與 Git hook；斷電或強制終止不在 rollback 保證內。
+安裝器先在暫存區產生計畫，--dry-run 不修改目標。ownership manifest 記已安装內容雜湊；使用者修改與更新衝突時停止。可捕捉的寫入失敗會還原檔案、連結與 Git hook；斷電或強制終止不在 rollback 保證內。安裝器把工具鏈路徑（含 `run/`、`task/`、`retro/`、`CLAUDE.local.md`）寫入 Git 的 `info/exclude`，所有 worktree 共用、不進版控；Claude 入口區塊寫入 `CLAUDE.local.md`，不改寫專案 CLAUDE.md。
 
 驗證分兩層：本地確定性整合測試，以及 harness_smoke.py --live 的原生 CLI 證據。後者涵蓋檔案修改、hook 阻擋、測試失敗留痕與恢復定位；完整 skill 行為用 skill_eval.py 評測。CLI、帳號、模型或 trust 不可用時記 blocked，不宣稱 pass。
 

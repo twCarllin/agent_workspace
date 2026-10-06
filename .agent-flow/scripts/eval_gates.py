@@ -628,6 +628,10 @@ def run_hook():
 
     root = _resolve_root(payload)
     os.chdir(root)
+    # 連結工具鏈進 linked worktree（缺才補、fail-open 回空清單）；放在任何 gate 判定之前，
+    # 不是 gate、不改 exit code。
+    import worktree_link
+    worktree_link.ensure_links(root)
 
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input") or {}

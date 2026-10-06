@@ -605,6 +605,26 @@ class RunHookWorktreeRootTest(unittest.TestCase):
         )
         return result.returncode
 
+    def test_hook_links_toolchain_into_worktree_before_gates(self):
+        """[worktree 連結] main 有未追蹤 `.agent-flow/`、worktree 沒有 → 任一工具呼叫經 hook 後，
+        worktree 內 `.agent-flow` 為指回 main 的 symlink；非 commit 指令照常 exit 0。"""
+        import os
+        os.makedirs(os.path.join(self.main, ".agent-flow", "scripts"))
+        payload = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo hi"},
+            "cwd": self.worktree,
+        }
+        rc = self._run_hook(payload, self.main)
+        self.assertEqual(rc, 0)
+        link = os.path.join(self.worktree, ".agent-flow")
+        self.assertTrue(os.path.islink(link))
+        self.assertEqual(os.path.realpath(link), os.path.realpath(os.path.join(self.main, ".agent-flow")))
+        # 在主工作區呼叫 → 不建任何連結
+        rc = self._run_hook({**payload, "cwd": self.main}, self.main)
+        self.assertEqual(rc, 0)
+        self.assertFalse(os.path.islink(os.path.join(self.main, ".agent-flow")))
+
     def test_g_commit_gate_reads_worktree_eval_state(self):
         """[核心/G] worktree 有 eval_state.json、主 repo 無 → exit 2（命中歸檔 gate）。
         修正前：chdir 到主 repo（無 eval_state.json）→ exit 0（此即 RED 錨點）。"""

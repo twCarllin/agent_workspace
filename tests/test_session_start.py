@@ -242,6 +242,23 @@ class WorktreeCwdHonoredTest(unittest.TestCase):
     def tearDown(self):
         self.tmp_base.cleanup()
 
+    def test_worktree_toolchain_links_reported_first(self):
+        """main 有未追蹤 `.agent-flow/`、worktree 沒有 → SessionStart 補建連結並在首行回報；
+        主工作區 session 不含該句、不建連結。"""
+        os.makedirs(os.path.join(self.main, ".agent-flow", "scripts"))
+        payload = json.dumps({"cwd": self.worktree, "hook_event_name": "SessionStart"})
+        env = {**os.environ, "CLAUDE_PROJECT_DIR": self.main}
+        p = run_session_start(payload, cwd=self.main, env=env)
+        self.assertEqual(p.returncode, 0)
+        first = p.stdout.splitlines()[0]
+        self.assertIn("已為 worktree 建立工具鏈連結", first)
+        self.assertIn(".agent-flow", first)
+        self.assertTrue(os.path.islink(os.path.join(self.worktree, ".agent-flow")))
+        p = run_session_start(json.dumps({"cwd": self.main}), cwd=self.main, env=env)
+        self.assertEqual(p.returncode, 0)
+        self.assertNotIn("已為 worktree 建立工具鏈連結", p.stdout)
+        self.assertFalse(os.path.islink(os.path.join(self.main, ".agent-flow")))
+
     def test_payload_cwd_used_over_claude_project_dir(self):
         payload = json.dumps({
             "session_id": "s1",

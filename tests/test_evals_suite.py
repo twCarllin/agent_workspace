@@ -83,7 +83,7 @@ class RepoRootRejectionTest(unittest.TestCase):
                 fixture = runner.build_fixture(os.path.join(EVALS, 'resume-interrupted'), td, harness)
                 from pathlib import Path
                 root = Path(fixture)
-                entry = root / ('CLAUDE.md' if harness == 'claude' else 'AGENTS.md')
+                entry = root / ('CLAUDE.local.md' if harness == 'claude' else 'AGENTS.md')
                 self.assertTrue(entry.is_file())
                 self.assertTrue((root / '.agents/skills/eval-flow/SKILL.md').is_file())
                 if harness == 'claude':  # testlint: allow -- Claude-only path; shared-skill assertions run for both harnesses.

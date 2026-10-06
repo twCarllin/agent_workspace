@@ -69,7 +69,7 @@ def prepare_case(root, case, harness):
 def protected_state(root):
     """Fingerprint validation inputs, including missing files and symlink targets."""
     paths = [root / name for name in ('run/smoke.json', 'eval_state.json',
-             'probe.py', 'test_answer.py', 'AGENTS.md', 'CLAUDE.md')]
+             'probe.py', 'test_answer.py', 'AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md')]
     for name in ('.agent-flow', '.codex', '.claude', '.agents', '.git/hooks'):
         base = root / name
         paths.append(base)

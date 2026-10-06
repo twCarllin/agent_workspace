@@ -32,6 +32,17 @@ python3 .agent-flow/scripts/flow.py watch --run-id <id> --timeout 30 --interval 
 
 `watch` 只在狀態改變時輸出，達到時間上限或 run 結束時退出。可用 Ctrl+C 停止監看。監看不會暫停工作，也不修改證據。
 
+## worktree 連結
+
+```sh
+python3 .agent-flow/scripts/flow.py worktree-link
+python3 .agent-flow/scripts/flow.py worktree-link --root <worktree 路徑>
+```
+
+工具鏈檔案不進專案 commit，所以新 worktree 一開始沒有 `.agent-flow/`、`.agents/`、`.claude/`、`retro/` 與 `CLAUDE.local.md`。PreToolUse 與 SessionStart hook 解析出 worktree 根之後，會自動補建相對 symlink 指回主工作區；缺哪個補哪個，已存在的路徑不動。`run/` 與 `task/` 是每個 run 的狀態，各 worktree 獨立，不建連結。
+
+手動 `git worktree add` 建立的 worktree，或要在 worktree 內起新 session 恢復 run 之前，先在該 worktree 執行本指令。全部連結已存在時印「無需建立連結」；在主工作區執行不建任何連結。
+
 ## 獨立檢核資料
 
 派 checker 前依 [REVIEW_PACKET.md](REVIEW_PACKET.md) 組裝資料包，標準派工使用 `dispatch.py task-verifier --review-packet <檔案>`。必要資料缺漏時先補齊，ready 只表示資料與來源有效，不代表審查通過；checker 保留四類升級判斷。
@@ -55,4 +66,4 @@ python3 .agent-flow/scripts/flow.py finish --run-id <id> \
 
 明確加上 `--push` 才推送至目前分支的 `origin` 遠端；不使用 force。完成後 push 失敗，可重跑帶 `--push` 的指令。同一 Git repository（含 worktree）同時只允許一個 finish；程序中斷留下的鎖須先核對程序已停止再處理。
 
-本版提供 `preflight/status/watch/review-packet/finish`。需求分級與 run 初始化沿用 Router；工作暫停與恢復沿用 eval-flow-resume，尚未提供 `start/pause/resume` 命令。
+本版提供 `preflight/status/watch/review-packet/worktree-link/finish`。需求分級與 run 初始化沿用 Router；工作暫停與恢復沿用 eval-flow-resume，尚未提供 `start/pause/resume` 命令。

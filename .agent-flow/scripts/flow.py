@@ -299,6 +299,8 @@ def main(argv=None):
         if name == 'watch':
             sub.add_argument('--timeout', type=float, default=30)
             sub.add_argument('--interval', type=float, default=1)
+    link = commands.add_parser('worktree-link')
+    link.add_argument('--root', default='.')
     end = commands.add_parser('finish')
     end.add_argument('--run-id', required=True)
     end.add_argument('--message', required=True)
@@ -316,6 +318,11 @@ def main(argv=None):
                                               live=args.live, timeout=args.timeout)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return {'ready': 0, 'blocked': 1, 'unknown': 2}.get(result.get('readiness'), 2)
+        if args.command == 'worktree-link':
+            import worktree_link
+            created = worktree_link.ensure_links(args.root)
+            print('已為 worktree 建立工具鏈連結：' + ', '.join(created) if created else '無需建立連結')
+            return 0
         if args.command == 'finish':
             finish(args)
             return 0

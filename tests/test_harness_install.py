@@ -10,6 +10,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+import install_harness as installer  # noqa: E402
 
 
 class HarnessInstallTest(unittest.TestCase):
@@ -37,6 +39,16 @@ class HarnessInstallTest(unittest.TestCase):
                 self.assertEqual(first, second)
                 for name in ('CLAUDE.md', 'AGENTS.md'):
                     self.assertIn('Project convention', (project / name).read_text())
+                # No harness rewrites the project's own CLAUDE.md; the Claude section lives in CLAUDE.local.md.
+                self.assertEqual((project / 'CLAUDE.md').read_text(), 'Project convention\n')
+                exclude = (project / '.git/info/exclude').read_text()
+                self.assertEqual(exclude.count(installer.EXCLUDE_START), 1)
+                self.assertEqual(exclude.count(installer.EXCLUDE_END), 1)
+                for entry in installer.EXCLUDE_PATHS:
+                    self.assertIn(f'\n{entry}\n', exclude)
+                status = self.run_command(project, 'git', 'status', '--porcelain').stdout
+                for entry in installer.EXCLUDE_PATHS:
+                    self.assertNotIn(entry.strip('/'), status)
                 self.assertEqual((project / '.codex/hooks.json').exists(), harness != 'claude')
                 self.assertEqual((project / '.claude/settings.json').exists(), harness != 'codex')
                 core = project / '.agent-flow/scripts/eval_state.py'
@@ -48,7 +60,7 @@ class HarnessInstallTest(unittest.TestCase):
                 self.run_command(project, sys.executable, str(project / '.agent-flow/scripts/doctor.py'),
                                  '--harness', harness)
                 for side in ('claude', 'codex') if harness == 'both' else (harness,):
-                    entry = project / ('CLAUDE.md' if side == 'claude' else 'AGENTS.md')
+                    entry = project / ('CLAUDE.local.md' if side == 'claude' else 'AGENTS.md')
                     self.assertIn(f'harness: "{side}"', entry.read_text())
                     self.assertIn('PRACTICES.md', entry.read_text())
                     settings = json.loads((project / ('.claude/settings.json' if side == 'claude' else '.codex/hooks.json')).read_text())
@@ -57,6 +69,97 @@ class HarnessInstallTest(unittest.TestCase):
                     env = {**os.environ, 'CLAUDE_PROJECT_DIR': str(project)}
                     result = self.run_command(project, 'bash', '-c', command, input=payload, env=env)
                     self.assertEqual(result.stdout, '')
+
+    def test_exclude_keeps_user_lines_updates_stale_block_and_skips_dry_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            self.run_command(project, 'git', 'init', '-q')
+            exclude = project / '.git/info/exclude'
+            stale = f'my.log\n{installer.EXCLUDE_START}\nold-entry/\n{installer.EXCLUDE_END}\ntrailing.tmp\n'
+            exclude.write_text(stale)
+            self.install(project, '--harness', 'claude', '--dry-run')
+            self.assertEqual(exclude.read_text(), stale)
+            self.install(project, '--harness', 'claude')
+            text = exclude.read_text()
+            self.assertTrue(text.startswith('my.log\n'))
+            self.assertTrue(text.endswith(f'{installer.EXCLUDE_END}\ntrailing.tmp\n'))
+            self.assertNotIn('old-entry/', text)
+            self.assertEqual(text.count(installer.EXCLUDE_START), 1)
+            self.assertIn('\n/.agent-flow/\n', text)
+            self.install(project, '--harness', 'claude')
+            self.assertEqual(exclude.read_text(), text)
+            self.install(project, '--git-hook-only')
+            self.assertEqual(exclude.read_text(), text)
+            # Anchored entries ignore only root toolchain paths; a nested run/ stays visible.
+            (project / 'src/run').mkdir(parents=True)
+            (project / 'src/run/app.py').write_text('x = 1\n')
+            status = self.run_command(project, 'git', 'status', '--porcelain', '-uall').stdout
+            self.assertIn('src/run/app.py', status)
+
+    def test_git_hook_only_does_not_write_exclude(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            self.run_command(project, 'git', 'init', '-q')
+            exclude = project / '.git/info/exclude'
+            before = exclude.read_bytes()
+            self.install(project, '--git-hook-only')
+            self.assertEqual(exclude.read_bytes(), before)
+            self.assertTrue((project / '.git/hooks/commit-msg').exists())
+
+    def test_claude_section_moves_out_of_claude_md_and_merges_into_local(self):
+        marker = '<!-- agent-workspace claude instructions -->'
+        end_marker = '<!-- /agent-workspace claude instructions -->'
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / 'CLAUDE.md').write_text(f'Custom rule\n\n{marker}\nold section\n{end_marker}\n\nTail rule\n')
+            (project / 'CLAUDE.local.md').write_text('Personal note\n')
+            self.install(project, '--harness', 'claude')
+            self.assertEqual((project / 'CLAUDE.md').read_text(), 'Custom rule\n\nTail rule\n')
+            local = (project / 'CLAUDE.local.md').read_text()
+            self.assertTrue(local.startswith('Personal note\n'))
+            self.assertEqual(local.count(marker), 1)
+            self.assertIn('harness: "claude"', local)
+            self.install(project, '--harness', 'claude')
+            self.assertEqual((project / 'CLAUDE.local.md').read_text(), local)
+            self.assertEqual((project / 'CLAUDE.md').read_text(), 'Custom rule\n\nTail rule\n')
+            self.assertFalse((project / '.git').exists())
+
+    def test_repo_mode_keeps_claude_md_and_skips_exclude(self):
+        self.assertIsNone(installer.exclude_target(installer.SOURCE))
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            self.run_command(project, 'git', 'init', '-q')
+            self.assertEqual(installer.exclude_target(project), project / '.git/info/exclude')
+            installer.instructions(project, 'claude', repo_mode=True)
+            self.assertIn('harness: "claude"', (project / 'CLAUDE.md').read_text())
+            self.assertFalse((project / 'CLAUDE.local.md').exists())
+            installer.instructions(project, 'claude', repo_mode=False)
+            self.assertEqual((project / 'CLAUDE.md').read_text(), '')
+            self.assertIn('harness: "claude"', (project / 'CLAUDE.local.md').read_text())
+
+    def test_failed_finalize_restores_exclude_and_hook(self):
+        sys.path.insert(0, str(ROOT))
+        import harness_install_transaction as tx
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            self.run_command(project, 'git', 'init', '-q')
+            exclude = project / '.git/info/exclude'
+            exclude.write_text('user.log\n')
+            hook = installer.git_hook_path(project)
+            plan = tx.build_plan(project, 'claude', installer.populate, source=ROOT)
+            finalize, external = installer.git_side_effects(project, hook, exclude)
+            self.assertEqual(external[exclude], ('file', b'user.log\n', exclude.stat().st_mode & 0o777))
+            self.assertIsNone(external[hook])
+
+            def failing():
+                finalize()
+                self.assertIn(installer.EXCLUDE_START, exclude.read_text())
+                raise OSError('injected failure after git writes')
+            with self.assertRaises(OSError):
+                tx.apply_plan(plan, finalize=failing, external=external)
+            self.assertEqual(exclude.read_text(), 'user.log\n')
+            self.assertFalse(hook.exists())
+            self.assertFalse((project / '.agent-flow').exists())
 
     def test_default_both_and_preserves_mixed_hooks_and_custom_roles(self):
         with tempfile.TemporaryDirectory() as tmp:

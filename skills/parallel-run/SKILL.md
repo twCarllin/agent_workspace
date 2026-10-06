@@ -39,7 +39,7 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
    - **起手三步（順序不可換，任一步不符即停下回報）**：
      - ①`pwd && git branch --show-current && git worktree list --porcelain`——核對工具 cwd 是計畫指派的独立 worktree，記下實際 branch 與工作區路徑；不得以目錄名稱判定隔離。
      - ②**`git merge main`**——確認與主線同步。即使起點已是本地主線 HEAD，仍保留此步，避免 harness 配置失效或 worktree 起點落後。
-     - ③驗證本需求的前提在同步後確實成立（例如所需檔案／目錄存在、數量符合預期）。**前提不成立就停下回報，不可帶著錯的前提往下做**——第②③步互為備援：②保證起點正確，③保證即使②失效也攔得住
+     - ③驗證本需求的前提在同步後確實成立（例如所需檔案／目錄存在、數量符合預期；含 `.agent-flow/` 存在——hook 於第①步已自動連結，缺則先跑 `python3 .agent-flow/scripts/flow.py worktree-link`）。**前提不成立就停下回報，不可帶著錯的前提往下做**——第②③步互為備援：②保證起點正確，③保證即使②失效也攔得住
    - 工作目錄已由 harness 釘定：**禁止切換到其他工作區**，**禁止碰主工作區與其他 worktree**。
    - 載入 `eval-flow` skill，走 **Tier 1 精簡路徑**，但：
      - 精簡初始化照常（manifest 填 `tier: 1`、`spec_inline`；report path 欄維持 `null`）；因 HITL 已在主 session 完成，`phase` 直接設 `"decomposed"`，並在 manifest 附註「HITL 於主 session 批次完成（parallel-run）」。

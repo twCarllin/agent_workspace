@@ -16,7 +16,7 @@ OWNERSHIP = '.agent-flow/install-manifest.json'
 ROOTS = ('.agent-flow', '.agents/skills', '.claude/agents', '.claude/hooks',
          '.claude/skills', '.claude/settings.json', '.codex/agents',
          '.codex/config.toml', '.codex/hooks.json', 'AGENTS.md', 'CLAUDE.md',
-         'retro/RETRO.md', 'retro/BUGLOG.md')
+         'CLAUDE.local.md', 'retro/RETRO.md', 'retro/BUGLOG.md')
 IGNORE = shutil.ignore_patterns('__pycache__', '*.pyc', '.DS_Store', 'worktrees')
 
 
@@ -44,12 +44,13 @@ def managed_hash(name, state):
     kind, value, mode = state
     if kind == 'file':
         text = value.decode('utf-8', errors='replace')
-        if name in ('AGENTS.md', 'CLAUDE.md'):
+        if name in ('AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md'):
             harness = 'codex' if name == 'AGENTS.md' else 'claude'
             start = f'<!-- agent-workspace {harness} instructions -->'
             end = f'<!-- /agent-workspace {harness} instructions -->'
-            if start in text and end in text:
-                value = text[text.index(start):text.index(end) + len(end)].encode()
+            if start not in text or end not in text:
+                return None  # No framework section: the project owns the whole file.
+            value = text[text.index(start):text.index(end) + len(end)].encode()
         elif name in ('.claude/settings.json', '.codex/hooks.json'):
             data = json.loads(text)
             owned = {}
@@ -137,12 +138,12 @@ def build_plan(target, harness, populate, source=None):
         elif old and not expected and not repo_mode and _generated(name, old) and managed_hash(name, old) != managed_hash(name, new):
             # On first adoption, a marker alone cannot prove that edits are disposable.
             # Mixed files are merged by the existing installer, so preserve user sections.
-            if name not in ('AGENTS.md', 'CLAUDE.md', '.claude/settings.json', '.codex/hooks.json', '.codex/config.toml'):
+            if name not in ('AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md', '.claude/settings.json', '.codex/hooks.json', '.codex/config.toml'):
                 conflicts.append(name)
         elif old and new is None and not expected:
             conflicts.append(name)
         changes[name] = new
-        if new is None:
+        if new is None or managed_hash(name, new) is None:
             owned.pop(name, None)
         else:
             owned[name] = managed_hash(name, new)

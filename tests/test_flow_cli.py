@@ -53,6 +53,20 @@ class FlowCliTest(unittest.TestCase):
     def read_manifest(self):
         return json.loads((self.repo / 'run/r1.json').read_text())
 
+    def test_worktree_link_creates_links_then_reports_nothing(self):
+        (self.repo / '.agent-flow').mkdir()
+        worktree = Path(self.tmp.name) / 'wt'
+        self.git('worktree', 'add', '--detach', '-q', str(worktree))
+        run = lambda: subprocess.run([sys.executable, str(CLI), 'worktree-link'], cwd=worktree,
+                                     text=True, capture_output=True)
+        first = run()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIn('.agent-flow', first.stdout)
+        self.assertTrue((worktree / '.agent-flow').is_symlink())
+        second = run()
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(second.stdout.strip(), '無需建立連結')
+
     def test_finish_real_verify_prepare_commit_finalize(self):
         result = self.finish()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)

@@ -36,7 +36,38 @@ def link_file(target, source):
     target.symlink_to(os.path.relpath(source, target.parent))
 
 
-def instructions(target, harness):
+EXCLUDE_START = '# >>> agent-workspace managed >>>'
+EXCLUDE_END = '# <<< agent-workspace managed <<<'
+# Toolchain paths kept out of the project's commits. Written to the repository's
+# info/exclude (shared by every worktree) instead of the tracked .gitignore.
+# A leading slash anchors each entry to the repository root, so src/run/ stays tracked.
+EXCLUDE_PATHS = ('/.agent-flow/', '/.agents/', '/.claude/agents/', '/.claude/hooks/', '/.claude/skills/',
+                 '/.claude/settings.json', '/.claude/worktrees/', '/.codex/agents/', '/.codex/config.toml',
+                 '/.codex/hooks.json', '/CLAUDE.local.md', '/retro/', '/run/', '/task/', '/eval_state.json')
+
+
+def _with_section(text, marker, end_marker, block):
+    start = text.find(marker)
+    if start >= 0:
+        end = text.find(end_marker, start)
+        if end < 0:
+            raise ValueError(f'unterminated managed section before {end_marker}')
+        return text[:start] + block + text[end + len(end_marker):]
+    return (text.rstrip() + '\n\n' if text.strip() else '') + block + '\n'
+
+
+def _without_section(text, marker, end_marker):
+    start = text.find(marker)
+    if start < 0:
+        return text
+    end = text.find(end_marker, start)
+    if end < 0:
+        raise ValueError(f'unterminated managed section before {end_marker}')
+    head, tail = text[:start].rstrip(), text[end + len(end_marker):].lstrip('\n')
+    return (head + '\n' if head else '') + ('\n' + tail if head and tail else tail)
+
+
+def instructions(target, harness, repo_mode=False):
     path = target / ('AGENTS.md' if harness == 'codex' else 'CLAUDE.md')
     marker = f'<!-- agent-workspace {harness} instructions -->'
     end_marker = f'<!-- /agent-workspace {harness} instructions -->'
@@ -49,19 +80,61 @@ New Tier 1/2 manifests use `harness: "{harness}"` and `evidence_schema: 2`. Keep
 Use the matching role, with goal, context, constraints, and done conditions. Respect project instructions and current session permissions.
 {end_marker}'''
     existing = path.read_text() if path.exists() else ''
-    start = existing.find(marker)
-    if start >= 0:
-        end = existing.find(end_marker, start)
-        if end < 0:
-            raise ValueError(f'{path}: unterminated managed section')
-        existing = existing[:start] + block + existing[end + len(end_marker):]
-    else:
-        # A legacy full Router is owned by the framework only when it matches a
-        # known source exactly. Never discard an unrelated CLAUDE.md.
-        if harness == 'claude' and hashlib.sha256(existing.encode()).hexdigest() in LEGACY['routers']:
+    if harness == 'claude':
+        if hashlib.sha256(existing.encode()).hexdigest() in LEGACY['routers']:
+            # A legacy full Router is framework-owned: replace it in place.
             existing = ''
-        existing = (existing.rstrip() + '\n\n' if existing.strip() else '') + block + '\n'
-    path.write_text(existing)
+        elif not repo_mode:
+            # The project's CLAUDE.md stays untouched (and uncommitted changes stay out of it);
+            # the framework section lives in CLAUDE.local.md, which info/exclude keeps untracked.
+            stripped = _without_section(existing, marker, end_marker)
+            if stripped != existing:
+                path.write_text(stripped)
+            path = target / 'CLAUDE.local.md'
+            existing = path.read_text() if path.exists() else ''
+    path.write_text(_with_section(existing, marker, end_marker, block))
+
+
+def git_exclude_path(target):
+    result = subprocess.run(['git', '-C', str(target), 'rev-parse', '--git-path', 'info/exclude'],
+                            capture_output=True, text=True)
+    if result.returncode:
+        return None
+    path = Path(result.stdout.strip())
+    return path if path.is_absolute() else target / path
+
+
+def exclude_target(target):
+    """info/exclude to manage for target; None for this repository itself or a non-Git directory."""
+    return None if target == SOURCE else git_exclude_path(target)
+
+
+def git_side_effects(target, hook, exclude):
+    """Finalize step and pre-apply state for the Git files written outside the planned tree."""
+    external = {}
+    if hook:
+        external[hook] = ('link', os.readlink(hook), 0) if hook.is_symlink() else (
+            ('file', hook.read_bytes(), hook.stat().st_mode & 0o777) if hook.exists() else None)
+    if exclude:
+        external[exclude] = ('file', exclude.read_bytes(), exclude.stat().st_mode & 0o777) if exclude.exists() else None
+
+    def finalize():
+        install_git_hook(target)
+        if exclude:
+            install_git_exclude(target)
+    return finalize, external
+
+
+def install_git_exclude(target):
+    path = git_exclude_path(target)
+    if path is None:
+        return
+    existing = path.read_text() if path.exists() else ''
+    block = '\n'.join((EXCLUDE_START, *EXCLUDE_PATHS, EXCLUDE_END))
+    updated = _with_section(existing, EXCLUDE_START, EXCLUDE_END, block)
+    if updated != existing:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(updated)
 
 
 def install_core(target, repo_mode=False):
@@ -222,7 +295,7 @@ def install_git_hook(target):
 def populate(target, harness, repo_mode=False):
     install_core(target, repo_mode)
     for side in ('claude', 'codex') if harness == 'both' else (harness,):
-        instructions(target, side)
+        instructions(target, side, repo_mode)
         install_agents(target, side)
         merge_hooks(target, side)
         if side == 'codex':
@@ -268,15 +341,15 @@ def main(default='both'):
             print(f'[harness] conflict: {name}')
         hook = git_hook_path(target)
         print(f'[harness] commit-msg: {hook if hook else "preserve / not a Git project"}')
+        exclude = None if args.git_hook_only else exclude_target(target)
+        print(f'[harness] info/exclude: {exclude if exclude else "preserve / not a Git project"}')
         if plan['conflicts']:
             parser.exit(1, '[harness] modified managed files; no target changes applied\n')
         if args.dry_run:
             print(f'[harness] preview {args.harness} in {target}; no target writes')
             return
-        hook_before = ('link', os.readlink(hook), 0) if hook and hook.is_symlink() else (
-                ('file', hook.read_bytes(), hook.stat().st_mode & 0o777) if hook and hook.exists() else None)
-        apply_plan(plan, finalize=lambda: install_git_hook(target),
-                   external={hook: hook_before} if hook else {})
+        finalize, external = git_side_effects(target, hook, exclude)
+        apply_plan(plan, finalize=finalize, external=external)
         print(f'[harness] installed {args.harness} in {target}')
     except (ValueError, OSError, json.JSONDecodeError, tomllib.TOMLDecodeError) as error:
         parser.exit(1, f'[harness] {error}\n')

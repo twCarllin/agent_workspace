@@ -18,7 +18,7 @@
      - **依據**：所有消費端（`eval_gates.py`／`stats.py`／`test_baseline.py`／`session_start.py`）都以 `glob("run/*.json")` 從工作目錄讀檔，無一從 git 歷史讀，故「不進版控」那組檔案進不進版控不影響任何既有功能
      - **`Run-Id: <run_id>` trailer 是硬要求**（見子項③）：`run/`／`task/` 系列溯源檔不進版控，它是 commit↔run 之間唯一的機械連結，也是 commit gate 的定位依據。漏寫 → gate 退回「工作目錄 in_progress」安全網，該次 commit 的四欄憑據不被核對（判定全貌見 `SKILL.md「Gate 的硬性執行」`）
      - baseline 的處置要求同住 `test-strategy` skill——其 `stable_failures` 是本 run 進場的既有欠帳快照；**本節與該 skill 須一致，改任一端時對照另一端**
-     - **部署建議**：目標專案的 `.gitignore` 可加 `run/`、`task/`，免得 `git status` 長期掛著未追蹤檔。`retro/RETRO.md` **不在此列**——它是派工時貼進 writer prompt 的硬性約束、隨框架部署，照常進版控
+     - **部署慣例**：工具鏈路徑（含 `run/`、`task/`、`retro/`、`CLAUDE.local.md`）由安裝器寫入 Git 的 `info/exclude`，所有 worktree 共用、不進版控，不需改目標專案的 `.gitignore`；`retro/RETRO.md` 仍隨框架部署、派工時貼進 writer prompt，同樣不進專案 commit
      - ②之前：Claude 主 flow 跑 `python3 .agent-flow/scripts/token_usage.py <run_id> --write`，由 transcript **實測**回寫 manifest `subagent_usage`（prep／loop／main）與 `token_usage` 明細（subagents＝transcript ∪ `run/<run_id>.dispatch.jsonl` 派工留痕）；Codex run 設 `harness: "codex"`，同指令記 `token_usage_status: "unknown_codex"`，不將未知用量寫成零（欄位語義住 `SKILL.md「資料格式與操作規則」`）
    - ③git commit，message 末尾附 `Run-Id: <run_id>` trailer；成功後跑 `python3 .agent-flow/scripts/run_commit.py finalize <run_id>`，核對 Git 實際提交訊息並回填 SHA、`completed`。中斷在兩者之間時，manifest 保持 `ready_to_commit`，照 resume 程序核對 HEAD 後續跑
 7. **有條件** 依「派工機制」節派工 `retro` subagent：
