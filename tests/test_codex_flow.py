@@ -87,11 +87,12 @@ class CodexFlowTest(unittest.TestCase):
 
     def test_install_is_idempotent_and_preserves_project_instructions(self):
         instructions = self.project / "AGENTS.md"
-        instructions.write_text("Project rule\n\n" + instructions.read_text(encoding="utf-8"), encoding="utf-8")
+        instructions.write_text("Project rule\n", encoding="utf-8")
         again = run(self.project, "bash", str(ROOT / "init.sh"), "--platform", "codex", "--target", str(self.project))
         self.assertEqual(again.returncode, 0, again.stderr)
-        self.assertEqual(instructions.read_text(encoding="utf-8").count("<!-- agent-workspace codex instructions -->"), 1)
-        self.assertIn("Project rule", instructions.read_text(encoding="utf-8"))
+        self.assertEqual(instructions.read_text(encoding="utf-8"), "Project rule\n")
+        notes = tomllib.loads((self.project / ".codex" / "config.toml").read_text(encoding="utf-8"))["developer_instructions"]
+        self.assertEqual(notes.count("<!-- agent-workspace codex instructions -->"), 1)
         config = json.loads((self.project / ".codex" / "hooks.json").read_text(encoding="utf-8"))
         self.assertEqual(len(config["hooks"]["PreToolUse"]), 1)
         writer = tomllib.loads((self.project / ".codex" / "agents" / "code-writer.toml").read_text(encoding="utf-8"))

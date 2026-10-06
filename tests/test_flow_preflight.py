@@ -27,7 +27,7 @@ class PreflightTests(unittest.TestCase):
         shutil.copytree(ROOT / '.claude', self.root / '.claude')
         (self.root / 'retro').mkdir()
         (self.root / 'retro/RETRO.md').write_text('seed')
-        (self.root / 'AGENTS.md').write_text('flow')
+        (self.root / 'AGENTS.md').write_text('flow\n<!-- agent-workspace codex instructions -->\n')
         (self.root / 'tests').mkdir()
         (self.root / 'bin').mkdir()
         (self.root / 'bin/python3').symlink_to(sys.executable)

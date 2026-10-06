@@ -1,7 +1,7 @@
 <!-- agent-workspace managed -->
 # Codex adapter
 
-共用執行契約見 .agent-flow/HARNESS.md。Codex 入口為 AGENTS.md，專案 skills 為 .agents/skills/，角色設定為 .codex/agents/*.toml，hooks 為 .codex/hooks.json。
+共用執行契約見 .agent-flow/HARNESS.md。Codex 入口為 `.codex/config.toml` 頂層 `developer_instructions` 的 Eval Flow 區段（安裝器寫入、受信任專案才載入，不改寫專案 AGENTS.md；本 repo 自身為 AGENTS.md）。專案層此鍵會蓋過使用者層同名鍵，安裝時若專案層尚無此鍵，先複製使用者層原文再附加區段；之後修改使用者層，需重跑安裝器同步。專案 skills 為 .agents/skills/，角色設定為 .codex/agents/*.toml，hooks 為 .codex/hooks.json。
 
 角色所需的讀取、搜尋、寫入、命令能力使用目前 Codex session 工具。角色工具可用時使用相符的角色名稱；CLI 派工用 dispatch.py --backend codex。模型與推理設定由 harnesses/models.json 的 Codex 設定產生。
 

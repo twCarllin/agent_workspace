@@ -68,6 +68,54 @@ def _without_section(text, marker, end_marker):
     return (head + '\n' if head else '') + ('\n' + tail if head and tail else tail)
 
 
+# Shell expression for the main working tree. Inside a linked worktree the toolchain may
+# not be linked yet, so hook commands resolve scripts from the shared Git directory's parent.
+MAIN_CHECKOUT = '$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")'
+
+
+def codex_home():
+    return Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex')
+
+
+def codex_developer_instructions(target, block, marker, end_marker):
+    """Put the managed block in .codex/config.toml's top-level developer_instructions.
+
+    The project layer overrides the user layer, so when the project has no value yet the
+    user's own developer_instructions text is copied in front of the block.
+    """
+    path = target / '.codex/config.toml'
+    text = path.read_text() if path.exists() else ''
+    data = tomllib.loads(text)
+    current = data.get('developer_instructions')
+    if current is not None and not isinstance(current, str):
+        raise ValueError(f'{path}: developer_instructions must be a string')
+    if current is None:
+        user = codex_home() / 'config.toml'
+        inherited = tomllib.loads(user.read_text()).get('developer_instructions') if user.is_file() else None
+        current = inherited if isinstance(inherited, str) else ''
+        if current:
+            print(f'[harness] copied developer_instructions from {user} into {path}')
+    value = _with_section(current, marker, end_marker, block)
+    line = 'developer_instructions = ' + json.dumps(value, ensure_ascii=False)
+    if 'developer_instructions' in data:
+        existing = re.search(r'^developer_instructions[ \t]*=.*$', text, re.M)
+        updated = text[:existing.start()] + line + text[existing.end():] if existing else text
+    else:
+        # A top-level key must precede the first table header (R-023).
+        table = re.search(r'^[ \t]*\[', text, re.M)
+        cut = table.start() if table else len(text)
+        head = text[:cut]
+        updated = head + ('' if not head or head.endswith('\n') else '\n') + line + '\n' + ('\n' if table else '') + text[cut:]
+    try:
+        merged = tomllib.loads(updated).get('developer_instructions')
+    except tomllib.TOMLDecodeError:
+        merged = None
+    if merged != value:
+        raise ValueError(f'{path}: cannot update developer_instructions in place; keep it a single-line string')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(updated)
+
+
 def instructions(target, harness, repo_mode=False):
     path = target / ('AGENTS.md' if harness == 'codex' else 'CLAUDE.md')
     marker = f'<!-- agent-workspace {harness} instructions -->'
@@ -81,6 +129,13 @@ New Tier 1/2 manifests use `harness: "{harness}"` and `evidence_schema: 2`. Keep
 Use the matching role, with goal, context, constraints, and done conditions. Respect project instructions and current session permissions.
 {end_marker}'''
     existing = path.read_text() if path.exists() else ''
+    if harness == 'codex' and not repo_mode:
+        # AGENTS.md stays the project's; the section lives in the untracked .codex/config.toml.
+        stripped = _without_section(existing, marker, end_marker)
+        if stripped != existing:
+            path.write_text(stripped)
+        codex_developer_instructions(target, block, marker, end_marker)
+        return
     if harness == 'claude':
         if hashlib.sha256(existing.encode()).hexdigest() in LEGACY['routers']:
             # A legacy full Router is framework-owned: replace it in place.
@@ -224,7 +279,7 @@ def merge_hooks(target, harness):
     path = target / ('.claude/settings.json' if harness == 'claude' else '.codex/hooks.json')
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.loads(path.read_text()) if path.exists() else {}
-    prefix = '$CLAUDE_PROJECT_DIR' if harness == 'claude' else '$(git rev-parse --show-toplevel)'
+    prefix = '$CLAUDE_PROJECT_DIR' if harness == 'claude' else MAIN_CHECKOUT
     script = f'"{prefix}/.agent-flow/scripts/'
     entries = {
         'PreToolUse': {'matcher': 'Bash|Task|Agent|Write|Edit|MultiEdit|NotebookEdit' if harness == 'claude' else 'Bash|Agent|apply_patch',
@@ -274,7 +329,7 @@ def register_codex_agents(target):
 
 def install_git_hook(target):
     result = subprocess.run(['git', '-C', str(target), 'config', '--get', 'core.hooksPath'], capture_output=True, text=True)
-    call = 'python3 "$(git rev-parse --show-toplevel)/.agent-flow/scripts/commit_message_gate.py" "$1"'
+    call = f'python3 "{MAIN_CHECKOUT}/.agent-flow/scripts/commit_message_gate.py" "$1"'
     if result.returncode == 0:
         print(f'[harness] existing core.hooksPath={result.stdout.strip()}; integrate: {call}')
         return

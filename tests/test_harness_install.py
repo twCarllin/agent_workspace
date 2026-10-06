@@ -20,8 +20,10 @@ class HarnessInstallTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result
 
-    def install(self, project, *args):
-        return self.run_command(project, 'bash', str(ROOT / 'init.sh'), '--target', str(project), *args)
+    def install(self, project, *args, env=None):
+        # An empty CODEX_HOME keeps the developer's own Codex settings out of the result.
+        env = env or {**os.environ, 'CODEX_HOME': str(Path(project) / '.no-codex-home')}
+        return self.run_command(project, 'bash', str(ROOT / 'init.sh'), '--target', str(project), *args, env=env)
 
     def test_install_matrix_and_reinstall(self):
         for harness in ('claude', 'codex', 'both'):
@@ -39,8 +41,9 @@ class HarnessInstallTest(unittest.TestCase):
                 self.assertEqual(first, second)
                 for name in ('CLAUDE.md', 'AGENTS.md'):
                     self.assertIn('Project convention', (project / name).read_text())
-                # No harness rewrites the project's own CLAUDE.md; the Claude section lives in CLAUDE.local.md.
-                self.assertEqual((project / 'CLAUDE.md').read_text(), 'Project convention\n')
+                # No harness rewrites the project's CLAUDE.md or AGENTS.md; sections live in untracked files.
+                for name in ('CLAUDE.md', 'AGENTS.md'):
+                    self.assertEqual((project / name).read_text(), 'Project convention\n')
                 exclude = (project / '.git/info/exclude').read_text()
                 self.assertEqual(exclude.count(installer.EXCLUDE_START), 1)
                 self.assertEqual(exclude.count(installer.EXCLUDE_END), 1)
@@ -60,9 +63,10 @@ class HarnessInstallTest(unittest.TestCase):
                 self.run_command(project, sys.executable, str(project / '.agent-flow/scripts/doctor.py'),
                                  '--harness', harness)
                 for side in ('claude', 'codex') if harness == 'both' else (harness,):
-                    entry = project / ('CLAUDE.local.md' if side == 'claude' else 'AGENTS.md')
-                    self.assertIn(f'harness: "{side}"', entry.read_text())
-                    self.assertIn('PRACTICES.md', entry.read_text())
+                    text = ((project / 'CLAUDE.local.md').read_text() if side == 'claude' else
+                            tomllib.loads((project / '.codex/config.toml').read_text())['developer_instructions'])
+                    self.assertIn(f'harness: "{side}"', text)
+                    self.assertIn('PRACTICES.md', text)
                     settings = json.loads((project / ('.claude/settings.json' if side == 'claude' else '.codex/hooks.json')).read_text())
                     command = settings['hooks']['SessionStart'][0]['hooks'][0]['command']
                     payload = json.dumps({'cwd': str(project)})
@@ -213,7 +217,96 @@ class HarnessInstallTest(unittest.TestCase):
             self.assertEqual(config['agents']['code-writer']['config_file'], 'custom.toml')
             reviewer = path.parent / config['agents']['code-reviewer']['config_file']
             self.assertTrue(reviewer.is_file())
-            self.assertIn('independent', (project / 'AGENTS.md').read_text())
+            self.assertIn('independent', config['developer_instructions'])
+
+    def test_hooks_run_in_unlinked_worktree(self):
+        """Hook commands resolve scripts from the main checkout, so a fresh worktree works."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, worktree = Path(tmp) / 'proj', Path(tmp) / 'wt'
+            project.mkdir()
+            self.run_command(project, 'git', 'init', '-q')
+            self.run_command(project, 'git', '-c', 'user.email=t@t', '-c', 'user.name=t',
+                             'commit', '-q', '--allow-empty', '-m', 'init')
+            self.install(project, '--harness', 'both')
+            hooks = json.loads((project / '.codex/hooks.json').read_text())['hooks']
+            self.assertEqual(len(hooks['PreToolUse']), 1)
+            self.run_command(project, 'git', 'worktree', 'add', '-q', '--detach', str(worktree))
+            self.assertFalse((worktree / '.agent-flow').exists())
+            payload = json.dumps({'tool_name': 'Bash', 'tool_input': {'command': 'echo hi'}, 'cwd': str(worktree)})
+            pre = hooks['PreToolUse'][0]['hooks'][0]['command']
+            self.run_command(worktree, 'bash', '-c', pre, input=payload)
+            self.assertTrue((worktree / '.agent-flow').is_symlink())
+            start = hooks['SessionStart'][0]['hooks'][0]['command']
+            self.run_command(worktree, 'bash', '-c', start, input=json.dumps({'cwd': str(worktree)}))
+            self.run_command(project, 'bash', '-c', pre, input=payload.replace(str(worktree), str(project)))
+            self.assertFalse((project / '.agent-flow').is_symlink())
+            # Commit in a second, never-linked worktree: the commit-msg hook must still run.
+            second = Path(tmp) / 'wt2'
+            self.run_command(project, 'git', 'worktree', 'add', '-q', '--detach', str(second))
+            (second / 'app.py').write_text('x = 1\n')
+            self.run_command(second, 'git', 'add', 'app.py')
+            self.run_command(second, 'git', '-c', 'user.email=t@t', '-c', 'user.name=t',
+                             'commit', '-q', '-m', 'add app')
+            self.assertFalse((second / '.agent-flow').exists())
+            hook = project / '.git/hooks/commit-msg'
+            self.assertIn('--git-common-dir', hook.read_text())
+            # An older framework hook (worktree toplevel lookup) is replaced on reinstall.
+            hook.write_text('#!/bin/sh\n# agent-workspace managed commit message gate\n'
+                            'exec python3 "$(git rev-parse --show-toplevel)/.agent-flow/scripts/commit_message_gate.py" "$1"\n')
+            self.install(project, '--harness', 'both')
+            self.assertIn('--git-common-dir', hook.read_text())
+            self.assertNotIn('--show-toplevel', hook.read_text())
+            hooks = json.loads((project / '.codex/hooks.json').read_text())['hooks']
+            self.assertEqual(len(hooks['PreToolUse']), 1)
+
+    def test_codex_entry_lives_in_config_developer_instructions(self):
+        marker = '<!-- agent-workspace codex instructions -->'
+        end_marker = '<!-- /agent-workspace codex instructions -->'
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / 'AGENTS.md').write_text(f'Head rule\n\n{marker}\nold\n{end_marker}\n\nTail rule\n')
+            (project / '.codex').mkdir()
+            config = project / '.codex/config.toml'
+            config.write_text('model = "m"\nsandbox_mode = "read-only"\ndeveloper_instructions = "Team rule"\n\n[agents]\nmax_threads = 2\n')
+            self.install(project, '--harness', 'codex')
+            self.assertEqual((project / 'AGENTS.md').read_text(), 'Head rule\n\nTail rule\n')
+            data = tomllib.loads(config.read_text())
+            notes = data['developer_instructions']
+            self.assertTrue(notes.startswith('Team rule'))
+            self.assertEqual(notes.count(marker), 1)
+            self.assertIn('harness: "codex"', notes)
+            self.assertEqual((data['model'], data['sandbox_mode'], data['agents']['max_threads']), ('m', 'read-only', 2))
+            first = config.read_bytes()
+            self.install(project, '--harness', 'codex')
+            self.assertEqual(config.read_bytes(), first)
+
+    def test_codex_entry_inherits_user_layer_and_precedes_tables(self):
+        marker = '<!-- agent-workspace codex instructions -->'
+        with tempfile.TemporaryDirectory() as tmp:
+            home, project = Path(tmp) / 'home', Path(tmp) / 'proj'
+            home.mkdir(); (project / '.codex').mkdir(parents=True)
+            (home / 'config.toml').write_text('developer_instructions = "Global rule"\n')
+            config = project / '.codex/config.toml'
+            config.write_text('[projects."/x"]\ntrust_level = "trusted"\n')
+            self.install(project, '--harness', 'codex', env={**os.environ, 'CODEX_HOME': str(home)})
+            data = tomllib.loads(config.read_text())
+            self.assertTrue(data['developer_instructions'].startswith('Global rule'))
+            self.assertIn(marker, data['developer_instructions'])
+            self.assertEqual(data['projects']['/x']['trust_level'], 'trusted')
+            self.assertNotIn('developer_instructions', data['projects']['/x'])
+            other = Path(tmp) / 'other'
+            other.mkdir()
+            self.install(other, '--harness', 'codex', env={**os.environ, 'CODEX_HOME': str(Path(tmp) / 'none')})
+            notes = tomllib.loads((other / '.codex/config.toml').read_text())['developer_instructions']
+            self.assertTrue(notes.startswith(marker))
+            self.assertFalse((other / 'AGENTS.md').exists())
+
+    def test_codex_repo_mode_keeps_agents_md(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            installer.instructions(project, 'codex', repo_mode=True)
+            self.assertIn('harness: "codex"', (project / 'AGENTS.md').read_text())
+            self.assertFalse((project / '.codex/config.toml').exists())
 
     def test_generated_roles_share_body_and_models(self):
         profiles = json.loads((ROOT / '.agent-flow/harnesses/models.json').read_text())

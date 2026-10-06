@@ -201,7 +201,7 @@ class HarnessDoctorTest(unittest.TestCase):
                 '[agents.code-writer]\nconfig_file = "agents/code-writer.toml"\n')
             (project / ".codex/agents/code-writer.toml").write_text('name = "code-writer"\n')
             (project / ".codex/hooks.json").write_text('{"hooks":{"PreToolUse":[{"hooks":[{"command":"python3 .agent-flow/scripts/eval_gates.py --hook"}]}]}}')
-            (project / "AGENTS.md").write_text("Flow instructions\n")
+            (project / "AGENTS.md").write_text("Flow instructions\n<!-- agent-workspace codex instructions -->\n")
             (project / "retro").mkdir()
             (project / "retro/RETRO.md").write_text("Seed\n")
             shutil.copytree(root / "skills", project / ".agents/skills",
@@ -215,6 +215,21 @@ class HarnessDoctorTest(unittest.TestCase):
                                   cwd=project, capture_output=True, text=True)
             self.assertEqual(proc.returncode, 1)
             self.assertIn("settings.json", proc.stderr)
+            # 入口位置三態：只有 config.toml 有區塊 → 通過；皆無區塊 → 報入口未部署
+            run = lambda: subprocess.run([sys.executable, str(core), "--harness", "codex"],
+                                         cwd=project, capture_output=True, text=True)
+            (project / "AGENTS.md").unlink()
+            config = project / ".codex/config.toml"
+            config.write_text('developer_instructions = "<!-- agent-workspace codex instructions -->"\n'
+                              + config.read_text())
+            proc = run()
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotIn("Codex 流程入口未部署", proc.stdout + proc.stderr)
+            config.write_text('[agents.code-writer]\nconfig_file = "agents/code-writer.toml"\n')
+            (project / "AGENTS.md").write_text("Project rules only\n")
+            proc = run()
+            self.assertEqual(proc.returncode, 1)
+            self.assertIn("Codex 流程入口未部署", proc.stdout + proc.stderr)
 
 
 if __name__ == "__main__":

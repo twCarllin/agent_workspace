@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -83,8 +84,9 @@ class RepoRootRejectionTest(unittest.TestCase):
                 fixture = runner.build_fixture(os.path.join(EVALS, 'resume-interrupted'), td, harness)
                 from pathlib import Path
                 root = Path(fixture)
-                entry = root / ('CLAUDE.local.md' if harness == 'claude' else 'AGENTS.md')
-                self.assertTrue(entry.is_file())
+                entry = (root / 'CLAUDE.local.md').read_text() if harness == 'claude' else \
+                    tomllib.loads((root / '.codex/config.toml').read_text())['developer_instructions']
+                self.assertIn(f'harness: "{harness}"', entry)
                 self.assertTrue((root / '.agents/skills/eval-flow/SKILL.md').is_file())
                 if harness == 'claude':  # testlint: allow -- Claude-only path; shared-skill assertions run for both harnesses.
                     self.assertTrue((root / '.claude/skills/eval-flow/SKILL.md').is_file())

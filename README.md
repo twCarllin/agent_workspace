@@ -68,7 +68,7 @@ Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改
 
 省略 harness 時預設 both；省略 target 時安裝到本 repo 的上一層。舊 `--platform`、`--p` 與 `install_codex.py` 入口保留。
 
-兩種 harness 都部署 `.agent-flow/` 共用核心與 `.agents/skills/` 專案 skills。Claude 的專案 skills 連結至同一份內容。安裝不寫入個人 skills。`AGENTS.md`、`.agent-flow/ROUTER.md` 的管理區段可更新，區段外的專案指令保留。自訂角色、skill、hook 與既有 RETRO 保留並回報。
+兩種 harness 都部署 `.agent-flow/` 共用核心與 `.agents/skills/` 專案 skills。Claude 的專案 skills 連結至同一份內容。安裝不寫入個人 skills。Claude 入口寫入 `CLAUDE.local.md`，Codex 入口寫入 `.codex/config.toml` 的 `developer_instructions`；兩者與其他工具鏈路徑都列入 `.git/info/exclude`，專案的 `CLAUDE.md`、`AGENTS.md` 不被改寫。管理區段可更新，區段外的專案指令保留。自訂角色、skill、hook 與既有 RETRO 保留並回報。
 
 安裝後重新載入 session，依客戶端要求檢查與信任 hooks。執行 `python3 .agent-flow/scripts/doctor.py --harness both` 檢查檔案與設定。doctor 不證明客戶端已啟用 hooks。既有 Git hook 或 core.hooksPath 由安裝器保留，依輸出的指令接入提交 gate。
 

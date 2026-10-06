@@ -67,7 +67,7 @@ class TransactionTest(unittest.TestCase):
                 return subprocess.run([sys.executable, str(ROOT / 'install_harness.py'),
                     '--target', tmp], capture_output=True, text=True)
             self.assertEqual(install().returncode, 0)
-            (target / 'AGENTS.md').write_text('My project rule\n' + (target / 'AGENTS.md').read_text())
+            (target / 'AGENTS.md').write_text('My project rule\n')
             settings = target / '.codex/hooks.json'
             data = json.loads(settings.read_text())
             data['hooks']['PreToolUse'].append({'matcher': 'Bash', 'hooks': [{'type': 'command', 'command': 'echo my hook'}]})

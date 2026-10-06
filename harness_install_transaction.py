@@ -66,9 +66,14 @@ def managed_hash(name, state):
                     owned[event] = selected
             value = json.dumps(owned, sort_keys=True).encode()
         elif name == '.codex/config.toml':
-            agents = tomllib.loads(text).get('agents', {})
+            config = tomllib.loads(text)
+            agents = config.get('agents', {})
             owned = {k: v for k, v in agents.items() if k == 'default_subagent_model' or
                      (isinstance(v, dict) and v.get('config_file') == f'agents/{k}.toml')}
+            notes = config.get('developer_instructions')
+            start, end = '<!-- agent-workspace codex instructions -->', '<!-- /agent-workspace codex instructions -->'
+            if isinstance(notes, str) and start in notes and end in notes:
+                owned['developer_instructions'] = notes[notes.index(start):notes.index(end) + len(end)]
             value = json.dumps(owned, sort_keys=True).encode()
     raw = value.encode() if isinstance(value, str) else value
     return hashlib.sha256(kind.encode() + str(mode).encode() + raw).hexdigest()

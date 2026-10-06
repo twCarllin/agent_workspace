@@ -161,8 +161,13 @@ def run_checks(harness=None):
                 issues.append(".codex/hooks.json 的 PreToolUse 沒接 eval_gates.py")
             else:
                 ok.append("Codex PreToolUse gate 已設定（仍須客戶端信任）")
-            if not os.path.isfile(os.path.join(settings_root, "AGENTS.md")):
-                issues.append("AGENTS.md 不存在（Codex 流程入口未部署）")
+            # 入口可在 .codex/config.toml 的 developer_instructions（安裝器預設）或 AGENTS.md（本 repo 自身）
+            marker = "<!-- agent-workspace codex instructions -->"
+            notes = config.get("developer_instructions")
+            agents_md = os.path.join(settings_root, "AGENTS.md")
+            in_agents = os.path.isfile(agents_md) and marker in open(agents_md, encoding="utf-8").read()
+            if not (isinstance(notes, str) and marker in notes) and not in_agents:
+                issues.append("Codex 流程入口未部署（.codex/config.toml developer_instructions 與 AGENTS.md 皆無 Eval Flow 區塊）")
         except (OSError, tomllib.TOMLDecodeError, json.JSONDecodeError) as e:
             issues.append(f".codex/config.toml 讀不到或非法 TOML（{e}）")
 
