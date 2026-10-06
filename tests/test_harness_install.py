@@ -85,7 +85,7 @@ class HarnessInstallTest(unittest.TestCase):
             self.assertTrue(text.endswith(f'{installer.EXCLUDE_END}\ntrailing.tmp\n'))
             self.assertNotIn('old-entry/', text)
             self.assertEqual(text.count(installer.EXCLUDE_START), 1)
-            self.assertIn('\n/.agent-flow/\n', text)
+            self.assertIn('\n/.agent-flow\n', text)
             self.install(project, '--harness', 'claude')
             self.assertEqual(exclude.read_text(), text)
             self.install(project, '--git-hook-only')
@@ -95,6 +95,24 @@ class HarnessInstallTest(unittest.TestCase):
             (project / 'src/run/app.py').write_text('x = 1\n')
             status = self.run_command(project, 'git', 'status', '--porcelain', '-uall').stdout
             self.assertIn('src/run/app.py', status)
+
+    def test_linked_worktree_stays_clean(self):
+        """Worktree toolchain paths are symlinks; the exclude block must ignore them too."""
+        sys.path.insert(0, str(ROOT / '.agent-flow/scripts'))
+        import worktree_link
+        with tempfile.TemporaryDirectory() as tmp:
+            project, worktree = Path(tmp) / 'proj', Path(tmp) / 'wt'
+            project.mkdir()
+            self.run_command(project, 'git', 'init', '-q')
+            self.run_command(project, 'git', '-c', 'user.email=t@t', '-c', 'user.name=t',
+                             'commit', '-q', '--allow-empty', '-m', 'init')
+            self.install(project, '--harness', 'both')
+            self.run_command(project, 'git', 'worktree', 'add', '-q', '--detach', str(worktree))
+            self.assertIn('.agent-flow', worktree_link.ensure_links(worktree))
+            status = lambda root: self.run_command(root, 'git', 'status', '--porcelain').stdout
+            # Links add nothing untracked beyond what the main checkout already shows (AGENTS.md for Codex).
+            self.assertEqual(status(worktree), status(project))
+            self.assertNotIn('.agent-flow', status(worktree))
 
     def test_git_hook_only_does_not_write_exclude(self):
         with tempfile.TemporaryDirectory() as tmp:

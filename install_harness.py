@@ -41,9 +41,10 @@ EXCLUDE_END = '# <<< agent-workspace managed <<<'
 # Toolchain paths kept out of the project's commits. Written to the repository's
 # info/exclude (shared by every worktree) instead of the tracked .gitignore.
 # A leading slash anchors each entry to the repository root, so src/run/ stays tracked.
-EXCLUDE_PATHS = ('/.agent-flow/', '/.agents/', '/.claude/agents/', '/.claude/hooks/', '/.claude/skills/',
-                 '/.claude/settings.json', '/.claude/worktrees/', '/.codex/agents/', '/.codex/config.toml',
-                 '/.codex/hooks.json', '/CLAUDE.local.md', '/retro/', '/run/', '/task/', '/eval_state.json')
+# No trailing slash: a worktree holds these paths as symlinks, and "dir/" matches directories only.
+EXCLUDE_PATHS = ('/.agent-flow', '/.agents', '/.claude/agents', '/.claude/hooks', '/.claude/skills',
+                 '/.claude/settings.json', '/.claude/worktrees', '/.codex/agents', '/.codex/config.toml',
+                 '/.codex/hooks.json', '/CLAUDE.local.md', '/retro', '/run', '/task', '/eval_state.json')
 
 
 def _with_section(text, marker, end_marker, block):
