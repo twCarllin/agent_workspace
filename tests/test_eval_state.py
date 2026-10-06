@@ -581,13 +581,12 @@ class Tier01TelemetryTest(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         e = entries[0]
         self.assertEqual(set(e), {"ts", "summary", "files", "lines", "lines_verified",
-                                  "per_file_lines", "mechanical"})
+                                  "per_file_lines"})
         self.assertEqual(e["summary"], "文案微調")
         self.assertEqual(e["files"], ["a.py", "b.md"])
         self.assertEqual(e["lines"], 12)
         self.assertTrue(e["lines_verified"])
         self.assertEqual(e["per_file_lines"], {"a.py": 9, "b.md": 3})
-        self.assertFalse(e["mechanical"])
 
     def test_tier0_is_append_only(self):
         self.git_repo()
@@ -617,7 +616,7 @@ class Tier01TelemetryTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
 
     def test_tier0_rejects_too_many_files(self):
-        """檔數 >3 → 拒絕並提示 --mechanical 或改判 Tier 1。"""
+        """檔數 >3 → 拒絕並要求重新分級，不提供豁免旗標。"""
         self.git_repo()
         names = []
         for i in range(4):
@@ -630,7 +629,9 @@ class Tier01TelemetryTest(unittest.TestCase):
                 run_cli("tier0", "--summary", "s", "--files", ",".join(names), "--lines", "4")
             err = buf.getvalue()
         self.assertIn("上限為 3 個檔案", err)
-        self.assertIn("--mechanical", err)
+        self.assertIn("重新分級", err)
+        self.assertNotIn("--mechanical", err)
+        self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
 
     def test_tier0_rejects_over_line_budget(self):
         """合計 >80 行 → 拒絕並說應判 Tier 1。"""
@@ -643,34 +644,45 @@ class Tier01TelemetryTest(unittest.TestCase):
             err = buf.getvalue()
         self.assertIn("合計 80 行", err)
         self.assertIn("Tier 1", err)
+        self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
 
-    def test_tier0_mechanical_allows_many_files_within_per_file_cap(self):
-        """--mechanical：5 檔各 10 行 → 放行（不限檔數）。"""
+    def test_tier0_accepts_three_files_at_eighty_lines(self):
+        """3 檔、80 行的上限仍可留痕。"""
         self.git_repo()
         names = []
-        for i in range(5):
+        for i, lines in enumerate((30, 30, 20)):
             n = f"m{i}.txt"
             with open(n, "w", encoding="utf-8") as f:
-                f.write("".join(f"l{j}\n" for j in range(10)))
+                f.write("".join(f"l{j}\n" for j in range(lines)))
             names.append(n)
-        run_cli("tier0", "--summary", "同一句文案換 5 處", "--files", ",".join(names),
-                "--lines", "50", "--mechanical")
+        run_cli("tier0", "--summary", "s", "--files", ",".join(names), "--lines", "80")
         e = self.read_tier0()[0]
-        self.assertTrue(e["mechanical"])
-        self.assertEqual(e["lines"], 50)
+        self.assertEqual(e["files"], names)
+        self.assertEqual(e["lines"], 80)
+        self.assertEqual(e["per_file_lines"], dict(zip(names, (30, 30, 20))))
 
-    def test_tier0_mechanical_rejects_file_over_fifty_lines(self):
-        """--mechanical 的每檔上限 50 行 → 超標印該檔名。"""
+    def test_tier0_real_cli_rejects_cross_file_bypass(self):
+        """共用入口與相容入口均拒絕 6 檔及已移除旗標，不改歷史留痕。"""
+        import subprocess
         self.git_repo()
-        with open("m0.txt", "w", encoding="utf-8") as f:
-            f.write("".join(f"l{j}\n" for j in range(51)))
-        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
-            with self.assertRaises(SystemExit):
-                run_cli("tier0", "--summary", "s", "--files", "m0.txt", "--lines", "51",
-                        "--mechanical")
-            err = buf.getvalue()
-        self.assertIn("每檔 ≤50 行", err)
-        self.assertIn("m0.txt", err)
+        names = [f"m{i}.txt" for i in range(6)]
+        for name in names:
+            Path(name).write_text("x\n", encoding="utf-8")
+        Path("run").mkdir()
+        log = Path("run/tier0.jsonl")
+        history = '{"summary":"舊記錄","mechanical":true}\n'
+        log.write_text(history, encoding="utf-8")
+        root = Path(__file__).resolve().parents[1]
+        for entry in (".agent-flow/scripts/eval_state.py", ".claude/hooks/eval_state.py"):
+            for extra, expected in (([], "重新分級"), (["--mechanical"], "unrecognized arguments")):
+                with self.subTest(entry=entry, extra=extra):
+                    result = subprocess.run(
+                        [sys.executable, str(root / entry), "tier0", "--summary", "混合修改",
+                         "--files", ",".join(names), "--lines", "6", *extra],
+                        capture_output=True, text=True, check=False)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(expected, result.stderr)
+                    self.assertEqual(log.read_text(encoding="utf-8"), history)
 
     def test_tier0_rejects_binary_change(self):
         """🟡-2：二進位檔的 numstat 為 `-`，以 0 計會讓任意大小的改動偷渡 → 直接拒絕。"""

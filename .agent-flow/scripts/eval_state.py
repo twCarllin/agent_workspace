@@ -363,10 +363,9 @@ def cmd_hitl_confirm(args):
 
 TIER0_LOG = os.path.join("run", "tier0.jsonl")
 
-# Tier 0 判準（CLAUDE.md Router 第二步，單一枚舉點在該檔；此處為機械執行）
+# Tier 0 判準（.agent-flow/ROUTER.md 第二步；此處執行數量檢查）
 TIER0_MAX_FILES = 3
 TIER0_MAX_LINES = 80
-TIER0_MECHANICAL_MAX_LINES_PER_FILE = 50
 
 
 def _git_changed_lines(files):
@@ -430,8 +429,8 @@ def cmd_tier0(args):
     """Tier 0 收尾留痕：append 一行到 run/tier0.jsonl。
 
     行數**自算**不收信自報（Tier 0 直寫無任何 gate，自報數字從未被核對），並機械執行
-    CLAUDE.md Router 的兩條可判準則：檔數 ≤3、合計 ≤80 行（`--mechanical` 例外改為每檔 ≤50、
-    不限檔數）。「無新行為」「不觸信任邊界」兩條無法機械判定，仍由使用者於 commit 前把關。
+    .agent-flow/ROUTER.md 的數量限制：檔數 ≤3、合計 ≤80 行，沒有跨檔豁免。
+    語意條件無法機械判定，主 flow 仍須依完整需求的實際 diff 核對分級。
     留痕本身仍是純記錄、非判定基準（R-010）。
     """
     if not args.summary.strip():
@@ -444,17 +443,12 @@ def cmd_tier0(args):
     if args.lines != total:
         fail(f"--lines 與 git diff 實得不符：自報 {args.lines}／實得 {total}"
              f"（逐檔：{'、'.join(f'{k} {v}' for k, v in sorted(per_file.items()))}）")
-    if args.mechanical:
-        over = {k: v for k, v in per_file.items() if v > TIER0_MECHANICAL_MAX_LINES_PER_FILE}
-        if over:
-            fail(f"機械式改動例外要求每檔 ≤{TIER0_MECHANICAL_MAX_LINES_PER_FILE} 行，超標："
-                 f"{'、'.join(f'{k} {v}' for k, v in sorted(over.items()))}")
-    else:
-        if len(files) > TIER0_MAX_FILES:
-            fail(f"Tier 0 上限為 {TIER0_MAX_FILES} 個檔案，本次 {len(files)} 個："
-                 f"同一種機械式改動跨多檔請加 --mechanical，否則應判 Tier 1")
-        if total > TIER0_MAX_LINES:
-            fail(f"Tier 0 上限為合計 {TIER0_MAX_LINES} 行，本次 {total} 行：應判 Tier 1")
+    if len(files) > TIER0_MAX_FILES:
+        fail(f"Tier 0 上限為 {TIER0_MAX_FILES} 個檔案，本次 {len(files)} 個："
+             "請依完整需求重新分級，改走 Tier 1／2；沒有跨檔豁免")
+    if total > TIER0_MAX_LINES:
+        fail(f"Tier 0 上限為合計 {TIER0_MAX_LINES} 行，本次 {total} 行："
+             "請依完整需求重新分級，改走 Tier 1／2")
     entry = {
         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "summary": args.summary,
@@ -462,12 +456,11 @@ def cmd_tier0(args):
         "lines": total,
         "lines_verified": True,
         "per_file_lines": per_file,
-        "mechanical": bool(args.mechanical),
     }
     os.makedirs("run", exist_ok=True)
     with open(TIER0_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    print(f"[eval-state] tier0 留痕 +1 -> {TIER0_LOG}")
+    print(f"[eval-state] tier0 留痕 +1 -> {TIER0_LOG}（數量檢查通過；分級仍須核對語意條件）")
 
 
 def cmd_archive(args):
@@ -559,8 +552,6 @@ def main():
     p.add_argument("--files", required=True, help="逗號分隔的檔案清單")
     p.add_argument("--lines", type=int, required=True,
                    help="自報的變更行數（增＋刪）；與 git diff 實得不符即拒絕留痕")
-    p.add_argument("--mechanical", action="store_true",
-                   help="同一種機械式改動跨多檔（CLAUDE.md 例外）：不限檔數，但每檔 ≤50 行")
     p.set_defaults(func=cmd_tier0)
 
     p = sub.add_parser("list-files")
