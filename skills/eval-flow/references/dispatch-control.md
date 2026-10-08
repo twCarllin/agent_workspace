@@ -14,6 +14,21 @@
 - **留痕**：每次派工 append `run/<run_id>.dispatch.jsonl`（格式見 `SKILL.md「資料格式與操作規則」`），`token_usage.py` 收尾時併入用量；gate 7 對命令工具派工指令同樣生效（見 `SKILL.md「Gate 的硬性執行」`）
 - **範圍外**：parallel-run／[P] fan-out 使用獨立 Git worktree 與各 harness 的隔離執行方式；不能用背景旗標代替隔離
 
+## 共用程式定位資訊
+
+主 flow 可在既有 writer／reviewer prompt 附下列短範本，共用本 run 已查的定位資訊。Spec／task 已有備註時，引用其路徑與節名，不另建報告或欄位；未適用的項目可省略，未知處明寫「未知」。
+
+```text
+程式定位資訊（搜尋範圍：<本 item 涉及檔案／模組>）：
+- 入口：<檔案＋函式／節名>
+- 規則來源：<共用 helper／既有 Spec 或 task 備註位置>
+- 呼叫端：<已查的直接呼叫端>
+- 測試：<測試檔＋案例／公開操作>
+- 未知處：<尚未確認的位置或影響>
+```
+
+定位資訊只協助找檔案，不替代硬性約束原文、scope、契約表或證據。writer／reviewer 使用前依原始碼核對相關位置；相關未提交變更使舊定位過期時，只補查並更新受影響資訊。搜尋以本 item 的修改與直接相關位置為範圍，具名疑點再擴查，不要求全 repo 盤點。checker 仍依既有憑據職責處理，不讀 diff。
+
 ## Model 指派原則
 
 - agent→model 的可執行設定來源住 `.agent-flow/harnesses/models.json`；指派理由住 repo 根 `MODEL_POLICY.md`：Claude 端由 `.claude/agents/*.md` frontmatter 承載；Codex 端由 `.codex/agents/*.toml`（共用安裝器 `install_harness.py` 產生）承載，`tests/test_model_policy.py` 強制兩端與政策表一致。不同平台各自驗證，不共用模型 ID
