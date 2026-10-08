@@ -70,6 +70,7 @@ def finalize(path, manifest):
     eval_state.append_event(manifest["run_id"], "completed", argparse.Namespace(
         run_id=manifest["run_id"], commit_sha=sha, completed_at=manifest["completed_at"]))
     print(f"[run-commit] {manifest['run_id']} completed at {sha}")
+    print("[run-commit] run 已收尾。建議使用者 /clear 後再接下一個需求：同一 session 連跑多個 run，每次呼叫的 context 會持續累積")
 
 
 def main():

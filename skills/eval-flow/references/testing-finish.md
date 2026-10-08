@@ -20,7 +20,7 @@
      - baseline 的處置要求同住 `test-strategy` skill——其 `stable_failures` 是本 run 進場的既有欠帳快照；**本節與該 skill 須一致，改任一端時對照另一端**
      - **部署慣例**：工具鏈路徑（含 `run/`、`task/`、`retro/`、`CLAUDE.local.md`）由安裝器寫入 Git 的 `info/exclude`，所有 worktree 共用、不進版控，不需改目標專案的 `.gitignore`；`retro/RETRO.md` 仍隨框架部署、派工時貼進 writer prompt，同樣不進專案 commit
      - ②之前：Claude 主 flow 跑 `python3 .agent-flow/scripts/token_usage.py <run_id> --write`，由 transcript **實測**回寫 manifest `subagent_usage`（prep／loop／main）與 `token_usage` 明細（subagents＝transcript ∪ `run/<run_id>.dispatch.jsonl` 派工留痕）；Codex run 設 `harness: "codex"`，同指令記 `token_usage_status: "unknown_codex"`，不將未知用量寫成零（欄位語義住 `SKILL.md「資料格式與操作規則」`）
-   - ③git commit，message 末尾附 `Run-Id: <run_id>` trailer；成功後跑 `python3 .agent-flow/scripts/run_commit.py finalize <run_id>`，核對 Git 實際提交訊息並回填 SHA、`completed`，再由工具記錄完成事件。中斷在兩者之間時，manifest 保持 `ready_to_commit`，照 resume 程序核對 HEAD 後續跑
+   - ③git commit，message 末尾附 `Run-Id: <run_id>` trailer；成功後跑 `python3 .agent-flow/scripts/run_commit.py finalize <run_id>`，核對 Git 實際提交訊息並回填 SHA、`completed`，再由工具記錄完成事件。中斷在兩者之間時，manifest 保持 `ready_to_commit`，照 resume 程序核對 HEAD 後續跑。收尾回報末尾提醒使用者 `/clear`（一個 run 一個 session：流程狀態全在檔案，清對話不丟狀態；同一 session 連跑多個 run，每次呼叫的 context 會持續累積）
 7. **有條件** 依「派工機制」節派工 `retro` subagent：
    - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro
    - code-reviewer 無 🔴 → **不呼叫 retro**（reviewer 一次過即無回顧價值）
