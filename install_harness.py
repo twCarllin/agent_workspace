@@ -181,12 +181,21 @@ def git_side_effects(target, hook, exclude):
     return finalize, external
 
 
+def exclude_entries(target):
+    """EXCLUDE_PATHS plus this repository itself when it is cloned inside target."""
+    try:
+        nested = SOURCE.relative_to(Path(target).resolve())
+    except ValueError:
+        return EXCLUDE_PATHS
+    return (*EXCLUDE_PATHS, '/' + nested.as_posix())
+
+
 def install_git_exclude(target):
     path = git_exclude_path(target)
     if path is None:
         return
     existing = path.read_text() if path.exists() else ''
-    block = '\n'.join((EXCLUDE_START, *EXCLUDE_PATHS, EXCLUDE_END))
+    block = '\n'.join((EXCLUDE_START, *exclude_entries(target), EXCLUDE_END))
     updated = _with_section(existing, EXCLUDE_START, EXCLUDE_END, block)
     if updated != existing:
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -129,6 +129,12 @@ class HarnessInstallTest(unittest.TestCase):
             self.assertEqual(status(worktree), status(project))
             self.assertNotIn('.agent-flow', status(worktree))
 
+    def test_exclude_covers_nested_agent_workspace_clone(self):
+        """A clone inside the project is a nested repository; the block must ignore it too."""
+        self.assertEqual(installer.exclude_entries(ROOT.parent), (*installer.EXCLUDE_PATHS, '/' + ROOT.name))
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(installer.exclude_entries(Path(tmp)), installer.EXCLUDE_PATHS)
+
     def test_git_hook_only_does_not_write_exclude(self):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
