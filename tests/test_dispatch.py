@@ -148,7 +148,7 @@ class DispatchTest(unittest.TestCase):
             "input_tokens": 10, "cache_creation_input_tokens": 19448,
             "cache_read_input_tokens": 13971, "output_tokens": 44,
             "cost_usd": 0.0415, "exit_code": 0, "envelope": "ok",
-            "failure": None, "out_of_scope": None,  # 2026-09-29-dispatch-guards：留痕擴為 17 鍵
+            "failure": None, "out_of_scope": None, "retro": None,
         })
 
     def test_c2_claude_argv_and_stdin(self):
@@ -273,7 +273,7 @@ class DispatchTest(unittest.TestCase):
             "input_tokens": 16296, "cache_creation_input_tokens": 12,
             "cache_read_input_tokens": 7936, "output_tokens": 5,
             "cost_usd": None, "exit_code": 0, "envelope": "advisory",
-            "failure": None, "out_of_scope": None,  # 2026-09-29-dispatch-guards：留痕擴為 17 鍵
+            "failure": None, "out_of_scope": None, "retro": None,
         })
 
     def test_k3_default_backend_follows_manifest_harness(self):
@@ -320,6 +320,66 @@ class DispatchTest(unittest.TestCase):
                              stdout=codex_jsonl(with_message=False))
         self.assertEqual(proc.returncode, 3)
         self.assertIn("agent_message", proc.stderr)
+
+
+    # --- retro 自動前置（run 2026-10-08-retro-dispatch-inject item 1.1）---
+
+    RETRO_FIXTURE = """# RETRO
+
+> **ID 規則**：格式：條目行首 `- R-NNN 2026-...`
+
+- R-101 2026-08-20［.claude/hooks／eval_gates／時序耦合／2026-08-20-obs］放行型與攔截型 gate 的順序。**約束：攔截型必須排在放行型之前。**
+- R-103 ［retired 2026-09-11 2026-09-11-foo］ 2026-07-01［.claude/hooks／eval_gates／已退役／2026-07-01-x］舊機制。**約束：不該再被貼。**
+- R-104 2026-07-17［.claude/hooks／eval_gates／錨點失效／2026-07-17-y］依賴一個已消失的 helper。**約束：必須沿用它。**［錨點: 這個符號不存在於任何檔案］
+- R-105 2026-09-01［api／settlement／金流／2026-09-01-z］與本次無關的模組。**約束：不相干。**
+"""
+    RETRO_SECTION = "## 硬性約束區（retro 條目，dispatch 依 --files 自動前置）"
+
+    def write_retro(self):
+        os.makedirs(os.path.join(self.dir, "retro"), exist_ok=True)
+        with open(os.path.join(self.dir, "retro", "RETRO.md"), "w", encoding="utf-8") as f:
+            f.write(self.RETRO_FIXTURE)
+
+    def test_r1_code_writer_prompt_gets_selected_retro_entries(self):
+        """R1：code-writer ＋ --files eval_gates.py → stdin 含選中條目與節標題，不含 retired／無關／錨點失效；stderr 與留痕列計數。"""
+        self.init_git(tracked=("eval_gates.py",))
+        self.write_retro()
+        proc = self.dispatch("code-writer", "--prompt-file", self.prompt, "--files", "eval_gates.py",
+                             stdout=claude_json())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        stdin = self.calls_made()[0]["stdin"]
+        self.assertTrue(stdin.startswith("派工 prompt 全文\n第二行\n"))
+        self.assertIn(self.RETRO_SECTION, stdin)
+        self.assertIn("R-101", stdin)
+        self.assertIn("攔截型必須排在放行型之前", stdin)
+        for absent in ("R-103", "R-104", "R-105"):
+            self.assertNotIn(absent, stdin)
+        self.assertIn("retro 選中 1（R-101）、retire 候選 1（R-104）", proc.stderr)
+        self.assertEqual(self.records()[0]["retro"], {"selected": ["R-101"], "retire": ["R-104"]})
+
+    def test_r2_missing_retro_file_is_fail_open(self):
+        """R2：無 retro/RETRO.md → 仍派工、該節寫原因、stderr 一句、exit 依信封、留痕空清單。"""
+        self.init_git()
+        proc = self.dispatch("code-writer", "--prompt-file", self.prompt, "--files", "a.py", stdout=claude_json())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        stdin = self.calls_made()[0]["stdin"]
+        self.assertIn(self.RETRO_SECTION, stdin)
+        self.assertIn("retro/RETRO.md 不存在", stdin)
+        self.assertIn("retro/RETRO.md 不存在", proc.stderr)
+        self.assertEqual(self.records()[0]["retro"], {"selected": [], "retire": []})
+
+    def test_r3_resume_and_other_roles_do_not_prefix(self):
+        """[邊界] --resume 修正輪不重複前置；task-verifier 的 stdin 與 prompt 檔逐位元相同；兩者留痕 retro=null。"""
+        self.init_git(tracked=("eval_gates.py",))
+        self.write_retro()
+        self.dispatch("code-writer", "--prompt-file", self.prompt, "--files", "eval_gates.py",
+                      "--resume", "sess-abc", stdout=claude_json())
+        self.dispatch("task-verifier", "--prompt-file", self.prompt, stdout=claude_json())
+        calls = self.calls_made()
+        self.assertEqual(len(calls), 2)
+        for call in calls:
+            self.assertEqual(call["stdin"], "派工 prompt 全文\n第二行\n")
+        self.assertEqual([r["retro"] for r in self.records()], [None, None])
 
 
 class DispatchGuardsTest(DispatchTest):

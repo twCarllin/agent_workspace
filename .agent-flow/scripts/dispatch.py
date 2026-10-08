@@ -10,7 +10,9 @@
   內容為空或只有空白字元 → exit 1、不呼叫子程序、不落留痕（空指令派工等於沒派工）
 - `--backend`：省略時依 manifest `harness`（claude／codex；缺值使用 claude，非法值報錯）
 - `--resume`：修正輪沿用同一子 session（claude session_id／codex thread_id）
-- `--files`：本 item 允許變更的檔案清單（repo 相對路徑）。派工前後各取一次 `git status --porcelain -z`，
+- `--files`：本 item 允許變更的檔案清單（repo 相對路徑）。role 為 code-writer 且無 `--resume` 時，另依此清單
+  以 retro_select 篩選 `retro/RETRO.md`，把選中條目附加到 prompt 末尾的硬性約束節（主 flow 不讀 RETRO.md、不貼條目）；
+  RETRO.md 不存在或推不出模組名片段 → 該節寫一句原因、stderr 一句，exit code 不受影響。派工前後各取一次 `git status --porcelain -z`，
   「派工後有、派工前無」且不在清單內的路徑＝越界 → stderr 列出、留痕 `out_of_scope`、exit 4（報告仍印出）。
   未給＝不檢查；非 git repo＝不檢查（fail-open，stderr 一句）
 - `--timeout`：子程序秒數上限（預設 1200）；超時終止 → 留痕 `failure="timed_out"`、exit 3
@@ -46,6 +48,7 @@ import harness_adapter  # noqa: E402
 import flow_rules
 import run_evidence  # noqa: E402
 import report_envelope_check  # noqa: E402
+import retro_select  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(HOOKS_DIR))
 AGENTS_DIR = os.path.join(ROOT, ".agent-flow", "roles")
@@ -180,6 +183,35 @@ def run_codex(role, prompt, resume, timeout, permissions='inherit'):
 BACKENDS = {"claude": run_claude, "codex": run_codex}
 
 
+RETRO_PATH = "retro/RETRO.md"
+RETRO_SECTION = "## 硬性約束區（retro 條目，dispatch 依 --files 自動前置）"
+
+
+def retro_prefix(files, root="."):
+    """依 files 篩選 RETRO.md，回傳 (附加到 prompt 的文字, 留痕 dict, 需印到 stderr 的一句或 None)。
+
+    主 flow 不再讀 RETRO.md 或執行 retro_select：選中條目只進 writer prompt，主 session 只看到計數。
+    fail-open：RETRO.md 不存在或 files 推不出片段時仍派工，該節寫原因（知識前置留痕，防跳步）。
+    """
+    def section(lines):
+        return "\n\n" + RETRO_SECTION + "\n\n" + "\n".join(lines) + "\n"
+    try:
+        with open(RETRO_PATH, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        note = f"知識前置（retro）：{RETRO_PATH} 不存在，無條目"
+        return section([note]), {"selected": [], "retire": []}, note
+    fragments = retro_select.module_fragments(files)
+    if not fragments:
+        note = "知識前置（retro）：--files 推導不出模組名片段，無條目"
+        return section([note]), {"selected": [], "retire": []}, note
+    entries = retro_select.parse_entries(text)
+    excludes = retro_select._anchor_scan_excludes(RETRO_PATH, root)
+    chosen, retire = retro_select.select(entries, fragments, root, excludes)
+    lines = [e["text"] for e in chosen] or ["知識前置（retro）：無相關條目"]
+    return section(lines), {"selected": [e["id"] for e in chosen], "retire": [e["id"] for e in retire]}, None
+
+
 def git_status_paths():
     """`git status --porcelain -z` 的路徑集合（R-003：NUL 分割，rename／copy 兩段路徑都收；
     不以空白 split）。非 git repo 等失敗回 None（呼叫端 fail-open）。"""
@@ -255,6 +287,12 @@ def main():
     manifest_backend = default_backend(run_id)
     backend = args.backend or manifest_backend
     allowed = {p.strip() for p in args.files.split(",") if p.strip()} if args.files is not None else None
+    retro = None
+    if args.role == "code-writer" and allowed is not None and not args.resume:
+        extra, retro, note = retro_prefix(sorted(allowed))
+        prompt += extra
+        if note:
+            print(f"[dispatch] {note}", file=sys.stderr)
     before = git_status_paths() if allowed is not None else None
     if allowed is not None and before is None:
         print("[dispatch] 非 git repo，略過越界檢查", file=sys.stderr)
@@ -264,7 +302,7 @@ def main():
         "role": args.role, "backend": backend, "permissions": args.permissions, "session_id": None,
         "resumed": bool(args.resume), "model": None, "turns": 0,
         **_zero_tokens(), "cost_usd": None, "duration_ms": 0, "exit_code": 0, "envelope": None,
-        "failure": None, "out_of_scope": None,
+        "failure": None, "out_of_scope": None, "retro": retro,
     }
     started = time.monotonic()
     try:
@@ -297,6 +335,9 @@ def main():
     cost = f"{record['cost_usd']:.4f}" if isinstance(record["cost_usd"], (int, float)) else "n/a"
     print(f"[dispatch] role={args.role} backend={backend} session={record['session_id']} "
           f"turns={record['turns']} tokens={tokens} cost_usd={cost}", file=sys.stderr)
+    if retro is not None:
+        print(f"[dispatch] retro 選中 {len(retro['selected'])}（{', '.join(retro['selected']) or '無'}）、"
+              f"retire 候選 {len(retro['retire'])}（{', '.join(retro['retire']) or '無'}）", file=sys.stderr)
     if out_of_scope:
         print(f"[dispatch] 越界變更：{', '.join(out_of_scope)}（不在 --files 清單內，退件）", file=sys.stderr)
     append_record(run_id, record)

@@ -168,3 +168,9 @@
 
 - 2026-09-22｜Q1｜eval_gates.py:183｜hotfix 缺 debt 欄位的提示訊息範例原列 `["risk", "test", "retro"]`；`risk`（補跑風險分析）類別已隨前置 1 風險分析刪除，範例改為 `["test", "retro"]`（與 rare-paths.md 的 hotfix debt 初值一致）
 - 2026-09-22｜Q1｜MODEL_POLICY.md:38｜「主 session／skill 執行（如前置 1 風險分析）」的舉例指向已刪除的機制，改舉現存例子（前置 1 直建門檻內的主 flow 分拆、主 flow 直寫捷徑）
+
+## 2026-10-08 搬出（run 2026-10-08-retro-dispatch-inject：retro 前置改由 dispatch 執行）
+
+### skills/eval-flow/references/writing.md
+
+- 2026-10-08｜2026-10-08-retro-dispatch-inject｜writing.md:step 1 retro 條目｜刪除「主 flow 再補判同類操作／同類風險面的條目」（兩處）：補判要求主 flow 通讀 RETRO.md，與「主 session 不載 RETRO.md」的省 context 目標相反；派工路徑的 retro 條目改由 dispatch.py 依 --files 自動前置，篩選以標籤命中為準

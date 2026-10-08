@@ -254,7 +254,7 @@ def main():
         for e in chosen:
             print(e["text"])
     else:
-        print("retro 源無相關條目（主 flow 仍須補判同類操作／同類風險面的條目；三源皆無時於 prompt 註明）")
+        print("retro 源無相關條目（三源皆無時於 prompt 註明）")
     print()
     print("## retire 候選（錨點已不存在於 codebase，不貼進 prompt，於收尾回報使用者）")
     print()
