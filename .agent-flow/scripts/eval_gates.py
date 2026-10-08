@@ -17,32 +17,13 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import flow_rules
+import run_evidence
+
 GIT_COMMIT_RE = re.compile(r"\bgit\s+(?:-[A-Za-z0-9-]+(?:[= ]\S+)?\s+)*commit\b")
-# 衍生檔（.eval.json / .test_baseline.json）的排除寫進 pattern 本身（單一判定點），
-# 不散落在各呼叫點用 endswith 補丁——新增衍生檔種類時只改這裡。
-#
-# 本 pattern 的合法匹配對象：
-#   - run/<run_id>.json                       一般主 manifest
-#   - run/<run_id>-item-<id>.json             Tier 2 fan-out 子 manifest
-#       └ run_id 群組捕捉結果含「-item-<id>」後綴；子 manifest 是獨立合法 manifest，
-#         與主 manifest 平行受同一 gate 管轄；各子 run 各自歸檔自己的 .eval.json。
-#
-# 負向後查排除的衍生檔（不屬於 manifest）：
-#   - *.eval.json          （主 run 歸檔）
-#   - *.test_baseline.json （測試基線快照）
-#   - *-item-<id>.eval.json（子 run 歸檔，同樣被「(?<!\.eval)」正確排除）
-#
-# 子 manifest 額外欄位：
-#   parent_run_id（可選）— 指向父 run_id（契約定義於 eval-flow / parallel-run skill）。
-#   本檔 gate 目前不消費此欄（故多帶此欄不影響任何判定、不會 KeyError）；
-#   未來任何消費點須以 .get() 讀取，以相容無此欄的舊版 manifest。
-#
-# !! 本 pattern 是「以檔名識別 manifest 身分」的唯一判定點 !!
-# 新增子 manifest 命名規則或衍生檔種類時，必須先在此更新 pattern 與上方說明，
-# 不可在呼叫點用 endswith / startswith 補丁繞過（違反單一判定點原則）。
-MANIFEST_RE = re.compile(
-    r"^run/(?P<run_id>[^/]+?)(?<!\.eval)(?<!\.test_baseline)\.json$"
-)
+# Manifest identity has one definition in flow_rules; retain the historical public alias.
+MANIFEST_RE = flow_rules.MANIFEST_RE
 
 # commit message 的 `Run-Id: <run_id>` trailer——收尾 commit 的必填項（eval-flow SKILL.md
 # step 6 ③ 與 Tier 1 精簡路徑第 5 點）。冷溯源檔不再進版控後，這是把一次 commit 對應回
@@ -67,8 +48,8 @@ TEST_DIR_NAMES = {"test", "tests", "__tests__", "spec"}
 # phase 狀態機：manifest.phase 依前置步驟推進，subagent 呼叫需達到對應 phase
 # 2026-09-22 tier2-slimming（Spec §3.2）：5→3 值域收斂，risk_done／usage_confirmed 兩值
 # 移除；舊 manifest 讀到這兩值時由 manifest_phase() 映射為 init（向後相容，見該函式）。
-PHASES = ["init", "decomposed", "completed"]
-PENDING_STATUSES = {"in_progress", "ready_to_commit"}
+PHASES = flow_rules.PHASES
+PENDING_STATUSES = flow_rules.PENDING_STATUSES
 AGENT_MIN_PHASE = {
     "usage-analyzer": "init",   # 具名問題隨時可觸發（前置 2 改觸發式，Spec §3.1 D2）
     "impact-analyzer": "init",  # 具名問題隨時可觸發（前置 2.5 改觸發式，Spec §3.1 D2）
@@ -115,149 +96,39 @@ def block(msg):
     sys.exit(2)
 
 
-def load_json(path):
+def _rule_call(operation, *args, **kwargs):
     try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
-        block(f"{path} 無法讀取或非合法 JSON（{e}）")
+        return operation(*args, **kwargs)
+    except flow_rules.RuleViolation as error:
+        block(str(error))
 
 
-def _validate_credentials(obj, source):
-    """驗四項憑據（per-subtask 與 Tier 1 manifest 共用單一判定點）。"""
-    if obj.get("local_test_passed") is not True:
-        block(f"{source} local_test_passed 非 true：本地測試 gate 未通過，須先完成 step 5 驗證\n"
-              f"→ 補救：Tier 2 `python3 .agent-flow/scripts/eval_state.py set-test <id> --passed --evidence \"指令＋結果摘要\"`；Tier 1 直接填 manifest 同名欄")
-    evidence = obj.get("local_test_evidence")
-    if not (isinstance(evidence, str) and evidence.strip()):
-        block(f"{source} local_test_evidence 為空：須記錄驗證證據（跑了什麼指令、看到什麼結果）\n"
-              f"→ 補救：同上，`set-test <id> --passed --evidence \"...\"` 的 --evidence 不可省；Tier 1 直接填 manifest 同名欄")
-    reds = obj.get("review_reds")
-    if not (isinstance(reds, int) and not isinstance(reds, bool)) or reds < 0:
-        block(f"{source} review_reds 未留痕或非合法非負整數：step 3 須記錄 🔴 數（非負整數）\n"
-              f"→ 補救：Tier 2 `python3 .agent-flow/scripts/eval_state.py set-review <id> <reds 數字>`；Tier 1 直接填 manifest 同名欄")
-    if obj.get("verify_passed") is not True:
-        block(f"{source} verify_passed 非 true：reviewer 完成度節尚未通過\n"
-              f"→ 補救：Tier 2 `python3 .agent-flow/scripts/eval_state.py set-verify <id>`（無 --passed 旗標）；Tier 1 直接填 manifest 同名欄")
+def load_json(*args, **kwargs):
+    return _rule_call(run_evidence.load_json, *args, **kwargs)
 
 
-def _validate_evidence_snapshot(manifest, source):
-    if manifest.get("evidence_schema") != 2 or manifest.get("tier") in ("B", "hotfix"):
-        return  # Existing runs keep their original evidence contract.
-    commands = manifest.get("verification_commands") or []
-    latest = commands[-1] if commands else {}
-    if latest.get("exit_code") != 0 or not latest.get("snapshot"):
-        block(f"{source} 缺通過的全套驗證快照；用 run_verify.py 重新驗證")
-    try:
-        import verification_snapshot
-        kind = latest.get("snapshot_kind")
-        if kind is None:
-            current = verification_snapshot.snapshot()
-        elif kind == "inputs-v1":
-            current = verification_snapshot.input_snapshot()
-        elif kind == "inputs-v2":
-            current = verification_snapshot.input_snapshot_v2()
-        else:
-            block(f"{source} 未知驗證快照格式：{kind}")
-    except (OSError, subprocess.CalledProcessError) as error:
-        block(f"{source} 無法核對驗證快照：{error}")
-    if current != latest["snapshot"]:
-        block(f"{source} 驗證後程式樹已變更；請重新驗證")
+def _validate_credentials(*args, **kwargs):
+    return _rule_call(flow_rules.validate_credentials, *args, **kwargs)
 
 
-def validate_state(state, source, require_passed=False):
-    """逐筆驗 sub_task 的 status 與四項憑據。
-
-    **一筆代表什麼，2026-09-22 起改變**（Q2）：新 run 的一筆＝一個 **task**（審查與測試
-    都以 task 為單位）；既有 19 份 `run/*.eval.json` 歸檔的一筆＝一個 **item**（舊語義）。
-    兩者的欄位在**同一層**（status／憑據四欄都在頂層），故本函式對新舊形狀共用同一套判定、
-    無需分支——差別只在「一筆代表什麼」，那影響的是 `stats.py` 的分母語義，不是這裡。
-    `eval_state` 不存 item 層資料（Q10），故本函式也不該新增任何 `items` 相關判定。
-    """
-    # rounds 品質不變量已隨 eval-scorer 移除；舊格式歸檔（含 rounds）寬容放行
-    if not state.get("run_id"):
-        block(f"{source} 缺 run_id")
-    for st in state.get("sub_tasks", []):
-        if require_passed:
-            name = st.get("name") or st.get("id")
-            if st.get("status") != "passed":
-                block(f"{source} sub_task「{name}」status 非 passed（{st.get('status')}）\n"
-                      f"→ 補救：該 sub_task 走完循環後 `python3 .agent-flow/scripts/eval_state.py set-status <id> passed`（status 可選 passed／failed／in_progress）")
-            _validate_credentials(st, f"{source} sub_task「{name}」")
+def _validate_evidence_snapshot(*args, **kwargs):
+    return _rule_call(run_evidence.validate_evidence_snapshot, *args, **kwargs)
 
 
-def check_manifest(manifest_path, staged, allow_in_progress=False):
-    m = load_json(manifest_path)
-    run_id = MANIFEST_RE.match(manifest_path).group("run_id")
-
-    if not (m.get("spec_path") or m.get("spec_inline")):
-        block(f"{manifest_path} intent gate 未過：spec_path 與 spec_inline 皆空")
-    allowed_statuses = ("in_progress", "ready_to_commit", "completed") if allow_in_progress else ("ready_to_commit", "completed")
-    if m.get("status") not in allowed_statuses:
-        block(f"{manifest_path} status 非 completed/ready_to_commit（{m.get('status')}），不可 commit")
-    _validate_evidence_snapshot(m, manifest_path)
-
-    if m.get("tier") == "hotfix":
-        if not isinstance(m.get("debt"), list):
-            block(f"{manifest_path} 為 hotfix 但缺 debt 欄位（欠帳清單，如 [\"test\", \"retro\"]）")
-        return  # hotfix 不走循環評分，豁免 eval 歸檔檔要求；欠帳由 debt gate 追討
-
-    if m.get("tier") == "B":
-        if m.get("bootstrap_verified") is not True:
-            block(
-                f"{manifest_path} 為 Tier B 但 bootstrap_verified 非 true："
-                f"DoD 兩條（本地 build/run 跑得通、測試框架＋示範測試會跑）未驗證，不可 commit"
-            )
-        return  # Tier B 不走循環評分，豁免 eval 歸檔檔要求
-
-    tier = m.get("tier")
-    archive_path = f"run/{run_id}.eval.json"
-
-    if archive_path in staged or os.path.exists(archive_path):
-        # 歸檔檔存在（staged 或工作目錄）：Tier 1（向後相容）＋ Tier 2（現行）共用此路徑
-        # （單一判定點）。冷溯源檔不再進版控後，歸檔檔的常態是「在工作目錄、未 staged」，
-        # 故判定由 staged 成員資格放寬為「staged 或工作目錄存在」——語義仍是「歸檔已完成」。
-        archive = load_json(archive_path)
-        if archive.get("run_id") != run_id:
-            block(f"{archive_path} 的 run_id（{archive.get('run_id')}）與 manifest 不一致")
-        validate_state(archive, archive_path, require_passed=True)
-    elif tier == 1 or tier == "1":
-        # Tier 1 豁免歸檔檔，改驗 manifest 自身四欄憑據（與 validate_state 共用 _validate_credentials）
-        _validate_credentials(m, manifest_path)
-    else:
-        block(f"{manifest_path} 的 {archive_path} 不存在：須先歸檔 eval_state 再 commit\n"
-              f"→ 補救：`python3 .agent-flow/scripts/eval_state.py archive` 產出 {archive_path}"
-              f"（歸檔檔是冷溯源檔，留在工作目錄即可，不需 git add）")
+def validate_state(*args, **kwargs):
+    return _rule_call(flow_rules.validate_state, *args, **kwargs)
 
 
-def manifest_phase(manifest):
-    """讀 manifest.phase；舊 manifest 無此欄時由既有欄位推導（向後相容）。
-
-    2026-09-22 tier2-slimming（Spec §3.2 向後相容，硬性）：舊值域含 risk_done／
-    usage_confirmed，新值域（PHASES）已移除這兩值。顯式值分支與推導分支都必須把
-    這兩值映射為 init，且映射須發生在 PHASES.index()（見 check_task_gate）之前——
-    不可用 try/except 兜底：吞例外會讓 phase 判定靜默走偏，等同 gate 不套用
-    （R-005 同型事故：worktree gate 曾因未執行到的路徑靜默放行）。
-    推導分支的 usage_report_path 非空不再視為 usage_confirmed（該值已離開值域，
-    且 usage_report_path 語義已改為「具名問題觸發，長期 null 屬正常」，Spec §3.1 D2）——
-    無顯式 phase 且無 task_file 時一律落回 init。
-    """
-    phase = manifest.get("phase")
-    if phase in ("risk_done", "usage_confirmed"):
-        return "init"
-    if phase in PHASES:
-        return phase
-    if manifest.get("task_file"):
-        return "decomposed"
-    return "init"
+def check_manifest(*args, **kwargs):
+    return _rule_call(run_evidence.check_manifest, *args, **kwargs)
 
 
-def load_json_quiet(path):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return None
+def manifest_phase(*args, **kwargs):
+    return _rule_call(flow_rules.manifest_phase, *args, **kwargs)
+
+
+def load_json_quiet(*args, **kwargs):
+    return _rule_call(run_evidence.load_json_quiet, *args, **kwargs)
 
 
 def check_other_runs(current_run_id):
@@ -435,23 +306,8 @@ def check_staged_test_lint(staged):
         block(f"假測試 lint 未過（修測試或以行尾 `# testlint: allow` 豁免並留痕）：\n{detail}")
 
 
-def _find_unique_tier1_inprogress():
-    """掃 run/ 找唯一一個 tier==1 且 status==in_progress 的 manifest。
-    回傳 (manifest_path, manifest_dict) 或 None（找不到或多個）。
-    須重用 MANIFEST_RE（單一判定點，硬約束）。
-    status=="aborted" 或 "failed" 的 tier-1 manifest 不符合 in_progress 判定，
-    不會被選為當前 run（1a 消費點四）。"""
-    found = []
-    for path in sorted(glob.glob("run/*.json")):
-        if not MANIFEST_RE.match(path):
-            continue
-        m = load_json_quiet(path)
-        if not isinstance(m, dict):
-            continue
-        tier = m.get("tier")
-        if (tier == 1 or tier == "1") and m.get("status") == "in_progress":
-            found.append((path, m))
-    return found[0] if len(found) == 1 else None
+def _find_unique_tier1_inprogress(*args, **kwargs):
+    return _rule_call(run_evidence.find_unique_tier1_inprogress, *args, **kwargs)
 
 
 def _rel_to_cwd(file_path):

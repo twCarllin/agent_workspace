@@ -2,9 +2,9 @@
 
 5. **本地測試驗證（硬性 gate，對應 .agent-flow/ROUTER.md「部署規則」）**：依 **test-strategy** skill 執行。gate 條件＝**無新增穩定失敗**（以 `.agent-flow/scripts/test_baseline.py check` 的判定為準；baseline 於第一次 step 5 前建立單次快照既有失敗，非確定性失敗由 script 於新失敗時重跑一次確認可重現）
    - **Tier 2：新行為必須有自動化測試**（單元測試隨各實作 item 的 DoD、整合測試 item 由前置 1 分拆時建立，見 task-decomposition skill）；**Tier 1**：自動化測試或實際運行功能驗證皆可
-   - 通過 → `local_test_passed: true`、`local_test_evidence` 填 script 輸出摘要（hook 於 commit 時檢查兩欄皆已填）
+   - `run_verify.py` 依實際驗證結果更新 `local_test_passed` 與 `local_test_evidence`；主 flow 另補仲裁、豁免等必要說明。hook 於 commit 時核對憑據。
    - **另**：本步的每一條驗證指令以 wrapper 一次完成「跑＋留痕」：`python3 .agent-flow/scripts/run_verify.py --run-id <run_id> [--sub-task <id>] --cmd "<指令>"`——Tier 2 給 `--sub-task` 記入該 sub_task；Tier 1 免給，自動記 manifest 同名欄並寫 verify_cmd 事件。底層 `add-verification` 保留，直接呼叫仍合法。
-     - **與 `local_test_evidence` 並存、不取代它**——語義見 `SKILL.md「資料格式與操作規則」` 的 `verification_commands`。無 gate 檢查此欄，漏記不會被擋，但該 run 在 `stats.py` 就成了「無記錄」
+     - `verification_commands` 與測試摘要並存；提交快照的判定條件以 `SKILL.md「資料格式與操作規則」` 為準。
    - 真新失敗 → 依 skill 的處置：測試過時須記依據（無依據改弱測試視同 🔴）、肇因非本 item 走重開路徑；兩者皆非 → **立即回報使用者裁決（人是計數器，無自修額度）**，不自行空轉迴圈
    - **`[憑據:step5]` 條目在本步收口**：主 flow 逐條核對帶記號的 DoD 條目憑據已補——實跑輸出，或依 test-strategy「視覺類 DoD 的使用者驗收」路徑取得使用者裁決——未補不得通過本 gate（記號定義住 task-decomposition skill；step 3 的 checker 對這些條目只記 🔍 待驗，收口責任在此、不在審查輪）
    - 未通過本步不可進入收尾與 commit。細則（相關測試選擇、零測試專案、豁免窗口）住在 test-strategy skill，不在此重述
@@ -20,7 +20,7 @@
      - baseline 的處置要求同住 `test-strategy` skill——其 `stable_failures` 是本 run 進場的既有欠帳快照；**本節與該 skill 須一致，改任一端時對照另一端**
      - **部署慣例**：工具鏈路徑（含 `run/`、`task/`、`retro/`、`CLAUDE.local.md`）由安裝器寫入 Git 的 `info/exclude`，所有 worktree 共用、不進版控，不需改目標專案的 `.gitignore`；`retro/RETRO.md` 仍隨框架部署、派工時貼進 writer prompt，同樣不進專案 commit
      - ②之前：Claude 主 flow 跑 `python3 .agent-flow/scripts/token_usage.py <run_id> --write`，由 transcript **實測**回寫 manifest `subagent_usage`（prep／loop／main）與 `token_usage` 明細（subagents＝transcript ∪ `run/<run_id>.dispatch.jsonl` 派工留痕）；Codex run 設 `harness: "codex"`，同指令記 `token_usage_status: "unknown_codex"`，不將未知用量寫成零（欄位語義住 `SKILL.md「資料格式與操作規則」`）
-   - ③git commit，message 末尾附 `Run-Id: <run_id>` trailer；成功後跑 `python3 .agent-flow/scripts/run_commit.py finalize <run_id>`，核對 Git 實際提交訊息並回填 SHA、`completed`。中斷在兩者之間時，manifest 保持 `ready_to_commit`，照 resume 程序核對 HEAD 後續跑
+   - ③git commit，message 末尾附 `Run-Id: <run_id>` trailer；成功後跑 `python3 .agent-flow/scripts/run_commit.py finalize <run_id>`，核對 Git 實際提交訊息並回填 SHA、`completed`，再由工具記錄完成事件。中斷在兩者之間時，manifest 保持 `ready_to_commit`，照 resume 程序核對 HEAD 後續跑
 7. **有條件** 依「派工機制」節派工 `retro` subagent：
    - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro
    - code-reviewer 無 🔴 → **不呼叫 retro**（reviewer 一次過即無回顧價值）
@@ -29,6 +29,6 @@
 
 ## 標準收尾入口
 
-執行 step 6 前，必讀 `.agent-flow/FLOW_CLI.md`「收尾」節。標準路徑使用 `flow.py finish --run-id <id> --message <訊息> --files <本次檔案> --verify-command <依 tier 選定的實際測試命令>`；只有明確要求才用 `--reuse`，只有已授權推送且明確加 `--push` 才推送。工具不填審查／測試通過旗標、不自動 stage、不使用全樹 git add。先完成獨立審查與 step 5，再只 stage 本 run 的檔案。
+執行 step 6 前，必讀 `.agent-flow/FLOW_CLI.md`「收尾」節。標準路徑使用 `flow.py finish --run-id <id> --message <訊息> --files <本次檔案> --verify-command <依 tier 選定的實際測試命令>`；只有明確要求才用 `--reuse`，只有已授權推送且明確加 `--push` 才推送。工具不推定審查通過、不自動 stage、不使用全樹 git add；測試欄位由驗證結果產生。先完成獨立審查與 step 5，再只 stage 本 run 的檔案。
 
 此入口執行本文件 step 6 的順序與 gate，不改冷溯源檔範圍。舊 run 或入口不可用時，依上方原手動 prepare → commit（Run-Id）→ finalize 路徑執行；中斷恢復依根入口「中斷恢復」節核對現場，不重複提交。

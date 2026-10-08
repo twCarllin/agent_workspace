@@ -39,7 +39,7 @@ import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-import eval_gates  # noqa: E402  重用 MANIFEST_RE（單一判定點鐵律，禁止自建第三份 pattern）
+import flow_rules  # noqa: E402  重用 MANIFEST_RE（單一判定點鐵律，禁止自建第三份 pattern）
 
 TOKEN_FIELDS = (
     "input_tokens",
@@ -80,7 +80,7 @@ def _manifest_path(dir_, run_id):
     """比照 devlog.py list_run_ids：MANIFEST_RE 錨定字面 "run/" 前綴，與 --dir 值無關，
     用 basename 重組固定前綴比對，維持單一判定點（R-009）。"""
     name = f"{run_id}.json"
-    if not eval_gates.MANIFEST_RE.match("run/" + name):
+    if not flow_rules.MANIFEST_RE.match("run/" + name):
         return None
     return os.path.join(dir_, name)
 

@@ -14,7 +14,7 @@
      - ④writer 報告帶失敗交付或「表沒答案」仲裁未經主 flow 處置（正常路徑為步驟 1 主 flow 補表回派；checker 遇未處置者＝流程遺漏，本觸發為兜底）
      - 升級後該 sub_task 本輪照舊 reviewer 流程（引文核實、重裁、快速路徑均不變，見下方各條——升級輪適用）；升級輪與 checker 輪**同輪**、以 `checked_by` 區分；checker 輪與升級本身**不計入**修正 2 輪上限（上限只數 reviewer 退回的修正迭代，見步驟 4）
    - **回退機制**：checker-only 放行的 item 事後爆 bug，依 `retro/BUGLOG.md` 檔頭的回退說明處置（機械偵測、補救一律 HITL），不自行恢復 reviewer 預設
-   - **審查結論的記錄**：每輪（checker 或 reviewer）審查結論**只記入 `eval_state.json` 的 `review_reds`／`checked_by`**（該 task 一筆）與收尾回報，不落獨立審查檔（中斷恢復的對應處置見 `eval-flow-resume` skill）：
+   - **審查結論的記錄**：Tier 1 用 `review-run`（用法見 `SKILL.md「資料格式與操作規則」`）；Tier 2 每輪（checker 或 reviewer）審查結論**只記入 `eval_state.json` 的 `review_reds`／`checked_by`**（該 task 一筆）與收尾回報，不落獨立審查檔（中斷恢復的對應處置見 `eval-flow-resume` skill）：
      - `set-review <id> <🔴數>` 於**首輪**審查結果出來後執行（checker 輪 `<🔴數>` 固定填 0；升級輪由 reviewer 結果填，記修正前原始數，與操作規則條呼應）
      - set-review **必帶 `--checked-by`**（checker 輪＝`checker`；升級輪＝`reviewer:<理由代碼①-④>`；手動觸發＝`reviewer:manual`；邊界直派＝`reviewer:boundary`；合法值單一枚舉點住 `eval_state.py` `VALID_CHECKED_BY`）——審定者留痕（升級率統計靠此欄，消費端見 stats.py）
      - 升級輪與 checker 輪**同輪**、以 `checked_by` 區分；輪次判定讀 `review_reds` 是否已有值（無值＝首輪，有值＝已跑過至少一輪）
@@ -28,9 +28,9 @@
      - **機械退件門檻**：同一份審查報告需行號修正 **≥3 條** → 整份報告視為未經核對，**退回 reviewer 重審**（重審 prompt 明列漏核對的條目），該輪不計入修正迭代上限
      - 基於錯誤前提（如誤認 commit 狀態）的發現同樣駁回並留痕
 4. 審查結果的處置：
-   - **checker 通過**（完成度節無缺席、憑據節逐項有憑據）→ 主 flow 執行 set-verify，進 step 5
+   - **checker 通過**（完成度節無缺席、憑據節逐項有憑據）→ 主 flow 記錄審查通過（Tier 1：`review-run --passed`；Tier 2：`set-verify`），進 step 5
    - **checker 觸發任一升級①-④** → 改派 code-reviewer 全 diff 審（見步驟 3 四類升級觸發），本輪改記 `checked_by: reviewer(escalated: <理由代碼>)`（記入 `eval_state`）；reviewer 交付後依下列兩條處置
-   - **升級輪（reviewer）零 🔴 且完成度節無缺席項** → 主 flow 執行 set-verify，進 step 5
+   - **升級輪（reviewer）零 🔴 且完成度節無缺席項** → 主 flow 記錄審查通過（Tier 1：`review-run --passed`；Tier 2：`set-verify`），進 step 5
    - **升級輪（reviewer）有 🔴 或完成度節列出缺席項** → 走 fixing 迴圈（重裁條款、set-review 均不變；審查結論記 `eval_state`，見步驟 3）；修正後依 `SKILL.md「效率與驗證重用」` 產生增量 diff，再重跑步驟 3（升級輪，直接派 reviewer，不退回 checker）
    - **🟡-only 快速路徑（省一輪審查稅，僅升級輪適用）**：checker 輪無 🟡 分級——憑據對不上即升級，不適用本路徑。
      - 適用條件：升級輪內，零 🔴、完成度節無缺席、僅 🟡，且 🟡 全屬主 flow 可直接套用的**措辭級**修正（修錯字、對齊術語、補澄清性說明——不改邏輯、不改介面、不動 code 行為；**判斷有疑義時一律歸邏輯級**，省稅是優化、正確性是底線）

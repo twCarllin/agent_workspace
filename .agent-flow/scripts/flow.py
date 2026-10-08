@@ -11,7 +11,8 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import eval_gates
+import flow_rules
+import run_evidence
 import run_commit
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -35,7 +36,7 @@ def select_run(run_id=None):
         return path, manifest
     candidates = []
     for path in sorted(Path('run').glob('*.json')):
-        if not eval_gates.MANIFEST_RE.fullmatch(str(path)):
+        if not flow_rules.MANIFEST_RE.fullmatch(str(path)):
             continue
         manifest = read(path)
         if (manifest.get('run_id') == path.stem
@@ -202,7 +203,7 @@ def validate_tasks(state, source):
     tasks = state.get('sub_tasks')
     if not isinstance(tasks, list) or not tasks or not all(isinstance(task, dict) for task in tasks):
         raise ValueError(f'{source}: sub_tasks must be a nonempty list of task objects')
-    eval_gates.validate_state(state, source, require_passed=True)
+    flow_rules.validate_state(state, source, require_passed=True)
 
 
 def finish(args):
@@ -237,7 +238,7 @@ def finish(args):
                 raise ValueError('provide --verify-command or manifest test_command')
             # Review evidence is checked before spending time on full verification.
             if not hot.exists() and manifest.get('tier') in (1, '1'):
-                eval_gates._validate_credentials(manifest, path)
+                flow_rules.validate_credentials(manifest, path)
             elif not hot.exists():
                 archive = read(f"run/{args.run_id}.eval.json")
                 if archive.get('run_id') != args.run_id:
@@ -258,7 +259,7 @@ def finish(args):
             run_commit.save(path, manifest)
             run_commit.prepare(path, manifest)
             staged = scope_check(files)
-            eval_gates.check_manifest(path, staged, allow_in_progress=True)
+            run_evidence.check_manifest(path, staged, allow_in_progress=True)
             message = args.message
             if re.search(r'^Run-Id:', message, re.MULTILINE):
                 raise ValueError('--message must not contain a Run-Id trailer')

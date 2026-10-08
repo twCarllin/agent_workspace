@@ -60,6 +60,17 @@ class HarnessInstallTest(unittest.TestCase):
                 self.assertEqual(legacy.resolve(), core.resolve())
                 self.run_command(project, sys.executable, str(legacy), '--help')
                 self.run_command(project, sys.executable, str(core), '--help')
+                for name in ('flow_rules.py', 'run_evidence.py'):
+                    shared = project / '.agent-flow/scripts' / name
+                    compatibility = project / '.claude/hooks' / name
+                    self.assertEqual(shared.read_bytes(), (ROOT / '.agent-flow/scripts' / name).read_bytes())
+                    self.assertTrue(compatibility.is_symlink())
+                    self.assertEqual(compatibility.resolve(), shared.resolve())
+                imported = self.run_command(project, sys.executable, '-c',
+                    f'import sys; sys.path.insert(0, {str(core.parent)!r}); '
+                    'import flow_rules, run_evidence, eval_state, run_commit, flow, dispatch, devlog, token_usage; '
+                    'assert "eval_gates" not in sys.modules; print("core-imports-ok")')
+                self.assertEqual(imported.stdout.strip(), 'core-imports-ok')
                 self.run_command(project, sys.executable, str(project / '.agent-flow/scripts/doctor.py'),
                                  '--harness', harness)
                 for side in ('claude', 'codex') if harness == 'both' else (harness,):

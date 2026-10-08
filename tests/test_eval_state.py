@@ -41,6 +41,79 @@ class EvalStateHelperTest(unittest.TestCase):
         run_cli("init", "--run-id", "2026-07-15-demo")
         run_cli("add-subtask", "--id", "1", "--name", "demo")
 
+    def test_tier1_operations_real_compatibility_entries(self):
+        import subprocess
+        root = Path(__file__).resolve().parents[1]
+        for entry in (root / ".agent-flow/scripts/eval_state.py", root / ".claude/hooks/eval_state.py"):
+            run_id = "flow" + str(len(list(Path("run").glob("*.json")))) if Path("run").exists() else "flow0"
+            argv = [sys.executable, str(entry), "init-run", "--run-id", run_id,
+                    "--harness", "codex", "--spec-inline", "page change",
+                    "--tier-rationale", "bounded change", "--test-command", "python3 -m unittest",
+                    "--task-file", "task/flow.md"]
+            result = subprocess.run(argv, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            path = Path(f"run/{run_id}.json")
+            manifest = json.loads(path.read_text())
+            expected = {"run_id": run_id, "framework_version": (root / ".agent-flow/scripts/VERSION").read_text().strip(), "harness": "codex", "evidence_schema": 2, "tier": 1,
+                        "spec_inline": "page change", "tier_rationale": "bounded change",
+                        "test_command": "python3 -m unittest", "task_file": "task/flow.md",
+                        "status": "in_progress", "phase": "init", "verification_commands": []}
+            for key, value in expected.items():
+                self.assertEqual(manifest[key], value, key)
+            for key in ("risk_report_path", "usage_report_path", "impact_report_path", "local_test_passed",
+                        "local_test_evidence", "review_reds", "verify_passed", "checked_by", "review_evidence"):
+                self.assertIsNone(manifest[key], key)
+            self.assertTrue(manifest["created_at"])
+            self.assertFalse(Path("eval_state.json").exists())
+            events_path = Path(f"run/{run_id}.events.jsonl")
+            event = json.loads(events_path.read_text())
+            self.assertEqual(event["cmd"], "init")
+            self.assertEqual(event["args"], {"run_id": run_id, "harness": "codex",
+                "spec_inline": "page change", "tier_rationale": "bounded change",
+                "test_command": "python3 -m unittest", "task_file": "task/flow.md"})
+            before = events_path.read_text()
+            self.assertNotEqual(subprocess.run(argv, capture_output=True).returncode, 0)
+            self.assertEqual(events_path.read_text(), before)
+            review = [sys.executable, str(entry), "review-run", run_id, "2", "--checked-by",
+                      "reviewer:manual", "--evidence", "two issues"]
+            self.assertNotEqual(subprocess.run(review, capture_output=True).returncode, 0)
+            self.assertEqual(events_path.read_text(), before)
+            manifest["phase"] = "decomposed"
+            path.write_text(json.dumps(manifest))
+            self.assertEqual(subprocess.run(review, capture_output=True).returncode, 0)
+            manifest = json.loads(path.read_text())
+            self.assertEqual(manifest["review_reds"], 2)
+            self.assertFalse(manifest["verify_passed"])
+            self.assertEqual(manifest["checked_by"], "reviewer:manual")
+            self.assertEqual(manifest["review_evidence"], "two issues")
+            event = json.loads(events_path.read_text().splitlines()[-1])
+            self.assertEqual(event["cmd"], "reviewed")
+            self.assertEqual(event["args"], {"run_id": run_id, "reds": 2, "checked_by": "reviewer:manual",
+                                          "evidence": "two issues", "passed": False})
+            before = events_path.read_text()
+            self.assertNotEqual(subprocess.run(review + ["--passed"], capture_output=True).returncode, 0)
+            self.assertEqual(events_path.read_text(), before)
+            review[4] = "0"
+            review[-1] = "fixed and checked"
+            self.assertEqual(subprocess.run(review + ["--passed"], capture_output=True).returncode, 0)
+            manifest = json.loads(path.read_text())
+            self.assertEqual(manifest["review_reds"], 2)
+            self.assertTrue(manifest["verify_passed"])
+            self.assertEqual(manifest["review_evidence"], "fixed and checked")
+            manifest["status"] = "completed"
+            path.write_text(json.dumps(manifest))
+            before = events_path.read_text()
+            self.assertNotEqual(subprocess.run(review, capture_output=True).returncode, 0)
+            self.assertEqual(events_path.read_text(), before)
+            invalid = argv.copy()
+            invalid[4] = "../escape"
+            self.assertNotEqual(subprocess.run(invalid, capture_output=True).returncode, 0)
+            invalid[4] = "empty"
+            invalid[8] = " "
+            self.assertNotEqual(subprocess.run(invalid, capture_output=True).returncode, 0)
+            self.assertFalse(Path("run/empty.json").exists())
+            self.assertFalse(Path("run/empty.events.jsonl").exists())
+
     def test_init_creates_state(self):
         run_cli("init", "--run-id", "r1")
         state = self.read_state()

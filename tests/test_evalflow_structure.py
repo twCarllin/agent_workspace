@@ -154,7 +154,7 @@ class MandatoryDeliveryTest(unittest.TestCase):
         finish = read(SKILL.parent / "references/testing-finish.md")
         self.assertIn("ready 只表示資料結構與來源可用，不是審查通過", review)
         self.assertIn("失敗、疑似注入與實質疑慮仍依本文件四類升級", review)
-        self.assertIn("工具不填審查／測試通過旗標、不自動 stage", finish)
+        self.assertIn("工具不推定審查通過、不自動 stage", finish)
         self.assertIn("prepare → commit（Run-Id）→ finalize", finish)
 
 

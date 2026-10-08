@@ -13,7 +13,9 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-import eval_gates
+import flow_rules
+import run_evidence
+import eval_state
 
 
 def git(*args):
@@ -22,7 +24,7 @@ def git(*args):
 
 def manifest_path(run_id):
     path = f"run/{run_id}.json"
-    if not eval_gates.MANIFEST_RE.fullmatch(path):
+    if not flow_rules.MANIFEST_RE.fullmatch(path):
         raise ValueError("invalid run ID")
     return path
 
@@ -40,7 +42,7 @@ def prepare(path, manifest):
         raise ValueError("run is not in progress")
     if os.path.exists("eval_state.json"):
         raise ValueError("archive eval_state.json before preparing the commit")
-    eval_gates.check_manifest(path, set(), allow_in_progress=True)
+    run_evidence.check_manifest(path, set(), allow_in_progress=True)
     manifest["status"] = "ready_to_commit"
     try:
         manifest["pre_commit_head"] = git("rev-parse", "HEAD")
@@ -65,6 +67,8 @@ def finalize(path, manifest):
     manifest["commit_sha"] = sha
     manifest["completed_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     save(path, manifest)
+    eval_state.append_event(manifest["run_id"], "completed", argparse.Namespace(
+        run_id=manifest["run_id"], commit_sha=sha, completed_at=manifest["completed_at"]))
     print(f"[run-commit] {manifest['run_id']} completed at {sha}")
 
 
@@ -75,7 +79,7 @@ def main():
     args = parser.parse_args()
     try:
         path = manifest_path(args.run_id)
-        manifest = eval_gates.load_json(path)
+        manifest = run_evidence.load_json(path)
         if manifest.get("run_id") != args.run_id:
             raise ValueError("manifest run_id does not match filename")
         if args.action == "prepare":

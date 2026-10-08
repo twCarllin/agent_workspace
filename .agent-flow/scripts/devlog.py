@@ -23,7 +23,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-import eval_gates  # noqa: E402  重用 MANIFEST_RE（單一判定點鐵律，禁止自建第三份 pattern）
+import flow_rules  # noqa: E402  重用 MANIFEST_RE（單一判定點鐵律，禁止自建第三份 pattern）
 
 
 def load(path):
@@ -56,12 +56,12 @@ def _na(v):
 
 
 def list_run_ids(run_dir):
-    """掃 run_dir 下的 manifest（`eval_gates.MANIFEST_RE` 判定），回傳 run_id 清單。"""
+    """掃 run_dir 下的 manifest（`flow_rules.MANIFEST_RE` 判定），回傳 run_id 清單。"""
     ids = []
     for path in sorted(glob.glob(os.path.join(run_dir, "*.json"))):
-        # MANIFEST_RE 錨定字面 "run/" 前綴（eval_gates.py:43），與 --dir 實際路徑無關；
+        # MANIFEST_RE 錨定字面 "run/" 前綴（flow_rules.MANIFEST_RE），與 --dir 實際路徑無關；
         # 用 basename 重組固定前綴比對，維持單一判定點且不受 --dir 值影響（reviewer 🟡 1）。
-        if not eval_gates.MANIFEST_RE.match("run/" + os.path.basename(path)):
+        if not flow_rules.MANIFEST_RE.match("run/" + os.path.basename(path)):
             continue
         m = load(path)
         if isinstance(m, dict) and m.get("run_id"):

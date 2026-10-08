@@ -32,6 +32,23 @@ python3 .agent-flow/scripts/flow.py watch --run-id <id> --timeout 30 --interval 
 
 `watch` 只在狀態改變時輸出，達到時間上限或 run 結束時退出。可用 Ctrl+C 停止監看。監看不會暫停工作，也不修改證據。
 
+## Tier 1 初始化與審查
+
+先依 Router 判級，再建立 run；以下命令只適用 Tier 1。Tier 2 沿用既有初始化與逐 task 記錄。
+
+```sh
+python3 .agent-flow/scripts/eval_state.py init-run --run-id <id> \
+  --harness codex --spec-inline '<需求>' --tier-rationale '<理由碼與判級理由>' \
+  --test-command 'python3 -m unittest discover -s tests' --task-file task/<計畫>.md
+python3 .agent-flow/scripts/eval_state.py hitl-confirm <id> --note '<使用者確認範圍>'
+python3 .agent-flow/scripts/eval_state.py review-run <id> 0 \
+  --checked-by reviewer:manual --evidence '<實際獨立審查結果與來源>' --passed
+```
+
+`init-run` 拒絕覆寫既有 manifest。`hitl-confirm` 仍須先取得使用者確認。`review-run` 只記錄已取得的獨立結論；紅數非零時不得加 `--passed`，全部 task 通過後才記整個 run 通過。未通過的審查會清除通過狀態，首輪紅數保留供稽核。
+
+驗證仍使用 `run_verify.py`；工具同步測試欄位，不能代替獨立審查。生命週期事件由對應操作產生，格式與成功條件見 Eval Flow「資料格式與操作規則」，不另呼叫 `event` 重複記帳。
+
 ## worktree 連結
 
 ```sh
@@ -58,7 +75,7 @@ python3 .agent-flow/scripts/flow.py finish --run-id <id> \
   --verify-command 'python3 -m unittest discover -s tests'
 ```
 
-`finish` 依序核對範圍與既有憑據、執行 `run_verify.py`、歸檔符合條件的 Tier 2 狀態、執行 `run_commit.py prepare`、Git commit 與 finalize。它不替使用者填入審查通過或測試通過旗標，也不自動 stage 檔案。Tier 1 的驗證命令應選累積相關測試；Tier 2 使用完整測試命令。
+`finish` 依序核對範圍與既有憑據、執行 `run_verify.py`、歸檔符合條件的 Tier 2 狀態、執行 `run_commit.py prepare`、Git commit 與 finalize。它不推定審查通過，也不自動 stage 檔案；測試欄位由實際驗證結果產生。Tier 1 的驗證命令應選累積相關測試；Tier 2 使用完整測試命令，專案另有要求時依專案規則。
 
 有額外 staged 檔、範圍內未 stage 修改、其他 run 的熱狀態、未完成審查或驗證失敗時停止。錯誤保留原始輸出，已有現場與證據保留。提交訊息自動加入唯一的 `Run-Id` trailer。
 
@@ -66,4 +83,14 @@ python3 .agent-flow/scripts/flow.py finish --run-id <id> \
 
 明確加上 `--push` 才推送至目前分支的 `origin` 遠端；不使用 force。完成後 push 失敗，可重跑帶 `--push` 的指令。同一 Git repository（含 worktree）同時只允許一個 finish；程序中斷留下的鎖須先核對程序已停止再處理。
 
-本版提供 `preflight/status/watch/review-packet/worktree-link/finish`。需求分級與 run 初始化沿用 Router；工作暫停與恢復沿用 eval-flow-resume，尚未提供 `start/pause/resume` 命令。
+本版提供 `preflight/status/watch/review-packet/worktree-link/finish`；初始化與審查記錄使用上述 `eval_state.py` 入口。需求分級沿用 Router，工作暫停與恢復沿用 eval-flow-resume。
+
+## 已追蹤的活動日誌
+
+框架來源與測試 fixture 進版控；執行產物的保留規則見 Eval Flow「測試、收尾與回顧」。Git 忽略規則不影響已追蹤檔案。舊專案若仍追蹤下列活動日誌，在確認遷移範圍後執行：
+
+```sh
+git rm --cached -- run/gate_hits.log run/tier0.jsonl
+```
+
+此操作只取消追蹤，保留本地內容；提交前核對檔案仍存在，且 `git check-ignore` 確認忽略規則生效。本模板已有 `run/` 忽略規則，安裝到目標專案時由安裝器設定。其他已追蹤的歷史 manifest 與報告保留，不能整批刪除 `run/`。新 checkout 的執行日誌由工具按需建立。

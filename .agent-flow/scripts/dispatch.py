@@ -27,7 +27,7 @@
            4 越界變更（報告仍完整輸出；優先於 2）
 
 留痕：每次派工 append `run/<run_id>.dispatch.jsonl` 一行（鍵集見 append_record；純記錄、不被 gate 消費）。
-run_id 解析沿用 eval_gates 既有基準（R-009）：eval_state.json → 唯一 tier 1 in_progress manifest；
+run_id 解析沿用 run_evidence 既有基準（R-009）：eval_state.json → 唯一 tier 1 in_progress manifest；
 皆無（run 外手動觸發）→ 不落檔、stderr 一句、exit code 不變。
 信封判定重用 report_envelope_check.check_envelope（單一出處，不自建第二份規則）。
 """
@@ -43,7 +43,8 @@ import tomllib
 HOOKS_DIR = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HOOKS_DIR)
 import harness_adapter  # noqa: E402
-import eval_gates  # noqa: E402
+import flow_rules
+import run_evidence  # noqa: E402
 import report_envelope_check  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(HOOKS_DIR))
@@ -87,20 +88,20 @@ def _zero_tokens():
 
 
 def resolve_run_id():
-    """同 eval_gates.check_task_gate 的定位基準：eval_state.json 優先，否則唯一 tier 1 in_progress。"""
+    """共用 run_evidence 的定位基準：eval_state.json 優先，否則唯一 tier 1 in_progress。"""
     if os.path.exists("eval_state.json"):
-        state = eval_gates.load_json_quiet("eval_state.json")
+        state = run_evidence.load_json_quiet("eval_state.json")
         if isinstance(state, dict) and state.get("run_id"):
             return state["run_id"]
-    found = eval_gates._find_unique_tier1_inprogress()
+    found = run_evidence.find_unique_tier1_inprogress()
     if found:
-        return eval_gates.MANIFEST_RE.match(found[0]).group("run_id")
+        return flow_rules.MANIFEST_RE.match(found[0]).group("run_id")
     return None
 
 
 def default_backend(run_id):
     if run_id:
-        manifest = eval_gates.load_json_quiet(f"run/{run_id}.json")
+        manifest = run_evidence.load_json_quiet(f"run/{run_id}.json")
         if isinstance(manifest, dict) and "harness" in manifest:
             harness = manifest["harness"]
             if harness not in ("claude", "codex"):

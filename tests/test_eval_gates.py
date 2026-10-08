@@ -25,6 +25,16 @@ def make_sub_task(**overrides):
     return st
 
 
+class SharedRuleCompatibilityTest(unittest.TestCase):
+    def test_hook_aliases_use_shared_phase_and_identity(self):
+        import flow_rules
+        self.assertIs(eval_gates.MANIFEST_RE, flow_rules.MANIFEST_RE)
+        self.assertIs(eval_gates.PHASES, flow_rules.PHASES)
+        self.assertIs(eval_gates.PENDING_STATUSES, flow_rules.PENDING_STATUSES)
+        self.assertEqual(eval_gates.manifest_phase({'phase': 'risk_done', 'task_file': 'task'}),
+                         flow_rules.manifest_phase({'phase': 'risk_done', 'task_file': 'task'}))
+
+
 class ValidateStateTest(unittest.TestCase):
     def state(self, **overrides):
         return {"run_id": "t", "sub_tasks": [make_sub_task(**overrides)]}

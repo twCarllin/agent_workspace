@@ -2,6 +2,8 @@
 """eval_state.json 操作 helper：eval-flow 循環的欄位更新一律走這裡，不手動 Edit。
 
 用法：
+  python3 .agent-flow/scripts/eval_state.py init-run --run-id ID --harness codex --spec-inline TEXT --tier-rationale TEXT --test-command CMD
+  python3 .agent-flow/scripts/eval_state.py review-run ID REDS --checked-by reviewer:manual --evidence TEXT [--passed]
   python3 .agent-flow/scripts/eval_state.py init --run-id ID
   python3 .agent-flow/scripts/eval_state.py add-subtask --id N --name "名稱"
   python3 .agent-flow/scripts/eval_state.py set-step <id> <writing|reviewing|fixing|verifying|testing|done>
@@ -13,7 +15,7 @@
                                                    # --dimensions: 維度→問題數，如 '{"Clarity":1,"Completeness":2}'
   python3 .agent-flow/scripts/eval_state.py set-verify <id>          # step 4 reviewer 完成度節通過時呼叫
   python3 .agent-flow/scripts/eval_state.py add-verification <id> --command "<指令>" --exit-code <int>
-                                                   # step 5 每跑一條驗證指令 append 一筆（純記錄，無 gate）
+                                                   # 只寫 sub_task 執行紀錄；提交快照仍須 run_verify
   python3 .agent-flow/scripts/eval_state.py list-files      # 所有 sub_task files 聯集（餵 related --files）
   python3 .agent-flow/scripts/eval_state.py archive         # 驗證後歸檔 run/<run_id>.eval.json 並刪除 eval_state.json
 
@@ -24,11 +26,13 @@ import argparse
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-import eval_gates  # noqa: E402
+import flow_rules
+import run_evidence  # noqa: E402
 
 STATE_PATH = "eval_state.json"
 STEPS = ["writing", "reviewing", "fixing", "verifying", "testing", "done"]
@@ -125,6 +129,68 @@ def cmd_init(args):
     append_event(args.run_id, "init", args)
     record_session(args.run_id)
     print(f"[eval-state] init: run_id={args.run_id}")
+
+
+def checked_manifest_path(run_id):
+    """Reject path traversal and nonportable run identifiers before writing."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", run_id):
+        fail("run_id 必須為英數字、底線、連字號或句點，且以英數字開頭")
+    path = _manifest_path(run_id)
+    if not flow_rules.MANIFEST_RE.fullmatch(path):
+        fail("run_id 不可使用保留的歸檔名稱")
+    return path
+
+
+def cmd_init_run(args):
+    path = checked_manifest_path(args.run_id)
+    for key in ("spec_inline", "tier_rationale", "test_command"):
+        if not getattr(args, key).strip():
+            fail(f"--{key.replace('_', '-')} 不可為空字串")
+    if args.task_file is not None and not args.task_file.strip():
+        fail("--task-file 不可為空字串")
+    if os.path.exists(path):
+        fail(f"{path} 已存在：不得覆寫既有 run")
+    with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "VERSION"), encoding="utf-8") as stream:
+        framework_version = stream.read().strip()
+    manifest = {
+        "run_id": args.run_id, "framework_version": framework_version,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "harness": args.harness, "evidence_schema": 2, "tier": 1,
+        "tier_rationale": args.tier_rationale, "spec_inline": args.spec_inline,
+        "test_command": args.test_command, "task_file": args.task_file,
+        "phase": "init", "status": "in_progress",
+        "risk_report_path": None, "usage_report_path": None, "impact_report_path": None,
+        "local_test_passed": None, "local_test_evidence": None,
+        "review_reds": None, "verify_passed": None,
+        "checked_by": None, "review_evidence": None, "verification_commands": [],
+    }
+    os.makedirs("run", exist_ok=True)
+    with open(path, "x", encoding="utf-8") as stream:
+        json.dump(manifest, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+    append_event(args.run_id, "init", args)
+    record_session(args.run_id)
+    print(f"[eval-state] init-run: {path}")
+
+
+def cmd_review_run(args):
+    path = checked_manifest_path(args.run_id)
+    if args.reds < 0 or (args.passed and args.reds != 0):
+        fail("reds 必須非負；有紅問題不可宣告 --passed")
+    if not args.evidence.strip():
+        fail("--evidence 不可為空字串")
+    manifest = run_evidence.load_json(path)
+    if (manifest.get("run_id") != args.run_id or manifest.get("tier") != 1
+            or manifest.get("status") != "in_progress"
+            or flow_rules.manifest_phase(manifest) != "decomposed"):
+        fail("review-run 只接受 decomposed 的進行中 Tier 1 run")
+    if manifest.get("review_reds") is None:
+        manifest["review_reds"] = args.reds
+    manifest.update(checked_by=args.checked_by, review_evidence=args.evidence,
+                    verify_passed=args.passed)
+    save(manifest, path)
+    append_event(args.run_id, "reviewed", args)
+    print(f"[eval-state] review-run: {path}")
 
 
 def cmd_add_subtask(args):
@@ -252,7 +318,7 @@ def cmd_set_verify(args):
 
 
 def cmd_add_verification(args):
-    """step 5 的驗證指令留痕（append 累積）。純記錄欄位、不被任何 gate 消費——
+    """step 5 的驗證指令留痕（append 累積）。此子命令只寫 sub_task 執行紀錄，不產生提交所需的 manifest 快照；收尾仍用 run_verify。
     與 local_test_evidence 並存：後者記推理留痕（散文），本欄記「跑了哪些指令、結果如何」。"""
     if not args.command.strip():
         fail("--command 不可為空字串")
@@ -341,8 +407,8 @@ def cmd_hitl_confirm(args):
     if m.get("hitl_confirmed_at"):
         fail(f"{path} 已有 hitl_confirmed_at（{str(m['hitl_confirmed_at'])[:60]}…）："
              f"不覆蓋既有確認時間；計畫若有變更，請人工在 manifest 追記並說明")
-    current = eval_gates.manifest_phase(m)
-    if eval_gates.PHASES.index(current) >= eval_gates.PHASES.index("decomposed"):
+    current = flow_rules.manifest_phase(m)
+    if flow_rules.PHASES.index(current) >= flow_rules.PHASES.index("decomposed"):
         fail(f"{path} phase 已是 {current}（≥ decomposed）：本指令只把 init 推進到 decomposed，"
              f"不可把已前進的 phase 倒退回去")
     attended = _session_attended()
@@ -470,7 +536,7 @@ def cmd_archive(args):
         fail("缺 run_id，無法歸檔", code=2)
     if not state.get("sub_tasks"):
         fail("sub_tasks 為空，無可歸檔內容", code=2)
-    eval_gates.validate_state(state, STATE_PATH, require_passed=True)  # 不過 → exit 2
+    flow_rules.validate_state(state, STATE_PATH, require_passed=True)  # 不過 → exit 2
     archive_path = f"run/{run_id}.eval.json"
     os.makedirs("run", exist_ok=True)
     save(state, archive_path)
@@ -482,6 +548,23 @@ def cmd_archive(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("init-run", help="建立 Tier 1 manifest 並記錄 init；不覆寫既有 run")
+    p.add_argument("--run-id", required=True)
+    p.add_argument("--harness", required=True, choices=("codex", "claude"))
+    p.add_argument("--spec-inline", required=True)
+    p.add_argument("--tier-rationale", required=True)
+    p.add_argument("--test-command", required=True)
+    p.add_argument("--task-file")
+    p.set_defaults(func=cmd_init_run)
+
+    p = sub.add_parser("review-run", help="記錄 Tier 1 獨立審查結果；首輪紅數保留")
+    p.add_argument("run_id")
+    p.add_argument("reds", type=int)
+    p.add_argument("--checked-by", required=True, choices=sorted(VALID_CHECKED_BY))
+    p.add_argument("--evidence", required=True)
+    p.add_argument("--passed", action="store_true", help="當輪獨立審查已確認通過")
+    p.set_defaults(func=cmd_review_run)
 
     p = sub.add_parser("init")
     p.add_argument("--run-id", required=True)
@@ -561,7 +644,10 @@ def main():
     p.set_defaults(func=cmd_archive)
 
     args = parser.parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except flow_rules.RuleViolation as error:
+        fail(str(error), code=2)
 
 
 if __name__ == "__main__":

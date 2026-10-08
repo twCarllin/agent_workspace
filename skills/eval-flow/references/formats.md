@@ -57,7 +57,7 @@
 - `subagent_usage`：**選填**。step 6 子項②收尾時由 `python3 .agent-flow/scripts/token_usage.py <run_id> --write` **實測回寫**的 tokens 彙總 `{"prep": int, "loop": int, "main": int}`——三鍵皆為 transcript 四欄（`input_tokens`／`cache_creation_input_tokens`／`cache_read_input_tokens`／`output_tokens`）加總；`prep`＝usage-analyzer／task-decomposer／impact-analyzer 的 subagent 合計、`loop`＝其餘 subagent 合計、`main`＝主 flow 自身。不以 Agent 工具回執自報、不憑印象估 `main`（估計法系統性低估流程稅）。消費端 `stats.py`：prep／loop 缺一或非 int → 整筆計無記錄；`main` 非 int → 只跳過 main、prep/loop 照收
 - `token_usage`：**選填**。與 `subagent_usage` 同時由 `token_usage.py --write` 寫入的明細：`{"session_id", "window": [lo, hi]|null, "main": {四欄＋turns}, "subagents": [{"agent_type", "description", 四欄＋turns}]}`；`window` 取自 `events.jsonl` 首尾 `ts`（init 之前的判級／載 skill 用量不在窗內，屬已知低估面）；`subagents` 為 transcript `subagents/` 目錄 ∪ `run/<run_id>.dispatch.jsonl` 派工留痕（後者 `description` 為 `dispatch:<backend>`、不切窗）。純記錄，無 gate 消費
 - `harness`：新 run 依目前 harness 設為 `"codex"` 或 `"claude"`；舊 run 缺欄時使用 Claude 相容行為。`token_usage.py --write` 遇 Codex 時只寫 `token_usage_status: "unknown_codex"`，不把 Claude transcript 當作 Codex 用量
-- `session_id`／`config_dir`：**選填**。init 事件（Tier 2 `init --run-id`、Tier 1 `event <run_id> init`）由 `eval_state.py` 自 `CLAUDE_CODE_SESSION_ID`／`CLAUDE_CONFIG_DIR` 環境變數自動寫入，已有值不覆寫（resume 換 session 保留首次）；`token_usage.py` 憑此開 `<config_dir>/projects/<cwd 編碼>/<session_id>.jsonl`。舊 run 缺欄＝該腳本走 fallback 掃描 `~/.claude*/projects/*/` 含 run_id 的 transcript
+- `session_id`／`config_dir`：**選填**。init 事件（Tier 2 `init --run-id`、Tier 1 `init-run --run-id`）由 `eval_state.py` 自 `CLAUDE_CODE_SESSION_ID`／`CLAUDE_CONFIG_DIR` 環境變數自動寫入，已有值不覆寫（resume 換 session 保留首次）；`token_usage.py` 憑此開 `<config_dir>/projects/<cwd 編碼>/<session_id>.jsonl`。舊 run 缺欄＝該腳本走 fallback 掃描 `~/.claude*/projects/*/` 含 run_id 的 transcript
 - `executor_notes`：**選填**。list[str]，每 item 一句 `item <id>: 直寫｜派工 — <理由>`——主 flow 直寫捷徑（eval-flow SKILL.md Tier 1 第 4 點）的執行者選擇留痕；判斷依據是「交接是否划算」，本欄供事後審計。純記錄欄位，無 gate 消費
 - `dirty_tree_ruling`：**選填**。前置 0 進場檢查（見 eval-flow SKILL.md）發現 dirty tree 時，使用者對孤兒變更歸屬的裁決一句（納入本 run／擱置不動）；乾淨樹免記（欄位缺席＝進場乾淨或舊 run 無此制）
 - `scout_report_path`：**廢止欄位**。無任何步驟寫入、hook 無任何依賴；舊 manifest 仍有此欄者不需回填移除
@@ -65,14 +65,14 @@
 - `usage_report_path`：**維持 `null` 屬正常**——`usage-analyzer` 由具名問題觸發，答案寫進 Spec、不產獨立報告檔、不回寫此欄；無任何 gate 依賴此欄非空
 - `impact_report_path`：語義同上——`impact-analyzer` 由具名問題觸發，答案寫進 Spec、不回寫此欄，新 run 長期維持 `null` 屬正常
 - `task_file`：分拆／建 task 後寫入
-- `status`：step 6 先由 `run_commit.py prepare` 設為 `"ready_to_commit"`；commit 成功後由 `run_commit.py finalize` 設為 `"completed"`，並回填 `commit_sha`。新 run 在 manifest 設 `"evidence_schema": 2`，以 `run_verify.py` 記最後一次全套驗證的快照到 manifest `verification_commands`；提交前 gate 會比對目前程式樹，變動後須重驗
+- `status`：step 6 先由 `run_commit.py prepare` 設為 `"ready_to_commit"`；commit 成功後由 `run_commit.py finalize` 設為 `"completed"`，並回填 `commit_sha`。新 run 的提交快照判定見本文件 `verification_commands` 條款
   - `"aborted"`＝使用者或主 flow **決定不做了**（與 `"failed"`＝流程內判定失敗區分開）；標 `aborted` 時 `failed_reason` 必填（1d 窄例外 gate 為此的機械強制點，見「Gate 的硬性執行」）
   - manifest↔commit 由 `Run-Id: <run_id>` trailer 與 `commit_sha` 雙向核對
 - `failed_reason`：`status` 設為 `"failed"` 或 `"aborted"` 時必填，一句話寫死因（哪個 sub_task、卡在哪一步、為什麼；`aborted` 則寫放棄理由），讓接手者不用翻對話記錄
 - **`aborted`／`failed` 的 manifest 永不清除**：與本節開頭「冷溯源檔……永不清除」同一條規則，不因狀態放棄／失敗而被刪除或清空——防刪除 gate（見「Gate 的硬性執行」）機械強制此點
 - **已知限制**：上述防線只攔 `git` 的刪除與 commit 面；Claude 用 Write／Edit 工具直接覆寫 manifest 內容（含把 `status`／`failed_reason` 改寫或清空）的路徑不在 hook matcher（`Bash|Task|Agent`）內，不攔（已知限制，不修）
-- `local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`：**Tier 1 專用憑據欄（豁免歸檔檔）**——Tier 1 不建 `eval_state.json`，這四欄直接寫在 manifest、commit gate 憑此四欄驗放行（語義與 `eval_state.json` 各 sub_task 同欄一致）。Tier 2 仍走歸檔檔路徑，此四欄在 Tier 2 manifest 無意義（可不填）
-- `verification_commands`：**Tier 1 記在 manifest**（同上，因 Tier 1 不建 `eval_state.json`）。語義與存放形狀見下方 eval_state.json 格式節的同名欄位，此處不重述
+- `local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`：**Tier 1 專用憑據欄（豁免歸檔檔）**——Tier 1 不建 `eval_state.json`，這四欄直接寫在 manifest、commit gate 憑此四欄驗放行（語義與 `eval_state.json` 各 sub_task 同欄一致）。Tier 2 的逐 task 憑據仍走歸檔檔路徑；Tier 2 收尾寫入 manifest 的測試摘要不取代各 task 的憑據
+- `verification_commands`：Tier 1 與兩個 tier 的收尾驗證記在 manifest；Tier 2 指定 `--sub-task` 的驗證記在對應 task。語義見下方同名欄位。
 - `debt`：僅 hotfix 通道使用（見「Hotfix 通道」），記錄欠下的流程債，如 `["test", "retro"]`；還清一項移除一項，清空後才可啟動新 run（hook 強制）
 
 ## eval_state.json 格式
@@ -114,9 +114,9 @@
 ```
 
 - `review_dimensions`：維度→問題數的字典（例 `{"Non-functional": 2}`）；null 表示零 🔴 無問題可標。五維詞彙：`Clarity`／`Completeness`／`Testability`／`Non-functional`／`Technical_constraints`。由主 flow 於 set-review 時以 `--dimensions` 寫入，供 stats.py 維度分佈遙測
-- `verification_commands`：step 5 實際跑過的驗證指令清單，每筆 `{"command": "<指令原文>", "exit_code": <整數>}`，由 `add-verification` 逐條 append（見操作規則）
-  - **純記錄欄位，不被任何 gate 消費**——與 `local_test_evidence` **並存而非取代**：後者記推理留痕（散文：仲裁結論、sabotage 點、測試過時依據、豁免理由），本欄只記「跑了哪些指令、結果如何」這個機器可彙總的面向，供 `stats.py` 統計每個 run 的獨立驗證條數
-  - **加 gate 消費此欄即為 Tier 2 變更**（會使它從記錄轉為判定行為）
+- `verification_commands`：由 `run_verify.py` 執行驗證並追加命令、退出碼及 schema 2 快照；與 `local_test_evidence` 的仲裁、豁免等說明並存。
+  - **提交快照判定（單一說明）**：`evidence_schema: 2` 的 Tier 1／2 run，commit gate 檢查 manifest 最後一筆驗證須 `exit_code: 0`、有有效快照且符合目前程式樹；缺席、失敗或輸入變動都拒絕。測試範圍依 tier 與專案要求選定；快照相同不代表測試範圍已足夠。
+  - 舊 schema 與 Tier B／hotfix 沿用既有相容規則。`add-verification` 只保留逐 task 命令紀錄，不產生提交所需快照；Tier 2 收尾仍需不帶 `--sub-task` 執行 `run_verify.py`。
 
 ## run/<run_id>.events.jsonl 格式
 
@@ -126,7 +126,10 @@
 - `args` 鍵全記（`func` 與子命令 dest `command` 除外），字串值 >200 字元截斷並標 `…[truncated]`
 - `verify_cmd`（Tier 1，run_verify.py 寫）與 `add-verification`（Tier 2）事件的 `args.verify_command`＝驗證指令原文（舊事件因 `command` 鍵被過濾只有 `exit_code`）。消費端 `stats.py` 事件節「全套 N」＝含 `--strike-key full_suite` 的此類事件數，供收尾停止規則（記錄級修正不重跑全套）累積證據；Tier 1 收尾跑累積聯集（`--strike-key wrapup_related`），不計入此數，Tier 1 run 顯示「全套 0」屬正常
 - append 是旁路記錄：寫入失敗（如 `run/` 不可寫）僅 stderr warning，不影響原子命令的 exit code；`eval_state.json` 缺 `run_id` 時同樣只 warning 並略過記錄
-- **Tier 1 的寫入路徑**：Tier 1 不建 `eval_state.json`，改以 `event` 子命令（`python3 .agent-flow/scripts/eval_state.py event <run_id> <節點名> [--note <str>]`，不經 load()）於流程節點直寫本檔——呼叫點住 eval-flow SKILL.md「Tier 1 精簡路徑」；事件行形狀同上（`cmd` 為節點名）
+- **生命週期事件**：Tier 1 的 `init-run`、`hitl-confirm`、`review-run` 分別在狀態寫入後追加 `init`、`hitl_confirmed`、`reviewed`。審查未通過也可記 `reviewed`；事件不代表通過。
+  - `run_verify.py` 保留原有 `verify_cmd`／`add-verification`，成功保存驗證結果且退出碼為 0 才追加 `verified`。失敗更新測試欄位為未通過，不寫 `verified`；不改獨立審查結論。
+  - `run_commit.py finalize` 核對實際提交、保存完成狀態後才追加 `completed`；prepare 或提交失敗不產生完成事件。事件仍為旁路紀錄，缺事件時依 manifest 與 Git 核對，不能只由事件推定完成。
+  - `event` 子命令保留供舊 run 與人工註記使用；標準路徑不手動重複追加上述事件。
 - 消費端見 `stats.py`（依 `ts` 欄位取極值計時距；`set-step` 重入依事件的 sub_task id＋`step` 計數，不依賴檔內物理行序）
 
 ## run/tier0.jsonl 格式
@@ -135,7 +138,7 @@
 
 - 指令：`python3 .agent-flow/scripts/eval_state.py tier0 --summary "<一句>" --files "<逗號分隔清單>" --lines <int：git diff 增＋刪>`
 - 行形狀：`{"ts": "<ISO8601 UTC>", "summary": "...", "files": [...], "lines": <int>}`
-- **純記錄欄位，不被任何 gate 消費**——加 gate 消費此檔即為判定行為變更（比照 `verification_commands` 同條款）
+- **純記錄欄位，不被任何 gate 消費**——加 gate 消費此檔即為判定行為變更，不以留痕存在推定分級通過
 - 消費端：`stats.py`「Tier 0 留痕」節（筆數／合計行數／最近一筆 ts；壞行寬容跳過）
 
 ## run/<run_id>.dispatch.jsonl 格式
@@ -146,26 +149,27 @@
 - `failure`／`out_of_scope`：前者記子程序失敗分類（成功為 null；超時／超量時 `envelope` 為 null、未做信封判定）；後者記 `--files` 越界檢查結果（未給 `--files` 或非 git repo 為 null，無越界為空 list）
 - codex 用量映射：`cached_input_tokens`→`cache_read_input_tokens`、`cache_write_input_tokens`→`cache_creation_input_tokens`；`cost_usd` 為 null（codex 不回報）
 - run_id 由 script 解析（`eval_state.json` → 唯一 tier 1 in_progress manifest，同 gate 7 基準）；解析不到（run 外手動觸發）不落檔
-- **純記錄檔，不被任何 gate 消費**（加 gate 消費即為判定行為變更，比照 `verification_commands` 條款）。消費端：`token_usage.py`（每行一筆 subagent，與 transcript 來源聯集、不切窗）
+- **純記錄檔，不被任何 gate 消費**；派工紀錄不替代審查結果。消費端：`token_usage.py`（每行一筆 subagent，與 transcript 來源聯集、不切窗）
 
 ## eval_state.json 操作規則
 
 - **一律用 helper script 更新，不手動 Edit**：`python3 .agent-flow/scripts/eval_state.py`（`init`／`add-subtask`／`set-step`／`set-files`／`set-test`／`set-status`／`set-review`／`set-verify`／`add-verification`／`list-files`／`archive`）
   - 理由：手動 Edit 是高錯誤面；helper 在寫入前驗證不變量（archive 驗全數 passed），錯誤在落盤前就擋下
-- **前置 0（初始化）**：建立 manifest `run/<run_id>.json`（填 `run_id`、`created_at`、`spec_path`，其餘 `null`，`status: "in_progress"`）與 `eval_state.json`（填 `run_id` ＋ 空 `sub_tasks`）。manifest 的 `spec_path` 未填不可往下
+- **前置 0（初始化）**：Tier 1 使用 `init-run`；Tier 2 建立 manifest `run/<run_id>.json`（填 `run_id`、`created_at`、`spec_path`，其餘 `null`，`status: "in_progress"`）與 `eval_state.json`（填 `run_id` ＋ 空 `sub_tasks`）。manifest 的 `spec_path` 未填不可往下
 - **分拆 task 完成後**：`task_file` 由主 flow（直建，≤2 tasks 且 ≤8 items 含界）或 `task-decomposer`（超門檻條件派工）回寫（時機與條件見 eval-flow SKILL.md 的「Tier 2 完整路徑」節（Tier 2）與「Tier 1 精簡路徑」第 2 點（Tier 1））；`phase` 隨之更新為 `"decomposed"`
 - **具名問題觸發 usage-analyzer／impact-analyzer 時**：答案寫進 Spec，**不**回寫 `usage_report_path`／`impact_report_path`（兩欄維持 `null` 屬正常），無 gate 依賴此二欄
 - **循環進度記錄（write-ahead，中斷恢復的關鍵）**：每個循環步驟**開始前**先把該 sub_task 的 `step` 寫入 `eval_state.json`，步驟完成後再更新為下一步
   - `step` 值序：`writing`→`reviewing`（並發 review＋verify 階段）→`fixing`（有 🔴 時）→`testing`→`done`；`verifying`／`scoring` 為舊版 run 的相容值，新路徑不寫入
   - code-writer 交付後立刻把本 sub_task 涉及的檔案清單寫入 `files`（修正時同步增補）——staged 變更與 sub_task 的對應關係只准活在這裡，不准只活在對話裡
-- **首輪審查結果出來後（step 3，checker 或升級輪 reviewer）**：執行 `python3 .agent-flow/scripts/eval_state.py set-review <id> <🔴數> [--dimensions '<json>']`
+- **Tier 1 審查記錄**：用 `review-run <run_id> <reds> --checked-by <角色> --evidence "<獨立審查憑據>" [--passed]`；首輪紅數保留，當輪未通過會清除 `verify_passed`。只有全部 task 通過且當輪零紅問題才加 `--passed`。工具只記錄已取得的獨立結論。
+- **首輪審查結果出來後（step 3，checker 或升級輪 reviewer；下列 set-* 為 Tier 2 入口）**：執行 `python3 .agent-flow/scripts/eval_state.py set-review <id> <🔴數> [--dimensions '<json>']`
   - `<🔴數>` 記首輪的 🔴 原始數（修正前，有無 🔴 皆須執行；**checker 輪固定填 0**）
   - `--dimensions` 為升級輪 reviewer 報告末尾的維度統計（維度→問題數，五維詞彙：Clarity／Completeness／Testability／Non-functional／Technical_constraints），有 🔴／🟡 時必填，供 stats.py 維度分佈遙測（checker 輪無此節、免填）
   - commit gate 必填 `<🔴數>`，缺一擋歸檔
 - **checker 通過或升級輪 reviewer 完成度節通過且該輪零 🔴（step 4 放行、真正進 step 5 的輪次）**：執行 `python3 .agent-flow/scripts/eval_state.py set-verify <id>`，將 `verify_passed` 設為 `true`——commit gate 必填，缺一擋歸檔
   - **語義**：`verify_passed` 記的是「checker 憑據節通過、或升級輪 reviewer 完成度節通過（DoD 無缺席、scope 無偏移）」；hook gate 判定不變
   - 有 🔴 的輪次**不得** set-verify（該輪修正可能改 code 行為）；與 `set-review` 記首輪原始數不同，`set-verify` 記的是**最終通過輪**
-- **本地測試通過後（step 5）**：將該 sub_task 的 `local_test_passed` 設為 `true`、`local_test_evidence` 填入驗證證據（指令＋結果摘要；Tier 2 若更新過既有測試，一併註明 Spec／task 依據）。預設 `false`／`null`；hook 於 commit 時檢查歸檔檔中所有 sub_task 兩欄皆已填
+- **本地測試通過後（step 5）**：`run_verify.py` 將該 sub_task 的 `local_test_passed` 設為 `true`、`local_test_evidence` 填入驗證證據（指令＋結果摘要；Tier 2 若更新過既有測試，一併註明 Spec／task 依據）。預設 `false`／`null`；hook 於 commit 時檢查歸檔檔中所有 sub_task 兩欄皆已填
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`
 - **同一 sub_task 修正 2 輪後 reviewer 仍有 🔴**：`status` 設為 `"failed"`，`warning` 設為 `true`，回報使用者（詳見循環 step 4 修正迭代上限；checker 輪與升級本身不計入此 2 輪）
 - **全部完成且通過**：先歸檔為 `run/<run_id>.eval.json`、清除 `eval_state.json`；`run_commit.py prepare <run_id>` 設 `ready_to_commit` 後 commit，成功後 `run_commit.py finalize <run_id>` 回填 `completed` 與 SHA。歸檔檔與 manifest 是工作目錄冷溯源檔，不進版控

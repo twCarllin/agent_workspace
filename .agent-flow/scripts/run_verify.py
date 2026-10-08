@@ -37,6 +37,16 @@ def live_command(command):
             or (any("skill_eval" in token for token in tokens) and "--dry-run" not in tokens))
 
 
+def combined_evidence(target, result):
+    """Keep arbitration and exemption notes alongside command results."""
+    previous = target.get("local_test_evidence")
+    if not isinstance(previous, str) or not previous.strip():
+        return result
+    if result in previous.splitlines():
+        return previous
+    return previous + "\n" + result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True)
@@ -106,11 +116,14 @@ def main():
             record["error"] = str(error)
             exit_code = exit_code or 2
     record.update(exit_code=exit_code, elapsed_seconds=time.monotonic() - started)
+    evidence = f"{args.cmd} -> exit={exit_code}; executed={record['executed']}; reused={record['reused']}"
     try:
         if use_state:
             state = eval_state.load()
             st = eval_state.find_subtask(state, args.sub_task)
             st.setdefault("verification_commands", []).append(record)
+            st.update(local_test_passed=exit_code == 0,
+                      local_test_evidence=combined_evidence(st, evidence))
             eval_state.save(state)
             # 鍵名用 verify_command：append_event 過濾 `command` 鍵（子命令 dest 同名），見 eval_state.cmd_add_verification
             eval_state.append_event(
@@ -120,11 +133,17 @@ def main():
             with open(manifest_path, encoding="utf-8") as f:
                 m = json.load(f)
             m.setdefault("verification_commands", []).append(record)
+            m.update(local_test_passed=exit_code == 0,
+                     local_test_evidence=combined_evidence(m, evidence))
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(m, f, ensure_ascii=False, indent=2)
             eval_state.append_event(
                 args.run_id, "verify_cmd",
                 argparse.Namespace(verify_command=args.cmd, exit_code=exit_code))
+        if exit_code == 0:
+            eval_state.append_event(args.run_id, "verified", argparse.Namespace(
+                sub_task=args.sub_task, verify_command=args.cmd, exit_code=exit_code,
+                executed=record["executed"], reused=record["reused"], evidence=evidence))
         print(f"[run-verify] 已記錄 verification（exit={exit_code}）"
               f" -> {'eval_state.json sub_task ' + str(args.sub_task) if use_state else manifest_path}")
     except Exception as e:
