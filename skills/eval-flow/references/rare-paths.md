@@ -55,6 +55,7 @@ Tier 2 run 內符合門檻的 `[P]` item 各開 git worktree 並行執行，取�
 fan-out 僅在「**`[P]` item ≥2 且各自預估 ≥150 行**（以 task-decomposer 的 `~<行數>行` 欄位 ×2 校準估計為準）」時啟動。估計不準即不 fan-out（保守偏循序）。
 
 - 不滿足門檻 → 該批 `[P]` item 退回主 worktree **循序**執行（不開 worktree），步驟 3 預設仍派 checker、升級改派 code-reviewer 時用循環 step 2 的 file-scoped diff 收斂（引用循環 step 2 的規則，不在此重述）
+- 門檻滿足後、開 worktree 前，主 flow 依 `parallel-run` 步驟 2 的「worktree 可執行前提」逐項檢查；任一項不成立且不能處置 → 退回循序。fan-out 另加一項：子 manifest 的 `spec_path` 指向父 Spec，父 Spec 必須已在主線 commit（在 prep 段一併 commit）。處置動作列入 HITL
 - 含「有意行為變更需更新既有測試」的 item 不可進 fan-out 批，改留循序段——理由與 `parallel-run` skill 相同：既有測試只增不改是 merge gate 的裁判前提，破掉它等於裁判換人、全套綠燈失去安全保證
 
 ### 三段式執行協定

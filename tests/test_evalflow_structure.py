@@ -225,5 +225,14 @@ class CycleChecklistTest(unittest.TestCase):
         self.assertEqual(mismatch, [], "checklist 與步驟標題漂移：\n" + "\n".join(mismatch))
 
 
+class FanoutPreconditionAnchorTest(unittest.TestCase):
+    def test_fanout_precondition_reference_resolves(self):
+        """rare-paths 的 fan-out 門檻節引用 parallel-run 的前提清單；清單改名時引用會靜默懸空。"""
+        rare = read(ROOT / "skills" / "eval-flow" / "references" / "rare-paths.md")
+        parallel = read(ROOT / "skills" / "parallel-run" / "SKILL.md")
+        self.assertIn("「worktree 可執行前提」", rare)
+        self.assertIn("**worktree 可執行前提**", parallel)
+
+
 if __name__ == "__main__":
     unittest.main()
