@@ -59,6 +59,7 @@
 - `harness`：新 run 依目前 harness 設為 `"codex"` 或 `"claude"`；舊 run 缺欄時使用 Claude 相容行為。`token_usage.py --write` 遇 Codex 時只寫 `token_usage_status: "unknown_codex"`，不把 Claude transcript 當作 Codex 用量
 - `session_id`／`config_dir`：**選填**。init 事件（Tier 2 `init --run-id`、Tier 1 `init-run --run-id`）由 `eval_state.py` 自 `CLAUDE_CODE_SESSION_ID`／`CLAUDE_CONFIG_DIR` 環境變數自動寫入，已有值不覆寫（resume 換 session 保留首次）；`token_usage.py` 憑此開 `<config_dir>/projects/<cwd 編碼>/<session_id>.jsonl`。舊 run 缺欄＝該腳本走 fallback 掃描 `~/.claude*/projects/*/` 含 run_id 的 transcript
 - `executor_notes`：**選填**。list[str]，每 item 一句 `item <id>: 直寫｜派工 — <理由>`——主 flow 直寫捷徑（eval-flow SKILL.md Tier 1 第 4 點）的執行者選擇留痕；判斷依據是「交接是否划算」，本欄供事後審計。純記錄欄位，無 gate 消費
+- `auto_decisions`：**選填**。list[str]，每筆一句 `<問題>｜<選項>｜<採用>｜<理由>`——預設採納模式（ROUTER.md 同名條）下 agent 代替提問所做的決定留痕，收尾回報逐筆列出供使用者檢查。純記錄欄位，無 gate 消費
 - `dirty_tree_ruling`：**選填**。前置 0 進場檢查（見 eval-flow SKILL.md）發現 dirty tree 時，使用者對孤兒變更歸屬的裁決一句（納入本 run／擱置不動）；乾淨樹免記（欄位缺席＝進場乾淨或舊 run 無此制）
 - `scout_report_path`：**廢止欄位**。無任何步驟寫入、hook 無任何依賴；舊 manifest 仍有此欄者不需回填移除
 - `risk_report_path`：**停用欄位**。無任何步驟寫入，新 run 長期維持 `null`；欄位保留於 schema 只為讀舊 manifest（既有 `risk/*.md` 報告為冷溯源，保留不刪）
