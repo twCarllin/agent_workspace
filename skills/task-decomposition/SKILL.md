@@ -57,7 +57,7 @@ description: 依 Spec（若曾具名問題觸發 usage-analyzer／impact-analyze
 **測試同步段（有意的行為變更專用）**：需求含**有意改變既有行為**時，Spec／spec_inline 須明列「作廢舊行為清單」（舊契約 → 新契約對照）。
 
 - **拆分者負責核對**：情境報告／Spec 隱含既有行為被改而未列清單 → 回頭要求補清單再拆（比照契約表的他證原則），不可照單續拆
-- 拆分時以 `python3 .agent-flow/scripts/test_baseline.py related --files <受影響檔>` 預算受影響的既有測試，在**對應實作 item 內標註「測試同步段」**（不是獨立 item——見下時序理由）
+- 以 `python3 .agent-flow/scripts/test_baseline.py related --files <受影響檔>` 預算受影響的既有測試（主 flow 執行：直建時自跑；派 task-decomposer 時結果附進 prompt，它無 Bash），在**對應實作 item 內標註「測試同步段」**（不是獨立 item——見下時序理由）
 - 執行時序：實作 writer 交付後、該 item 的 **step 2（git add）之前**，由主 flow 另派**快 model** 依對照表機械批次更新舊測試斷言，同步後的測試**與 writer 產出一併 staged**
   - staged 的理由：step 3 的 code-reviewer 才審得到測試變更（「測試變更需有依據 → 🔴」防線在此執行：逐條核對測試改動能否對映到對照表 row，對映不上 → 🔴）
 - 實作 writer 仍不碰舊測試（管轄分離、成本分離都保留），step 5 於 review∥verify 通過後照常跑——此時 code 與測試都已斷言新契約，check 才不會死結

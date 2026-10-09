@@ -30,7 +30,7 @@
 
 ## 前置 1：分拆 task（條件派工，必須在第一次呼叫 code-writer 之前完成）
 
-- **條件派工門檻**：主 flow 估規模——**預估 ≤2 tasks 且 ≤8 items（含界）→ 主 flow 直建 task 檔**（比照 Tier 1 精簡路徑第 2 點：上限、四要素、DoD 措辭規則一併適用）；超過 → 依「派工機制」節派工 **`task-decomposer` subagent**。它讀 Spec（含已寫入的具名問題答案），拆成 task 與 item、寫入 `task/YYYY-MM-DD.md`、回寫 `manifest.task_file`、並執行交付前自檢。拆分粒度、上限、四要素等規則住在它的定義與 `task-decomposition` skill
+- **條件派工門檻**：主 flow 估規模——**預估 ≤2 tasks 且 ≤8 items（含界）→ 主 flow 直建 task 檔**（比照 Tier 1 精簡路徑第 2 點：上限、四要素、DoD 措辭規則一併適用）；超過 → 依「派工機制」節派工 **`task-decomposer` subagent**（它無 Bash；Spec 含作廢舊行為清單時，主 flow 派工前先跑 `test_baseline.py related`、結果附進 prompt）。它讀 Spec（含已寫入的具名問題答案），拆成 task 與 item、寫入 `task/YYYY-MM-DD.md`、回寫 `manifest.task_file`、並執行交付前自檢。拆分粒度、上限、四要素等規則住在它的定義與 `task-decomposition` skill
 - task-decomposer 交付前自檢通過後（或主 flow 直建完成後），將每個 task 展開為 `eval_state.json` 的 `sub_tasks`（**一個 task 一筆**；item 不入 `eval_state`，其 DoD 與契約表只住 task 檔），並將 manifest 的 `phase` 更新為 `"decomposed"`（hook 憑此放行 code-writer）
 
 ## HITL gate：Spec 開放問題裁示＋task 計畫確認（合為一次）
