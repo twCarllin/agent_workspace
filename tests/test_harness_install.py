@@ -54,6 +54,8 @@ class HarnessInstallTest(unittest.TestCase):
                     self.assertNotIn(entry.strip('/'), status)
                 self.assertEqual((project / '.codex/hooks.json').exists(), harness != 'claude')
                 self.assertEqual((project / '.claude/settings.json').exists(), harness != 'codex')
+                # doctor.py treats install_harness.py as the framework-repo marker.
+                self.assertFalse((project / 'install_harness.py').exists())
                 core = project / '.agent-flow/scripts/eval_state.py'
                 legacy = project / '.claude/hooks/eval_state.py'
                 self.assertTrue(legacy.is_symlink())

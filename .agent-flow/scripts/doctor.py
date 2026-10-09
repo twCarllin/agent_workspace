@@ -174,9 +174,13 @@ def run_checks(harness=None):
     project_skills = os.path.join(settings_root, ".agents", "skills")
     skills_dir = project_skills if harness else os.path.join(os.path.expanduser("~"), ".claude", "skills")
     repo_skills_dir = os.path.join(script_root, "skills")
-    sync_ok, sync_issues = check_skills_sync(repo_skills_dir, skills_dir)
-    ok.extend(sync_ok)
-    issues.extend(sync_issues)
+    # skills/ 是流程 skill 的來源只在框架 repo 成立；部署後的專案可有同名的領域 skill 目錄
+    if os.path.isfile(os.path.join(script_root, "install_harness.py")):
+        sync_ok, sync_issues = check_skills_sync(repo_skills_dir, skills_dir)
+        ok.extend(sync_ok)
+        issues.extend(sync_issues)
+    else:
+        ok.append("非框架 repo，略過 skills/ 同步健檢")
 
     missing = [s for s in CORE_SKILLS if not os.path.isdir(os.path.join(skills_dir, s))]
     if missing:

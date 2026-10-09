@@ -232,5 +232,26 @@ class HarnessDoctorTest(unittest.TestCase):
             self.assertIn("Codex 流程入口未部署", proc.stdout + proc.stderr)
 
 
+class DomainSkillsTest(unittest.TestCase):
+    def test_project_skills_dir_is_not_compared_outside_framework_repo(self):
+        """部署專案的 skills/ 放領域 skill（2026-10-09 實例：common／jp／tw／us），不是流程 skill 來源。"""
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            shutil.copytree(root / ".agent-flow/scripts", project / ".agent-flow/scripts",
+                            ignore=shutil.ignore_patterns("__pycache__"))
+            (project / "skills/tw").mkdir(parents=True)
+            shutil.copytree(root / "skills", project / ".agents/skills",
+                            ignore=shutil.ignore_patterns("_deprecated", ".*"))
+            def output():
+                proc = subprocess.run([sys.executable, str(project / ".agent-flow/scripts/doctor.py"),
+                                       "--harness", "claude"], cwd=project, capture_output=True, text=True)
+                return proc.stdout + proc.stderr
+            out = output()
+            self.assertNotIn("skill 'tw' 在 repo 有但未部署", out)
+            self.assertIn("非框架 repo，略過 skills/ 同步健檢", out)
+            (project / "install_harness.py").write_text("")
+            self.assertIn("skill 'tw' 在 repo 有但未部署", output())
+
 if __name__ == "__main__":
     unittest.main()
