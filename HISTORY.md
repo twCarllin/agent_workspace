@@ -174,3 +174,9 @@
 ### skills/eval-flow/references/writing.md
 
 - 2026-10-08｜2026-10-08-retro-dispatch-inject｜writing.md:step 1 retro 條目｜刪除「主 flow 再補判同類操作／同類風險面的條目」（兩處）：補判要求主 flow 通讀 RETRO.md，與「主 session 不載 RETRO.md」的省 context 目標相反；派工路徑的 retro 條目改由 dispatch.py 依 --files 自動前置，篩選以標籤命中為準
+
+## 2026-10-09 新增（run 2026-10-09-spec-fact-sources：Spec 事實句附來源）
+
+### skills/eval-flow/references/tier2-prep.md
+
+- 2026-10-09｜2026-10-09-spec-fact-sources｜tier2-prep.md:前置 0 事實句附來源｜出生證：10k-analysis 一次 run 的 Spec 以推論寫「insurance_other_cost 一律取絕對值」「ROA／ROE 沿用工業平均規則」，與資料及程式事實矛盾，循環中才發現（5 家勾稽失敗、追加 item）
