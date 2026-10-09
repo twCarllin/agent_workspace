@@ -5,7 +5,7 @@ import math
 import re
 
 HARNESSES = ('claude', 'codex')
-PERMISSIONS = ('inherit', 'unrestricted')
+PERMISSIONS = ('inherit', 'edits', 'unrestricted')
 
 
 def capabilities(harness):
@@ -32,6 +32,8 @@ def build_argv(harness, *, role=None, model=None, reasoning_effort='low',
             argv += ['--resume', resume]
         if budget_usd is not None:
             argv += ['--max-budget-usd', f'{budget_usd:.2f}']
+        if permissions == 'edits':
+            argv += ['--permission-mode', 'acceptEdits']
         if permissions == 'unrestricted':
             argv += ['--dangerously-skip-permissions']
     else:
@@ -42,6 +44,8 @@ def build_argv(harness, *, role=None, model=None, reasoning_effort='low',
         if model:
             argv += ['-m', model]
         argv += ['-c', f'model_reasoning_effort={reasoning_effort}']
+        if permissions == 'edits':
+            argv += ['--sandbox', 'workspace-write']
         if permissions == 'unrestricted':
             argv += ['--dangerously-bypass-approvals-and-sandbox']
     return argv + ['-']
@@ -55,7 +59,7 @@ def parse_result(harness, stdout, returncode=0):
     capabilities(harness)
     out = {'result': None, 'session_id': None, 'model': None, 'num_turns': None,
            'total_cost_usd': None, 'usage': {}, 'is_error': False,
-           'error': None, 'budget_exhausted': False}
+           'error': None, 'budget_exhausted': False, 'permission_denials': []}
     errors = []
     if harness == 'claude':
         try:
@@ -75,6 +79,10 @@ def parse_result(harness, stdout, returncode=0):
             models = data.get('modelUsage')
             if isinstance(models, dict):
                 out['model'] = next(iter(models), None)
+            denials = data.get('permission_denials')
+            if isinstance(denials, list):
+                out['permission_denials'] = [d.get('tool_name') for d in denials
+                                             if isinstance(d, dict) and isinstance(d.get('tool_name'), str)]
             out['budget_exhausted'] = bool(data.get('is_error') and 'budget' in str(data.get('subtype', '')))
             if data.get('is_error'):
                 errors.append(str(data.get('result') or data.get('errors') or data.get('subtype') or 'Claude reported an error'))

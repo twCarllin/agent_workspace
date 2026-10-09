@@ -19,8 +19,11 @@
 - `--max-output-chars`：報告字元上限（預設 60000）；超量 → stdout 只印前 n 字元＋截斷末行、留痕
   `failure="output_truncated"`、exit 3、不做信封判定
 
-權限：`--permissions inherit`（預設）不附權限覆寫，遵守各 CLI 設定；不保證自動繼承未保存的父程序權限。
-明確給 `--permissions unrestricted` 才使用各 CLI 的完整權限旗標。CLI argv 與結果格式由 harness_adapter.py 轉換。
+權限：省略 `--permissions` 時依角色選擇：有寫入工具的角色用 `edits`（Claude `--permission-mode acceptEdits`、
+Codex `--sandbox workspace-write`，只自動允許工作目錄內的檔案編輯），其他角色用 `inherit`（不附權限覆寫，遵守各 CLI
+設定；不保證繼承未保存的父程序權限）。明確給 `--permissions unrestricted` 才使用各 CLI 的完整權限旗標。
+子 agent 有工具呼叫被權限拒絕（Claude 結果的 `permission_denials`）→ stderr 列出工具名、exit 2。
+CLI argv 與結果格式由 harness_adapter.py 轉換。
 
 輸出契約：
   stdout ＝ 子 agent 報告全文（claude：JSON `result`；codex：最後一個 agent_message 的 text），不夾其他行
@@ -53,6 +56,7 @@ import retro_select  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(HOOKS_DIR))
 AGENTS_DIR = os.path.join(ROOT, ".agent-flow", "roles")
 LEGACY_AGENTS_DIR = os.path.join(ROOT, ".claude", "agents")
+MODELS_PATH = os.path.join(ROOT, ".agent-flow", "harnesses", "models.json")
 TOKEN_FIELDS = (
     "input_tokens",
     "cache_creation_input_tokens",
@@ -113,6 +117,18 @@ def default_backend(run_id):
     return "claude"
 
 
+def default_permissions(role):
+    """省略 --permissions 時：角色有寫入工具（models.json Claude frontmatter 的 tools 行含 Write／Edit）→ edits，
+    否則 inherit。headless 子程序不能互動批准，有寫入職責的角色在 inherit 下會被拒寫（2026-10-09 實測）。"""
+    try:
+        with open(MODELS_PATH, encoding="utf-8") as f:
+            frontmatter = json.load(f)["claude"][role]["frontmatter"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return "inherit"
+    tools = next((line for line in str(frontmatter).splitlines() if line.startswith("tools:")), "")
+    return "edits" if {"Write", "Edit"} & {t.strip() for t in tools[6:].split(",")} else "inherit"
+
+
 def read_prompt(path):
     if path == "-":
         text, src = sys.stdin.read(), "stdin 的 prompt"
@@ -149,6 +165,7 @@ def _child_result(backend, proc):
     usage = data['usage']
     meta = {'session_id': data['session_id'], 'model': data['model'],
             'turns': data['num_turns'] or 0, 'cost_usd': data['total_cost_usd'],
+            'permission_denials': data['permission_denials'],
             **{k: _int(usage.get(k)) for k in TOKEN_FIELDS}}
     if backend == 'codex':
         for src, dst in CODEX_USAGE_MAP.items():
@@ -261,12 +278,14 @@ def main():
     parser.add_argument("--backend", choices=sorted(BACKENDS), default=None)
     parser.add_argument("--review-packet", help="validated review data for task-verifier only")
     parser.add_argument("--resume", default=None)
-    parser.add_argument("--permissions", choices=harness_adapter.PERMISSIONS, default="inherit",
-                        help="inherit: keep CLI settings; unrestricted: explicit full access")
+    parser.add_argument("--permissions", choices=harness_adapter.PERMISSIONS, default=None,
+                        help="inherit: keep CLI settings; edits: auto-accept file edits; unrestricted: explicit "
+                             "full access; omitted: edits for roles with write tools, else inherit")
     parser.add_argument("--files", default=None, help="本 item 允許變更的檔案（逗號分隔，repo 相對路徑）")
     parser.add_argument("--timeout", type=float, default=1200)
     parser.add_argument("--max-output-chars", type=int, default=60000, dest="max_output_chars")
     args = parser.parse_args()
+    permissions = args.permissions or default_permissions(args.role)
 
     if not any(os.path.isfile(os.path.join(directory, f"{args.role}.md"))
                for directory in (AGENTS_DIR, LEGACY_AGENTS_DIR)):
@@ -299,14 +318,14 @@ def main():
 
     record = {
         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "role": args.role, "backend": backend, "permissions": args.permissions, "session_id": None,
+        "role": args.role, "backend": backend, "permissions": permissions, "session_id": None,
         "resumed": bool(args.resume), "model": None, "turns": 0,
         **_zero_tokens(), "cost_usd": None, "duration_ms": 0, "exit_code": 0, "envelope": None,
-        "failure": None, "out_of_scope": None, "retro": retro,
+        "failure": None, "out_of_scope": None, "retro": retro, "permission_denials": [],
     }
     started = time.monotonic()
     try:
-        report, meta = BACKENDS[backend](args.role, prompt, args.resume, args.timeout, args.permissions)
+        report, meta = BACKENDS[backend](args.role, prompt, args.resume, args.timeout, permissions)
     except ChildError as e:
         record.update(duration_ms=int((time.monotonic() - started) * 1000), exit_code=3, failure=e.kind)
         append_record(run_id, record)
@@ -327,7 +346,8 @@ def main():
         after = git_status_paths()
         record["out_of_scope"] = out_of_scope_changes(before, after, allowed) if after is not None else None
     out_of_scope = record["out_of_scope"] or []
-    record["exit_code"] = 4 if out_of_scope else (2 if blocking else 0)
+    denials = record["permission_denials"]
+    record["exit_code"] = 4 if out_of_scope else (2 if blocking or denials else 0)
 
     sys.stdout.write(report if report.endswith("\n") else report + "\n")
     sys.stdout.flush()
@@ -340,6 +360,9 @@ def main():
               f"retire 候選 {len(retro['retire'])}（{', '.join(retro['retire']) or '無'}）", file=sys.stderr)
     if out_of_scope:
         print(f"[dispatch] 越界變更：{', '.join(out_of_scope)}（不在 --files 清單內，退件）", file=sys.stderr)
+    if denials:
+        print(f"[dispatch] 子 agent 有 {len(denials)} 次工具呼叫被權限拒絕（{', '.join(sorted(set(denials)))}）："
+              f"交付不完整；以 --permissions edits／unrestricted 重派或改用原生 Agent", file=sys.stderr)
     append_record(run_id, record)
 
     if blocking:

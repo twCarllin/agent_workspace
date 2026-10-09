@@ -31,6 +31,26 @@ class AdapterTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             adapter.build_argv('unknown')
 
+    def test_edits_permission_allows_file_edits_only(self):
+        for harness, flag, value, full in (('claude', '--permission-mode', 'acceptEdits', '--dangerously-skip-permissions'),
+                                           ('codex', '--sandbox', 'workspace-write',
+                                            '--dangerously-bypass-approvals-and-sandbox')):
+            with self.subTest(harness=harness):
+                argv = adapter.build_argv(harness, permissions='edits')
+                self.assertEqual(argv[argv.index(flag) + 1], value)
+                self.assertNotIn(full, argv)
+                inherit = adapter.build_argv(harness)
+                self.assertNotIn('--permission-mode', inherit)
+                self.assertNotIn('--sandbox', inherit)
+
+    def test_claude_permission_denials_are_tool_names(self):
+        denied = json.dumps({'result': 'r', 'permission_denials': [{'tool_name': 'Write'}, {'tool_name': 'Edit'}]})
+        self.assertEqual(adapter.parse_result('claude', denied)['permission_denials'], ['Write', 'Edit'])
+        for raw in (json.dumps({'result': 'r'}), json.dumps({'result': 'r', 'permission_denials': 'x'})):
+            self.assertEqual(adapter.parse_result('claude', raw)['permission_denials'], [])
+        codex = json.dumps({'type': 'item.completed', 'item': {'type': 'agent_message', 'text': 'r'}})
+        self.assertEqual(adapter.parse_result('codex', codex)['permission_denials'], [])
+
     def test_both_formats_preserve_report_and_errors(self):
         claude = json.dumps({'result': 'report', 'session_id': 'c', 'total_cost_usd': .1})
         codex = '\n'.join(json.dumps(e) for e in [

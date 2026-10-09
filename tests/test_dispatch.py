@@ -148,7 +148,7 @@ class DispatchTest(unittest.TestCase):
             "input_tokens": 10, "cache_creation_input_tokens": 19448,
             "cache_read_input_tokens": 13971, "output_tokens": 44,
             "cost_usd": 0.0415, "exit_code": 0, "envelope": "ok",
-            "failure": None, "out_of_scope": None, "retro": None,
+            "failure": None, "out_of_scope": None, "retro": None, "permission_denials": [],
         })
 
     def test_c2_claude_argv_and_stdin(self):
@@ -178,6 +178,26 @@ class DispatchTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(flag, self.calls_made()[-1]["argv"])
                 self.assertEqual(self.records()[-1]["permissions"], "unrestricted")
+
+    def test_write_role_defaults_to_edits_permission(self):
+        proc = self.dispatch("code-writer", "--prompt-file", self.prompt, stdout=claude_json())
+        argv = self.calls_made()[-1]["argv"]
+        self.assertEqual(argv[argv.index("--permission-mode") + 1], "acceptEdits", proc.stderr)
+        self.assertEqual(self.records()[-1]["permissions"], "edits")
+        self.dispatch("task-verifier", "--prompt-file", self.prompt, stdout=claude_json())
+        self.assertNotIn("--permission-mode", self.calls_made()[-1]["argv"])
+        self.assertEqual(self.records()[-1]["permissions"], "inherit")
+        self.dispatch("code-writer", "--prompt-file", self.prompt, "--permissions", "inherit", stdout=claude_json())
+        self.assertNotIn("--permission-mode", self.calls_made()[-1]["argv"])
+        self.assertEqual(self.records()[-1]["permissions"], "inherit")
+
+    def test_permission_denials_block_with_reason(self):
+        proc = self.dispatch("task-verifier", "--prompt-file", self.prompt,
+                             stdout=claude_json(permission_denials=[{"tool_name": "Write", "tool_input": {}}]))
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertIn("被權限拒絕", proc.stderr)
+        self.assertEqual(proc.stdout, COMPLIANT + "\n")
+        self.assertEqual(self.records()[-1]["permission_denials"], ["Write"])
 
     def test_c3_missing_self_check_is_blocking(self):
         """C3：缺 Self-check 終行 → exit 2；stderr 含「信封缺損」；stdout 仍全文；留痕 envelope=blocking。"""
@@ -273,7 +293,7 @@ class DispatchTest(unittest.TestCase):
             "input_tokens": 16296, "cache_creation_input_tokens": 12,
             "cache_read_input_tokens": 7936, "output_tokens": 5,
             "cost_usd": None, "exit_code": 0, "envelope": "advisory",
-            "failure": None, "out_of_scope": None, "retro": None,
+            "failure": None, "out_of_scope": None, "retro": None, "permission_denials": [],
         })
 
     def test_k3_default_backend_follows_manifest_harness(self):
