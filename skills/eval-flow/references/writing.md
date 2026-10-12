@@ -1,6 +1,7 @@
 # 循環 step 1–2：實作與 staging
 
 1. 依「派工機制」節派工 `code-writer` subagent 產出程式碼
+   - **產碼品質前置**：先讀 `.agent-flow/CODE_QUALITY.md`，將適用的格式、可閱讀性與 log 條文原文貼進 writer prompt 硬性約束區，並註明專案設定、檔案範圍與不適用原因。涉及 log 的情境與憑據列入 DoD／契約表；reviewer prompt 同附適用原文。主 flow 直寫自行核對並留下相同交付證據。
    - writer 的共用定位內容依 [派工與證據控制「共用程式定位資訊」](dispatch-control.md#共用程式定位資訊) 組裝及核對。
    - **批次派工（省 spawn 稅）**：派工單位＝**task**，同 task 多 item 一次派給同一 code-writer（知識前置一次組裝、item 間共用 context）。條件：①批內合計預估 ≤400 行（與合併審查上限對齊，超過拆批）②`[P]` item 不混批（保留平行／worktree 路徑）③**失敗隔離**：單 item 帶失敗交付只退該 item，其餘 item 照常收④工作報告與憑據**逐 item 分節**（審查輪輸入不變、逐 item 核對，格式住 code-writer.md）。單 item 的 task 照舊
    - **知識前置（硬性步驟）**：呼叫前，主 flow 把三個來源的相關內容**原文貼進 writer prompt 的硬性約束區**——不是叫 writer「自己去讀」，知識只有以明文約束前置進 prompt 才有效（R-011）。三源：

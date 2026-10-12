@@ -64,6 +64,8 @@ Tier 2 實作期間跑相關測試，提交前跑一次完整回歸。輸入未�
 
 ## Step 5 執行順序（每個 sub_task）
 
+進入本步先按 `.agent-flow/CODE_QUALITY.md` 核對 formatter 與適用 log 證據。對本次 Python 檔執行選定 formatter 的檢查模式，以 `run_verify.py` 留下實際命令與結果；無適用檔案記原因，缺工具或檢查失敗不得記通過。格式化若改動受審內容，先重新 stage 並依 eval-flow 的增量審查規則核對變更，再驗證。log 測試併入下方相關測試，不另建重複案例。格式檢查成功不能代替本步功能測試或最後收尾驗證。
+
 0. **行為驗證紀律**：寫任何驗證程式（含臨時 harness）前，先確認實際介面——`inspect.signature`、讀函式定義，**不憑印象寫**（R-015）。
    - 驗證碼不是 throwaway：它就是本 sub_task 單元測試的草稿，直接寫進該 item 的測試檔（單元測試隨實作 item，見 task-decomposition skill）
 1. **選相關測試（累積聯集）**：
