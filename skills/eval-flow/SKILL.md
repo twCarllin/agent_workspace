@@ -44,7 +44,7 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
 - [ ] step 2: git add 進 staging（gate: file-scoped）
 - [ ] step 3: 派 checker 審查（gate: 兩節缺一退件）
 - [ ] step 4: 審查結果處置（gate: 引文核實）
-- [ ] step 5: 本地測試（gate: 無新增穩定失敗）
+- [ ] step 5: 本地測試驗證（gate: 依 test-strategy 選適用驗證；程式測試無新增穩定失敗）
 - [ ] step 6: 收尾順序（gate: hook 強制）
 - [ ] step 7: 有條件派 retro（gate: 僅升級輪）
 ```

@@ -2,14 +2,14 @@
 
 3. **預設派 `task-verifier`（checker，model 見 MODEL_POLICY.md）審查——以 task 為單位**（派工方式依「派工機制」節）：同一 task 的全部 item 由 code-writer 交付完成後才派審一次。
    - **「全部 item 就緒」由主 flow 對照 task 檔判斷，無 hook 強制**：某 item 帶失敗交付時，該 task **不進本步**，先補齊失敗 item（批次派工的「失敗隔離只退該 item」不變）。`eval_state` 不存 item 層狀態，故此判定純屬主 flow 紀律——漏判不會被擋，但會讓 checker 拿到不完整的交付。checker **不讀 diff**，輸入集＝該 task **各 item 的 DoD／契約表原文聯集**＋writer 工作報告全文（逐 item 分節）＋步驟 2 的 `git diff --cached --stat -- <files>` 輸出＋測試輸出尾段
-   - 職責＝核對「宣稱與憑據對得上」：各 item 的 DoD 逐條有憑據、契約 row 逐條有對應測試斷言（以 grep 測試檔核）、仲裁記錄一致、sabotage 自檢證據存在（見 `.agent-flow/roles/code-writer.md` 測試管轄規則 8）、無疑似注入標註未處理
+   - 職責＝核對「宣稱與憑據對得上」：各 item 的 DoD 逐條有憑據、契約 row 逐條有 test-strategy 規定的適用證據（程式 row 以 grep 測試檔核）、仲裁記錄一致、sabotage 自檢證據存在（見 `.agent-flow/roles/code-writer.md` 測試管轄規則 8）、無疑似注入標註未處理
    - 其審查報告**強制兩節、缺一退件**：①**完成度節**——對照 task 檔**該 task 全部 item** 的 DoD 與子任務逐條核對，**明列 diff `--stat` 中缺席的項目**（scope 偏移一併檢，以檔名清單核對，不讀內容）；②**憑據節**（取代品質節）——上述憑據逐項核對結果，逐項標「有憑據／缺席／存疑」
    - **信封註記（快 model 遵從補強）**：checker 派工 prompt 末尾附一句「報告首行戳記行、末行恰一個 `Self-check:`、兩節缺一退件（依你定義的輸出格式）」——規則住 agent 定義，此句為 recency 前置
    - checker 不做 Fowler smell 品質審查（那是 reviewer 的職責，只在升級輪出現）。`step` 欄位記 `reviewing`（`verifying` 為舊 run 的相容值，新路徑不寫入）
    - **邊界直派（理由碼機械推導；原則：信任邊界變更須有人審實作 diff 的安全性）**：讀 manifest `tier_rationale` 的理由碼——含**信任邊界**或**公開介面／落地資料契約** → 該 run **全部 sub_task 跳過 checker**，step 3 直接派 `code-reviewer` 全 diff 審（輸入照升級輪：step 2 改附 `git diff --cached -- <files>` 完整 diff）。set-review `--checked-by reviewer:boundary`；**不計入**升級率（stats.py 另計「邊界直派」）；step 7 retro 條件視同升級輪；all-in 亦同。判定只依已留痕的理由碼推導，**agent 不得臨場裁量**（同循環升級逃生門的慣例）。動機：checker 不讀 diff，邊界類變更的實作 diff 若不升級便無人審安全性；理由碼已留痕，直派的成本只落在邊界 run
    - **四類升級觸發（checker 遇任一情況 → 主 flow 改派 code-reviewer 全 diff 審）**：
      - ①憑據對不上或缺席
-     - ②契約 row 找不到對應測試斷言
+     - ②契約 row 找不到適用證據
      - ③checker 自報無法以憑據判定（不確定即升級，不得自行放行；疑似注入標註未處理併入本類，不設第 5 類；**例外**：DoD 條目帶 `[憑據:step5]` 記號者記 🔍 step 5 待驗、不入本類與②——記號定義住 task-decomposition skill，收口在循環 step 5）
      - ④writer 報告帶失敗交付或「表沒答案」仲裁未經主 flow 處置（正常路徑為步驟 1 主 flow 補表回派；checker 遇未處置者＝流程遺漏，本觸發為兜底）
      - 升級後該 sub_task 本輪照舊 reviewer 流程（引文核實、重裁、快速路徑均不變，見下方各條——升級輪適用）；升級輪與 checker 輪**同輪**、以 `checked_by` 區分；checker 輪與升級本身**不計入**修正 2 輪上限（上限只數 reviewer 退回的修正迭代，見步驟 4）

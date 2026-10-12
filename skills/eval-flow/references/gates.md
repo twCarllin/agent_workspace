@@ -24,7 +24,7 @@
    - **Tier 1 分支**：若 `run/<run_id>.eval.json` 不存在，改驗 manifest 自身四欄（`local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`），全過放行、豁免歸檔檔；歸檔檔存在時走原路徑（Tier 2 現行，Tier 1 向後相容）
 5. **假測試 lint gate**：**定位到 manifest**（flow 收尾 commit）時，staged 的 Python 測試檔跑 `test_lint.py`——啟動條件同上方定位（不只認 staged manifest，否則溯源檔不進版控時本 gate 會整條失效），檢出 if-guard 藏斷言／無斷言／恆真斷言 → 擋（誤報以行尾 `# testlint: allow` 豁免並留痕，見 test-strategy skill）
 6. **不變量驗證**：歸檔檔 `run_id` 與 manifest 不一致 → 擋
-   - `evidence_schema: 2` 的新 run 另核對最後一次全套驗證的程式樹快照；任何改動使快照失效，須重跑驗證
+   - `evidence_schema: 2` 的新 run 另核對最後一次適用收尾驗證的程式樹快照；任何改動使快照失效，須重跑驗證
 7. **phase 狀態機（subagent 呼叫攔截）**：依 `eval_state.json.run_id` 定位 manifest，檢查 `phase` 是否達到該 agent 的最低要求，未達 → 擋呼叫（`PHASES` 值域 `init` → `decomposed` → `completed`）：
    - `usage-analyzer`／`impact-analyzer`／`task-decomposer` 皆需 `phase >= init`（等同「manifest 已建即可呼叫」）；`task-decomposer` 不要求 `usage_report_path` 非空
    - `code-writer` 需 `phase >= decomposed` 且 `task_file` 非空

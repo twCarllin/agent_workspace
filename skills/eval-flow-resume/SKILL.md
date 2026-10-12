@@ -34,6 +34,8 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 
 ## Step 3：循環內恢復（phase = decomposed）
 
+續跑前先依 eval-flow `references/efficiency.md`「恢復與修正的剩餘工作」核對剩餘 DoD、未解失敗與有效證據，再選下表的恢復動作；中斷本身不是重跑已完成驗證的理由。
+
 1. 讀 `eval_state.json`，找 `status: "in_progress"` 的 sub_task（**頂層 task id**——一個 task 一筆；正常只有一個 in_progress task）
    - 一個都沒有且尚有未開始的 task → 從下一個未開始的 task 的步驟 1（code-writer）開跑
    - 全部 `passed` → 收尾被中斷，執行 step 6 收尾順序（歸檔 → 清除 eval_state → 回寫 token 用量 → commit；溯源檔不 `git add`，見 eval-flow SKILL.md step 6 子項②）
@@ -46,7 +48,7 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 | `reviewing` | 審查中被斷 | **審查結論不落檔**：不追究上一輪發生過什麼，**一律重跑該輪、重派 checker**（`task-verifier`），從循環步驟 3 開始（兩節報告） |
 | `fixing` | review 有 🔴、修正中被斷 | 同 `reviewing`：**一律重跑該輪、重派 checker**（無落檔可讀、不試圖還原修正進度） |
 | `verifying` | （舊版 run 的相容值）審查階段 | 同 `reviewing`：一律重跑該輪、重派 checker |
-| `testing` | 本地測試中被斷 | 重跑循環步驟 5（`local_test_passed` 為 `false` 一律重測，不採信中斷前的口頭結果） |
+| `testing` | 本地驗證中被斷 | 回到循環步驟 5，依有效證據完成剩餘驗證；失敗、缺席或失效的項目重驗，不採信中斷前的口頭結果。重用仍須符合 `references/efficiency.md` 的條件 |
 | `scoring` | （舊版 run 的相容值）無對應現行步驟 | 視同 testing 完成，直接進 step 6 收尾順序（歸檔 → 清除 eval_state → 回寫 token 用量 → commit；溯源檔不 `git add`，見 eval-flow SKILL.md step 6 子項②） |
 | `done` | 該 task 已收完 | 狀態應為 `passed`；不是 → 修正狀態後進下一個 task |
 
@@ -64,6 +66,6 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 
 - **已 `passed` 的 sub_task 一律不重跑**、其 staged 變更不動
 - **hook gates 照常生效**：恢復不是繞過 gate 的理由，被擋就依 stderr 訊息補狀態
-- **寧可重跑一步，不可跳過一步**：`step` 只保證「走到了這一步」，不保證這一步完成；有疑義就從該步重做
+- **未證明完成的步驟不可跳過**：`step` 只保證「走到了這一步」，不保證完成；先核對實際證據，再重做缺席或失效的部分
 - 恢復後的第一件事：把你從檔案讀出的「run 現況摘要」（run_id、phase、各 sub_task 狀態、接下來要做什麼）回報使用者，再開始動作
 - `status: "failed"` 與 `status: "aborted"` 的 run 皆不自動恢復——那是等使用者裁決的封存現場（`aborted`＝主動放棄、`failed`＝流程內判定失敗，兩者待遇相同）；使用者明示續跑才依上表接手
