@@ -21,7 +21,7 @@ description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無
 - **收尾**：全部必要證據齊全、適用驗證通過且獨立審查完成，就進入收尾。必要環境／權限缺失時記錄受阻原因與未驗項目，保留未完成狀態，不新增 status 值、不標通過。設定準備與實際部署的 DoD 必須分開。
 - **證據**記錄實際命令、執行時間、目標環境、可接受結果、實際輸出與限制，遮蔽秘密。exit 0 不足以證明符合契約，須核對實際結果與預期；複合收尾命令任一必要檢查失敗須回傳非零，不得以最後一條成功覆蓋先前失敗。主 flow 用 `run_verify.py` 執行適用命令並保存成功快照；保留 schema 2、prepare → Run-Id commit → finalize。遠端／實際環境狀態不在本地快照內，不得僅因本地輸入相同自動 `--reuse`，須重新確認目標狀態。
 
-## Baseline（run 的測試基準，第一次 step 5 前建立）
+## Baseline（run 的測試基準，第一次產品修改前建立）
 
 ```
 python3 .agent-flow/scripts/test_baseline.py baseline
@@ -30,10 +30,12 @@ python3 .agent-flow/scripts/test_baseline.py baseline
 - **全套測試指令從 manifest 的 `test_command` 讀**（single source of truth；`--cmd` 僅供覆寫）。manifest 尚無此欄時，先確認指令並寫入 manifest 再跑——不要每個 run 各猜一套，baseline 與 check 範圍不一致就會出現「無關的既有失敗」
   - **`test_command` 須指定專案直譯器**（專案有虛擬環境時，寫成 `.venv/bin/python3 -m pytest` 之類，不要用裸 `python3`）——系統直譯器缺專案套件會讓整批測試 import 失敗、被誤記為既有 `stable_failures`（幻影欠帳）。baseline 偵測到「有 `.venv/bin` 但 cmd 未用它且有 stable 失敗」時會於 stderr 印錯配警示（僅提醒、不改執行環境）
   - **`test_command` 須為完整組指令**：專案把測試分成日常組／完整組時（pytest marker、conftest 白名單等），manifest 寫**完整組**——日常組是開發期快速回饋，不當 gate（日常組白名單會讓全套靜默縮水而收尾檢查無人察覺）
-- **跑一次**：所有失敗記為 `stable_failures`（進場既有壞測試，之後不擋 gate）。非確定性（flaky）失敗不在 baseline 階段預先分類——scoped 測試架構下每輪跑的測試面積小、噪音低，改由 check 在**出現新失敗時**才重跑一次確認可重現（惰性驗證，成本只在有訊號時付）
-- **`__suite__` 套件層失敗**（無法解析出個別失敗的整體性失敗）例外於上一點：baseline 階段即重跑一次確認可重現才記入 `stable_failures`。
-  - 記入後，check 每次執行皆於 stderr 印出「gate 對套件層級失敗失明」警告（不影響判定與 exit code）——因為 gate 的新增失敗比對機制看不見套件層失敗，需要額外提醒使用者注意
-- **自動沿用**：既有 baseline 檔中存在「`head_sha` == 目前 HEAD 且 cmd 相同」者 → script 直接沿用其 `stable_failures`（baseline 記的是**進場 HEAD 的既有失敗快照**，同進場 HEAD 即可沿用、免重跑全套；本 run 工作樹的新變更由 check 把關）；測試環境變了但 HEAD 沒變時用 `--fresh` 強制重建
+- **來源前置**：第一次產品修改前建立。須有 Git HEAD，tracked／staged／untracked 產品輸入乾淨；只有 `eval_state.json`、`run/` 的 JSON／JSONL／log 與 `task/`、`spec/` 的 Markdown 等明確流程產物不阻擋。測試前、確認重跑前與結束後核對 HEAD／產品輸入，漂移不發布可信基準。不自動 stash、reset、建 Docker 或 worktree。
+- **穩定失敗要二次確認**：第一次有可辨測試 ID 的失敗時，在同一修改前來源重跑一次，只把兩次交集記為 `stable_failures`；首次成功只跑一次。unittest 以具體案例 ID 判定，`FAILED (failures=1)` 摘要不是測試 ID。
+- **執行問題不能扣除**：逾時（含命令退出碼 124）、無法解析的 `__suite__`、測試程序啟動／執行錯誤永不列 stable，也不能讓 check 通過。每次執行預設上限 300 秒；`--timeout <秒數>` 可指定 `0 < 秒數 <= 86400`，baseline 與 check 必須使用相同上限。逾時清理本次程序群組，不終止其他程序；输出收尾與 wait 各最多再等 0.25 秒。自行脫離群組的後代不在清理承諾內，其持有 pipe 不得使工具無限等待。分類、退出碼、實際 stdout／stderr 與執行時間保存在 observations；baseline 執行問題另存 `run/<run_id>.baseline_execution.json` 並回傳非零。
+- **可信沿用**：schema 2 必須具有相同的乾淨來源前後紀錄、確認觀測、命令、環境指紋與上限。跨 run 自動沿用還須 HEAD 相同；已有產品修改只能沿用上述可信檔，不能重建。check 可沿用目前 HEAD 祖先的可信基準，保留相關測試 `--cmd` 範圍，記錄實際命令並按同一可辨 ID 扣除。舊 schema、來源不明、sentinel 或觀測不符者明確拒絕，不能補欄位升格。
+- **環境範圍**：指紋涵蓋環境變數（排除 shell 易變欄位）、執行此工具的 Python 版本／路徑、平台與工作目錄，只存雜湊。它不能證明外部服務或套件內容未變；已知環境改變須在乾淨產品來源用 `--fresh` 重建。
+- **修改後缺可信基準**：保留現場，使用另外保留的乾淨起始版本另行取證與比較；不同目錄的基準不能直接搬回沿用，不把目前失敗宣稱為既有。若不需要扣除既有失敗，主 flow 可直接用 `run_verify.py` 執行必要驗證，要求零失敗；不為補基準自動建立額外環境。
 - 寫入 `run/<run_id>.test_baseline.json`（`run_id` 自動讀 `eval_state.json`）。此檔是冷溯源檔，**留在工作目錄、永不清除；不進版控**（處置的單一枚舉點住 eval-flow SKILL.md step 6 子項②，改任一端時對照另一端）。`stable_failures` 就是本 run 進場時的**既有欠帳快照**
 - **既有壞測試 = 記錄級欠帳，不是攔截級**：與 hotfix `debt` 不同——不擋新 run、本 run 不修（修它是 scope 偏移），但 retro 時彙報數量與清單，讓債看得見
 - 無任何測試框架的專案不建 baseline，改走「零測試專案」節
@@ -139,7 +141,7 @@ script 重跑確認可重現的真新失敗，先判是否屬下列兩種**確�
   - 有意行為變更的舊測試批次同步走 task-decomposition 的「測試同步段」，在實作 item 內、check 之前完成
   - **並行 worktree run 例外（parallel-run）**：既有測試只增不改，需要更新既有測試＝獨立性假設已破，觸發卡住退出並行，不在 worktree 內同步
 - **疑似既有失敗補充**：已知盲區成因：related 全 repo 掃可選到 `test_command` 範圍外的測試、環境／日期漂移、參數化 ID 變動——baseline 快照照不到不代表是新失敗。
-  - 使用者裁定為既有 → 把該測試 ID 補進 baseline 檔的 `stable_failures`（直接編輯 `run/<run_id>.test_baseline.json`），之後的 check 不再回鍋；**裁決不持久化就會每個 sub_task 重複誤報一次**
+  - 使用者裁定為既有 → 記錄裁決及依據；只有修改前同一測試 ID 的重跑確認證據才可形成可扣除基準，不能直接編輯名單或補造 observations。修復方式依上方 Baseline 節
 
 **三分類的判定上限是一次機械比對**（對 list-files 聯集、看 `git diff --cached`）——需要讀測試實作、追 import 鏈、跑額外測試才能歸因的，一律視同塞住，立即 HITL，**禁止自行調查歸因**（這種調查結論多半是「與本 run 無關」，成本不划算）。
 
@@ -180,7 +182,7 @@ step 6 收尾**之前**（Tier 2 歸檔 eval_state 前）跑一次收尾檢查�
 |---|---|
 | 新專案 | 不會發生——Tier B bootstrap 的 DoD 硬性含測試框架＋示範測試 |
 | legacy、Tier 1 | 實際運行功能驗證＋`local_test_evidence` 照填（現行規則），不強制建測試 |
-| legacy、Tier 2 | **程式新行為需要自動化測試且缺框架時建最小框架**：分拆時第一個 task 加「建立最小測試框架＋本功能的測試」item（比照共用基礎抽前置 task 的慣例）。「最小」＝能跑單元測試＋覆蓋本次新行為，不要求 e2e、不補歷史覆蓋。建完立刻跑 `baseline`（此時 baseline 天然乾淨） |
+| legacy、Tier 2 | **程式新行為需要自動化測試且缺框架時建最小框架**：分拆時第一個 task 加「建立最小測試框架＋本功能的測試」item（比照共用基礎抽前置 task 的慣例）。「最小」＝能跑單元測試＋覆蓋本次新行為，不要求 e2e、不補歷史覆蓋。無修改前可執行測試時，不產生既有失敗名單；新框架與本功能直接驗證零失敗，依 Baseline 節處理 |
 | 連最小框架都建不起來 | 這本身就是舉手訊號：停下回報，由使用者裁決走運行驗證＋manifest 記 `debt: ["test-framework"]`（攔截級，還清前 hook 擋新 run——防「建不起來」變永久後門） |
 
 ## 驗證豁免窗口（全 tier 通則，總則住在 .agent-flow/ROUTER.md）

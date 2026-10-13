@@ -50,7 +50,7 @@
   - **舊值相容（硬性）**：既有 run 的 manifest 可能仍是 `"risk_done"`／`"usage_confirmed"`——`manifest_phase()` 在與值域比對前**必須先**把這兩值映射為 `"init"`，不得對舊值拋例外（既有 run 的 resume 依賴此映射；不可用 try/except 吞例外兜底，映射須發生在 `PHASES.index()` 之前）
   - 舊 manifest 無此欄時 hook 以 `task_file` 推導（向後相容）；`usage_report_path` 不參與推導
 - `spec_path` / `spec_inline`：Tier 2 用 `spec_path`（Spec 檔）；Tier 1 用 `spec_inline`（需求原文一句話）。**兩者至少一個非空**，皆空不可往下（intent gate）。`spec_path` 指向的 `spec/<run_id>.md` **進版控**（與本文件開頭「run manifest」等冷溯源檔不同類；分類的單一枚舉點住 eval-flow SKILL.md step 6 子項②）
-- `test_command`：程式測試部分的本專案**全套測試指令**（test-strategy script 省略 `--cmd` 時的預設來源，single source of truth——保證 baseline 與 check 範圍一致）。前置 0 可先 `null`，**需要使用 baseline／mine／check 時，第一次 step 5 前必須寫入**；純設定的實際命令由 `run_verify.py --cmd` 記錄，不以測試預設值替代；同專案的後續 run 沿用前一個 manifest 的值；Tier B 於 DoD 驗證時寫入
+- `test_command`：程式測試部分的本專案**全套測試指令**（test-strategy script 省略 `--cmd` 時的預設來源，single source of truth——保證 baseline 與 check 範圍一致）。前置 0 可先 `null`，**使用 baseline 時，第一次產品修改前必須寫入；mine／check 在執行前寫入**；純設定的實際命令由 `run_verify.py --cmd` 記錄，不以測試預設值替代；同專案的後續 run 沿用前一個 manifest 的值；Tier B 於 DoD 驗證時寫入
 - `hitl_confirmed_at`：HITL gate 的留痕——使用者確認當下寫入「時間 ＋ 確認範圍一句話」（例：`"2026-07-15 14:30 — 確認 usage 報告 v1（3 情境、2 開放問題已裁示）"`；Tier 1 記輕量計畫確認：`"… — 確認 1 task／3 items 計畫"`）
   - resume／換手時，接手者憑此驗證確認 gate 真的過過，不只信 `phase` 欄位。Tier B 記選型確認
 - `estimated_active_minutes`／`actual_active_minutes`：**選填**。Router 判級時的預估主動工時與收尾補記的實際值（估實分記，agentflow 慣例；消費端為判級校準，缺欄＝無記錄）

@@ -1,6 +1,6 @@
 # 循環 step 5–7：測試、收尾與回顧
 
-5. **本地測試驗證（硬性 gate，對應 .agent-flow/ROUTER.md「部署規則」）**：依 **test-strategy** skill 執行。先依該 skill「依變更選擇驗證」選定適用 gate；程式測試 gate 條件＝**無新增穩定失敗**（以 `.agent-flow/scripts/test_baseline.py check` 的判定為準；baseline 於第一次 step 5 前建立單次快照既有失敗，非確定性失敗由 script 於新失敗時重跑一次確認可重現）
+5. **本地測試驗證（硬性 gate，對應 .agent-flow/ROUTER.md「部署規則」）**：依 **test-strategy** skill 執行。先依該 skill「依變更選擇驗證」選定適用 gate；程式測試 gate 條件＝**無新增穩定失敗**（以 `.agent-flow/scripts/test_baseline.py check` 的判定為準；基準來源、前置時序、重跑確認與執行問題處置依 test-strategy「Baseline」，不得修改後補造既有失敗）
    - Tier 1／2 的證據類型與必要驗證範圍依 test-strategy「依變更選擇驗證」；Tier 2 程式行為的測試綁定依 task-decomposition skill；Tier 1 保留自動化測試或實際運行功能驗證。
    - `run_verify.py` 依實際驗證結果更新 `local_test_passed` 與 `local_test_evidence`；主 flow 另補仲裁、豁免等必要說明。hook 於 commit 時核對憑據。
    - **另**：本步的每一條驗證指令以 wrapper 一次完成「跑＋留痕」：`python3 .agent-flow/scripts/run_verify.py --run-id <run_id> [--sub-task <id>] --cmd "<指令>"`——Tier 2 給 `--sub-task` 記入該 sub_task；Tier 1 免給，自動記 manifest 同名欄並寫 verify_cmd 事件。底層 `add-verification` 保留，直接呼叫仍合法。

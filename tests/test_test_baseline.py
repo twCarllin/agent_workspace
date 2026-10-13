@@ -3,11 +3,15 @@ baseline 建立、新失敗攔截與 failure_log 留痕、非確定性失敗放�
 
 執行：python3 -m unittest discover -s tests -v
 """
+
 import json
 import os
+import shlex
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -18,9 +22,7 @@ sys.path.insert(0, str(SCRIPT.parent))
 from test_baseline import build_mine_argv, is_test_file, venv_mismatch  # noqa: E402
 
 # test_a 永遠失敗（既有壞測試，會進 stable_failures）
-CMD_STABLE = (
-    'echo "FAILED tests/test_broken.py::test_a"; exit 1'
-)
+CMD_STABLE = 'echo "FAILED tests/test_broken.py::test_a"; exit 1'
 CMD_NEW_FAILURE = (
     'echo "FAILED tests/test_broken.py::test_a"; '
     'echo "FAILED tests/test_new.py::test_c"; exit 1'
@@ -28,29 +30,27 @@ CMD_NEW_FAILURE = (
 # test_d 只在第一次呼叫失敗（非確定性失敗，靠計數檔 m）：
 # check 首跑 a+d，重跑只剩 a → d 不可重現 → 放行不擋
 CMD_NEW_NONREPRODUCIBLE = (
-    'm=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; '
+    "m=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; "
     'echo "FAILED tests/test_broken.py::test_a"; '
     '[ $m -eq 1 ] && echo "FAILED tests/test_d.py::test_d"; exit 1'
 )
 # __suite__ 重跑確認分支用的計數檔 stub（B1）：m 記錄呼叫次數，控制首跑 vs 重跑的行為差異。
 # 首跑整個 suite 崩潰（無可解析輸出）、重跑變乾淨 → row1
 CMD_SUITE_THEN_CLEAN = (
-    'm=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; '
-    '[ $m -eq 1 ] && exit 1; exit 0'
+    "m=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; "
+    "[ $m -eq 1 ] && exit 1; exit 0"
 )
 # 首跑、重跑都整個 suite 崩潰（無可解析輸出）→ row2
-CMD_SUITE_ALWAYS = (
-    'm=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; exit 1'
-)
-# 首跑即可解析出個別失敗（非 __suite__）→ row3，不應重跑
+CMD_SUITE_ALWAYS = "m=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; exit 1"
+# 首跑即可解析出個別失敗，須重跑确认同一 ID
 CMD_INDIVIDUAL_FIRST = (
-    'm=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; '
+    "m=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; "
     'echo "FAILED tests/test_broken.py::test_a"; exit 1'
 )
 # 首跑整個 suite 崩潰、重跑解析出個別失敗 → row4
 CMD_SUITE_THEN_INDIVIDUAL = (
-    'm=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; '
-    '[ $m -eq 1 ] && exit 1; '
+    "m=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; "
+    "[ $m -eq 1 ] && exit 1; "
     'echo "FAILED tests/test_broken.py::test_a"; exit 1'
 )
 
@@ -60,119 +60,166 @@ class BaselineScriptTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self.tmp.name)
         (self.dir / "eval_state.json").write_text('{"run_id": "t"}', encoding="utf-8")
+        # runner 的已知副作用不是產品輸入；不要用流程目錄掩蓋產品變更。
+        (self.dir / ".gitignore").write_text(
+            "m\nran\n.venv/\n__pycache__/\n", encoding="utf-8"
+        )
+        self.git("init", "-q")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "initial")
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_script(self, *args):
+    def git(self, *args):
         return subprocess.run(
-            [sys.executable, str(SCRIPT), *args],
-            cwd=self.dir, capture_output=True, text=True,
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
+            cwd=self.dir,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    def run_script(self, *args, env=None, script=SCRIPT):
+        return subprocess.run(
+            [sys.executable, str(script), *args],
+            cwd=self.dir,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=15,
         )
 
     def read_baseline(self):
-        return json.loads((self.dir / "run" / "t.test_baseline.json").read_text(encoding="utf-8"))
+        return json.loads(
+            (self.dir / "run" / "t.test_baseline.json").read_text(encoding="utf-8")
+        )
 
-    def build_baseline(self):
-        result = self.run_script("baseline", "--cmd", CMD_STABLE)
+    def build_baseline(self, cmd=CMD_STABLE, *extra):
+        result = self.run_script("baseline", "--cmd", cmd, *extra)
         self.assertEqual(result.returncode, 0, result.stderr)
         return self.read_baseline()
 
     def read_counter(self):
-        """讀計數檔 stub 的呼叫次數（== 全套實際執行次數）。"""
-        p = self.dir / "m"
-        return int(p.read_text().strip()) if p.exists() else 0
+        path = self.dir / "m"
+        return int(path.read_text().strip()) if path.exists() else 0
 
-    def test_baseline_records_all_failures_as_stable(self):
-        data = self.build_baseline()
+    def test_baseline_confirms_source_and_same_failure_twice(self):
+        data = self.build_baseline(CMD_INDIVIDUAL_FIRST)
+        self.assertEqual(data["schema"], 2)
+        self.assertEqual(data["run_id"], "t")
+        self.assertEqual(data["cmd"], CMD_INDIVIDUAL_FIRST)
+        self.assertEqual(
+            data["source"],
+            {"head_sha": self.git("rev-parse", "HEAD"), "clean_product_inputs": True},
+        )
+        self.assertEqual(data["source_after"], data["source"])
+        self.assertEqual(data["head_sha"], data["source"]["head_sha"])
+        self.assertRegex(data["environment"], r"^[0-9a-f]{64}$")
+        self.assertEqual(data["timeout_seconds"], 300)
         self.assertEqual(data["stable_failures"], ["tests/test_broken.py::test_a"])
-        self.assertNotIn("flaky", data)  # 單次跑：不再產生 flaky 名單
+        self.assertEqual(self.read_counter(), 2)
+        for result in data["observations"]:
+            self.assertEqual(result["classification"], "test_failure")
+            self.assertEqual(result["returncode"], 1)
+            self.assertEqual(result["failures"], data["stable_failures"])
+            self.assertIn("FAILED tests/test_broken.py::test_a", result["stdout"])
+            self.assertEqual(result["stderr"], "")
+            self.assertGreaterEqual(result["duration_seconds"], 0)
         self.assertNotIn("strikes", data)
+
+    def test_baseline_only_intersects_repeated_failure_ids(self):
+        data = self.build_baseline(CMD_NEW_NONREPRODUCIBLE)
+        self.assertEqual(self.read_counter(), 2)
+        self.assertEqual(data["stable_failures"], ["tests/test_broken.py::test_a"])
+        self.assertIn("tests/test_d.py::test_d", data["observations"][0]["failures"])
+        self.assertNotIn("tests/test_d.py::test_d", data["observations"][1]["failures"])
 
     def test_check_passes_when_only_known_failures(self):
         self.build_baseline()
         result = self.run_script("check", "--cmd", CMD_STABLE, "--strike-key", "s1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("PASS", result.stdout)
+        saved = self.read_baseline()["check_observations"][-1]
+        self.assertEqual(saved["key"], "s1")
+        self.assertEqual(saved["cmd"], CMD_STABLE)
+        self.assertEqual(
+            saved["observations"][0]["failures"], ["tests/test_broken.py::test_a"]
+        )
 
     def test_check_blocks_reproducible_new_failure_and_logs(self):
         self.build_baseline()
-        first = self.run_script("check", "--cmd", CMD_NEW_FAILURE, "--strike-key", "s1")
-        self.assertEqual(first.returncode, 2)
-        self.assertIn("tests/test_new.py::test_c", first.stderr)
-        self.assertIn("回報使用者裁決", first.stderr)
-        self.assertNotIn("第 1 次", first.stderr)  # 無 strike 計數
-        log = self.read_baseline()["failure_log"]
-        self.assertEqual(log, [{"key": "s1", "tests": ["tests/test_new.py::test_c"]}])
+        for count in (1, 2):
+            result = self.run_script(
+                "check", "--cmd", CMD_NEW_FAILURE, "--strike-key", "s1"
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("tests/test_new.py::test_c", result.stderr)
+            self.assertIn("回報使用者裁決", result.stderr)
+            self.assertNotIn("第 1 次", result.stderr)
+            self.assertNotIn("2 次上限", result.stderr)
+            self.assertEqual(
+                self.read_baseline()["failure_log"],
+                [{"key": "s1", "tests": ["tests/test_new.py::test_c"]}] * count,
+            )
 
-        # failure_log 累積留痕：第二次再 append 一筆（人是計數器，script 不設上限）
-        second = self.run_script("check", "--cmd", CMD_NEW_FAILURE, "--strike-key", "s1")
-        self.assertEqual(second.returncode, 2)
-        self.assertNotIn("2 次上限", second.stderr)
-        self.assertEqual(len(self.read_baseline()["failure_log"]), 2)
-
-    def test_non_reproducible_new_failure_passes_without_persisting(self):
+    def test_non_reproducible_new_failure_passes_without_allowlisting(self):
         self.build_baseline()
-        result = self.run_script("check", "--cmd", CMD_NEW_NONREPRODUCIBLE, "--strike-key", "s1")
+        result = self.run_script("check", "--cmd", CMD_NEW_NONREPRODUCIBLE)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("非確定性失敗", result.stdout)
         data = self.read_baseline()
-        self.assertNotIn("flaky", data)  # 非確定性失敗不持久化
+        self.assertEqual(data["stable_failures"], ["tests/test_broken.py::test_a"])
         self.assertNotIn("failure_log", data)
+        self.assertNotIn("flaky", data)
+        self.assertEqual(self.read_counter(), 2)
 
-    def write_baseline_with_stable(self, stable_failures):
-        """直接寫 baseline JSON（仿 write_prev_baseline 慣例），供 B2 測試控制 known 內容。"""
-        (self.dir / "run").mkdir(exist_ok=True)
-        (self.dir / "run" / "t.test_baseline.json").write_text(
-            json.dumps({
-                "run_id": "t", "cmd": "x", "head_sha": None,
-                "stable_failures": stable_failures,
-            }), encoding="utf-8",
-        )
+    def test_check_rejects_legacy_and_tampered_baselines(self):
+        trusted = self.build_baseline()
+        path = self.dir / "run" / "t.test_baseline.json"
+        variants = [
+            {
+                "run_id": "t",
+                "cmd": CMD_STABLE,
+                "head_sha": trusted["head_sha"],
+                "stable_failures": ["__suite__"],
+            },
+            dict(trusted, stable_failures=["__suite__"]),
+            dict(trusted, stable_failures=["tests/not_confirmed.py::test_x"]),
+            dict(
+                trusted,
+                source_after={"head_sha": "0" * 40, "clean_product_inputs": True},
+            ),
+            dict(
+                trusted,
+                observations=[
+                    dict(trusted["observations"][0], classification="timeout")
+                ],
+            ),
+            [],
+        ]
+        for variant in variants:
+            with self.subTest(variant=variant):
+                path.write_text(json.dumps(variant), encoding="utf-8")
+                result = self.run_script("check", "--cmd", "exit 0")
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("不可信", result.stderr)
+                self.assertNotIn("PASS", result.stdout)
 
-    def test_check_warns_when_baseline_blind_to_suite_and_no_new_failure(self):
-        """row1: baseline stable_failures 含 __suite__＋本次無新失敗 → stderr 含失明警告、exit 0。"""
-        self.write_baseline_with_stable(["__suite__"])
-        result = self.run_script("check", "--cmd", "exit 0", "--strike-key", "s1")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("失明", result.stderr)
-
-    def test_baseline_warns_on_venv_mismatch_when_stable_failures(self):
-        """有 .venv/bin、cmd 未用它、baseline 有 stable 失敗 → stderr 印錯配警示，仍 exit 0。"""
-        os.makedirs(self.dir / ".venv" / "bin")
+    def test_baseline_warns_on_venv_mismatch_only_for_stable_failures(self):
+        (self.dir / ".venv" / "bin").mkdir(parents=True)
         result = self.run_script("baseline", "--cmd", CMD_STABLE)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(".venv/bin", result.stderr)
         self.assertIn("test_command", result.stderr)
-
-    def test_baseline_no_venv_warning_when_no_stable_failures(self):
-        """有 .venv/bin 但 baseline 無 stable 失敗（cmd 全綠）→ 不印警示（無欠帳即無雜訊）。"""
-        os.makedirs(self.dir / ".venv" / "bin")
-        result = self.run_script("baseline", "--cmd", "exit 0")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn(".venv/bin", result.stderr)
-
-    def test_check_no_b2_warning_when_baseline_has_no_suite_sentinel(self):
-        """row2: baseline 不含 __suite__ → 無 B2 警告、既有 PASS 行不變。"""
-        self.build_baseline()
-        result = self.run_script("check", "--cmd", CMD_STABLE, "--strike-key", "s1")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("失明", result.stderr)
-        self.assertIn("PASS", result.stdout)
-
-    def test_check_warns_and_still_passes_when_suite_crashes_again(self):
-        """row3[邊界/組合]: baseline known 含 __suite__＋本次全套崩潰 fails=={__suite__}
-        → new 為空、判定 PASS exit 0（原失明行為不改）＋同時印 B2 警告（失明現形）。"""
-        self.write_baseline_with_stable(["__suite__"])
-        result = self.run_script("check", "--cmd", "exit 1", "--strike-key", "s1")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("失明", result.stderr)
-        self.assertIn("PASS", result.stdout)
+        clean = self.run_script("baseline", "--cmd", "exit 0", "--fresh")
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        self.assertNotIn(".venv/bin", clean.stderr)
 
     def test_check_without_baseline_fails_with_instruction(self):
         result = self.run_script("check", "--cmd", "exit 0")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("先跑 baseline", result.stderr)
+        self.assertIn("修改前先跑 baseline", result.stderr)
 
     def test_cmd_falls_back_to_manifest_test_command(self):
         (self.dir / "run").mkdir()
@@ -190,112 +237,308 @@ class BaselineScriptTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("test_command", result.stderr)
 
-    def init_git(self):
-        subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
-        subprocess.run(
-            ["git", "-c", "user.email=t@t", "-c", "user.name=t",
-             "commit", "--allow-empty", "-q", "-m", "x"],
-            cwd=self.dir, check=True,
-        )
-        return subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.dir,
-            capture_output=True, text=True,
-        ).stdout.strip()
-
-    def write_prev_baseline(self, head_sha, cmd):
-        (self.dir / "run").mkdir(exist_ok=True)
-        (self.dir / "run" / "prev.test_baseline.json").write_text(
-            json.dumps({
-                "run_id": "prev", "cmd": cmd, "head_sha": head_sha,
-                "stable_failures": ["tests/test_old.py::test_z"],
-                "flaky": [], "strikes": {"s9": 1},
-            }), encoding="utf-8",
-        )
-
-    # 沿用側效檔：baseline 若真的執行測試指令會留下 ran 檔
-    CMD_TOUCH = 'touch ran; exit 0'
-
-    def test_baseline_reuses_same_head_and_cmd(self):
-        head = self.init_git()
-        self.write_prev_baseline(head, self.CMD_TOUCH)
-        result = self.run_script("baseline", "--cmd", self.CMD_TOUCH)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("沿用 prev", result.stdout)
-        self.assertFalse((self.dir / "ran").exists())  # 沒有真的跑測試
-        data = self.read_baseline()
-        self.assertEqual(data["reused_from"], "prev")
-        self.assertEqual(data["stable_failures"], ["tests/test_old.py::test_z"])
-        self.assertNotIn("strikes", data)  # 舊檔的 strikes/flaky 欄位不沿用回填
-        self.assertNotIn("flaky", data)
-
-    def test_baseline_no_reuse_when_head_differs(self):
-        self.init_git()
-        self.write_prev_baseline("deadbeef", self.CMD_TOUCH)
-        result = self.run_script("baseline", "--cmd", self.CMD_TOUCH)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.dir / "ran").exists())  # 真的重跑了
-        self.assertNotIn("reused_from", self.read_baseline())
-
-    def test_baseline_no_reuse_when_cmd_differs(self):
-        head = self.init_git()
-        self.write_prev_baseline(head, "exit 0")
-        result = self.run_script("baseline", "--cmd", self.CMD_TOUCH)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.dir / "ran").exists())
-        self.assertNotIn("reused_from", self.read_baseline())
-
-    def test_fresh_flag_forces_rebuild(self):
-        head = self.init_git()
-        self.write_prev_baseline(head, self.CMD_TOUCH)
-        result = self.run_script("baseline", "--cmd", self.CMD_TOUCH, "--fresh")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.dir / "ran").exists())
-        self.assertNotIn("reused_from", self.read_baseline())
-
-    def test_suite_crash_then_clean_rerun_drops_suite_sentinel(self):
-        """row1: 首跑 __suite__、重跑乾淨 → stable 不含 __suite__、stdout 印未重現關鍵字、全套執行 2 次。"""
-        result = self.run_script("baseline", "--cmd", CMD_SUITE_THEN_CLEAN)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("未重現以重跑為準", result.stdout)
-        data = self.read_baseline()
-        self.assertNotIn("__suite__", data["stable_failures"])
-        self.assertEqual(data["stable_failures"], [])
+    def test_legacy_baseline_is_not_reused_or_upgraded(self):
+        (self.dir / "run").mkdir()
+        legacy = {
+            "run_id": "prev",
+            "head_sha": self.git("rev-parse", "HEAD"),
+            "cmd": CMD_INDIVIDUAL_FIRST,
+            "stable_failures": ["tests/old.py::test_z"],
+        }
+        path = self.dir / "run" / "prev.test_baseline.json"
+        path.write_text(json.dumps(legacy), encoding="utf-8")
+        data = self.build_baseline(CMD_INDIVIDUAL_FIRST)
         self.assertEqual(self.read_counter(), 2)
-
-    def test_suite_crash_twice_keeps_suite_sentinel_with_warning(self):
-        """row2: 首跑、重跑皆 __suite__ → stable 含 __suite__、stderr 含失明警告與 --fresh 建議。"""
-        result = self.run_script("baseline", "--cmd", CMD_SUITE_ALWAYS)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("失明", result.stderr)
-        self.assertIn("--fresh", result.stderr)
-        data = self.read_baseline()
-        self.assertIn("__suite__", data["stable_failures"])
-        self.assertEqual(self.read_counter(), 2)
-
-    def test_individual_failure_first_run_does_not_rerun(self):
-        """row3[邊界]: 首跑即可解析個別失敗（非 __suite__）→ 不重跑、全套執行 1 次、照記為 stable。"""
-        result = self.run_script("baseline", "--cmd", CMD_INDIVIDUAL_FIRST)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        data = self.read_baseline()
+        self.assertNotIn("reused_from", data)
         self.assertEqual(data["stable_failures"], ["tests/test_broken.py::test_a"])
-        self.assertEqual(self.read_counter(), 1)
+        self.assertEqual(json.loads(path.read_text()), legacy)
 
-    def test_suite_crash_then_individual_rerun_uses_second_result(self):
-        """row4[組合]: 首跑 __suite__、重跑解析出個別失敗 → stable 為第二次個別失敗、不含 __suite__、全套執行 2 次。"""
-        result = self.run_script("baseline", "--cmd", CMD_SUITE_THEN_INDIVIDUAL)
+    def test_trusted_reuse_after_product_modification_and_fresh_rejects(self):
+        data = self.build_baseline(CMD_INDIVIDUAL_FIRST)
+        (self.dir / "product.py").write_text("VALUE = 2\n", encoding="utf-8")
+        result = self.run_script(
+            "baseline", "--run-id", "next", "--cmd", CMD_INDIVIDUAL_FIRST
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
-        data = self.read_baseline()
-        self.assertEqual(data["stable_failures"], ["tests/test_broken.py::test_a"])
-        self.assertNotIn("__suite__", data["stable_failures"])
+        reused = json.loads((self.dir / "run" / "next.test_baseline.json").read_text())
+        self.assertEqual(reused["reused_from"], "t")
+        self.assertEqual(reused["observations"], data["observations"])
+        self.assertEqual(reused["source"], data["source"])
         self.assertEqual(self.read_counter(), 2)
+        fresh = self.run_script("baseline", "--cmd", CMD_INDIVIDUAL_FIRST, "--fresh")
+        self.assertEqual(fresh.returncode, 1)
+        self.assertIn("已有修改", fresh.stderr)
+        self.assertEqual(self.read_counter(), 2)
+
+    def test_no_reuse_when_head_command_or_environment_differs(self):
+        self.build_baseline(CMD_INDIVIDUAL_FIRST)
+        self.git("commit", "--allow-empty", "-q", "-m", "next")
+        rebuilt = self.build_baseline(CMD_INDIVIDUAL_FIRST)
+        self.assertNotIn("reused_from", rebuilt)
+        self.assertEqual(self.read_counter(), 4)
+        command = self.build_baseline("touch ran; exit 0")
+        self.assertTrue((self.dir / "ran").exists())
+        self.assertNotIn("reused_from", command)
+        environment = dict(os.environ, BASELINE_TEST_CHANGE="changed")
+        check = self.run_script("check", "--cmd", "exit 0", env=environment)
+        self.assertEqual(check.returncode, 1)
+        self.assertIn("環境", check.stderr)
+
+    def test_fresh_flag_forces_clean_rebuild(self):
+        self.build_baseline(CMD_INDIVIDUAL_FIRST)
+        data = self.build_baseline(CMD_INDIVIDUAL_FIRST, "--fresh")
+        self.assertNotIn("reused_from", data)
+        self.assertEqual(self.read_counter(), 4)
+
+    def test_dirty_product_rejected_without_changing_user_files(self):
+        product = self.dir / "product a$z.py"
+        product.write_text("VALUE = 1\n", encoding="utf-8")
+        self.git("add", str(product))
+        self.git("commit", "-q", "-m", "product")
+        for kind in ("unstaged", "staged", "untracked", "deleted", "renamed"):
+            with self.subTest(kind=kind):
+                if kind == "unstaged":
+                    product.write_text("VALUE = 2\n", encoding="utf-8")
+                elif kind == "staged":
+                    product.write_text("VALUE = 2\n", encoding="utf-8")
+                    self.git("add", str(product))
+                elif kind == "untracked":
+                    (self.dir / "new $ file.py").write_text("new", encoding="utf-8")
+                elif kind == "deleted":
+                    product.unlink()
+                else:
+                    self.git("mv", "product a$z.py", "renamed.py")
+                before = self.git("status", "--porcelain")
+                result = self.run_script("baseline", "--cmd", "touch ran; exit 0")
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("已有修改", result.stderr)
+                self.assertFalse((self.dir / "ran").exists())
+                self.assertFalse((self.dir / "run" / "t.test_baseline.json").exists())
+                self.assertEqual(self.git("status", "--porcelain"), before)
+                # 只還原本案例的暫存 repo，受測工具不得還原使用者現場。
+                self.git("reset", "--hard", "HEAD")
+                (self.dir / "new $ file.py").unlink(missing_ok=True)
+
+    def test_no_head_rejects_baseline(self):
+        with tempfile.TemporaryDirectory() as empty:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "baseline",
+                    "--run-id",
+                    "t",
+                    "--cmd",
+                    "exit 0",
+                ],
+                cwd=empty,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("無 HEAD", result.stderr)
+            self.assertFalse((Path(empty) / "run").exists())
+
+    def test_product_drift_during_run_does_not_publish_baseline(self):
+        result = self.run_script(
+            "baseline", "--cmd", "echo changed > product.py; exit 0"
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual((self.dir / "product.py").read_text(), "changed\n")
+        self.assertFalse((self.dir / "run" / "t.test_baseline.json").exists())
+
+    def test_head_drift_during_run_does_not_publish_baseline(self):
+        result = self.run_script(
+            "baseline",
+            "--cmd",
+            "git -c user.email=t@t -c user.name=t commit --allow-empty -q -m drift; exit 0",
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("漂移", result.stderr)
+        self.assertFalse((self.dir / "run" / "t.test_baseline.json").exists())
+
+    def test_execution_errors_never_become_baseline_or_pass_check(self):
+        for cmd in (
+            CMD_SUITE_ALWAYS,
+            CMD_SUITE_THEN_CLEAN,
+            CMD_SUITE_THEN_INDIVIDUAL,
+            "exit 124",
+        ):
+            with self.subTest(cmd=cmd):
+                (self.dir / "m").unlink(missing_ok=True)
+                result = self.run_script("baseline", "--cmd", cmd)
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertFalse((self.dir / "run" / "t.test_baseline.json").exists())
+                evidence = json.loads(
+                    (self.dir / "run" / "t.baseline_execution.json").read_text()
+                )
+                self.assertEqual(evidence["cmd"], cmd)
+                self.assertEqual(evidence["run_id"], "t")
+                self.assertEqual(evidence["timeout_seconds"], 300)
+                self.assertEqual(
+                    evidence["observations"][0]["classification"],
+                    "timeout" if cmd == "exit 124" else "execution_error",
+                )
+                self.assertEqual(evidence["observations"][0]["failures"], [])
+                self.assertEqual(self.read_counter(), 1 if "m=" in cmd else 0)
+        self.build_baseline("exit 0")
+        result = self.run_script("check", "--cmd", "exit 124")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("timeout", result.stderr)
+        self.assertEqual(
+            self.read_baseline()["check_observations"][-1]["observations"][0][
+                "classification"
+            ],
+            "timeout",
+        )
+
+    def test_unittest_failures_have_distinct_real_ids_on_both_entrypoints(self):
+        test_file = self.dir / "test_sample.py"
+        test_file.write_text(
+            "import unittest\nclass T(unittest.TestCase):\n"
+            "    def test_a(self): self.fail()\n"
+            "    def test_b(self): pass\n",
+            encoding="utf-8",
+        )
+        self.git("add", "test_sample.py")
+        self.git("commit", "-q", "-m", "test")
+        cmd = "python3 -m unittest test_sample"
+        data = self.build_baseline(cmd)
+        self.assertEqual(data["stable_failures"], ["test_sample.T.test_a"])
+        test_file.write_text(
+            test_file.read_text()
+            .replace("test_a(self): self.fail()", "test_a(self): pass")
+            .replace("test_b(self): pass", "test_b(self): self.fail()"),
+            encoding="utf-8",
+        )
+        for bytecode in (self.dir / "__pycache__").glob("*"):
+            bytecode.unlink()
+        common = SCRIPT.parents[2] / ".agent-flow" / "scripts" / "test_baseline.py"
+        for entry in (SCRIPT, common):
+            with self.subTest(entry=entry):
+                result = self.run_script("check", "--cmd", cmd, script=entry)
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertIn("test_sample.T.test_b", result.stderr)
+                self.assertNotIn(
+                    "(failures=1)", self.read_baseline()["stable_failures"]
+                )
+
+    def test_timeout_cleans_child_and_preserves_external_process(self):
+        external = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(10)"]
+        )
+        try:
+            cmd = "sleep 10 & echo $! > run/child.log; wait"
+            (self.dir / "run").mkdir()
+            result = self.run_script("baseline", "--cmd", cmd, "--timeout", "0.15")
+            self.assertEqual(result.returncode, 2, result.stdout)
+            self.assertIn("timeout", result.stderr)
+            child = int((self.dir / "run" / "child.log").read_text())
+            state = subprocess.run(
+                ["ps", "-o", "stat=", "-p", str(child)], capture_output=True, text=True
+            )
+            self.assertTrue(
+                not state.stdout.strip() or state.stdout.strip().startswith("Z"),
+                state.stdout,
+            )
+            self.assertIsNone(external.poll())
+            evidence = json.loads(
+                (self.dir / "run" / "t.baseline_execution.json").read_text()
+            )
+            observation = evidence["observations"][0]
+            self.assertEqual(evidence["timeout_seconds"], 0.15)
+            self.assertEqual(observation["classification"], "timeout")
+            self.assertLess(observation["returncode"], 0)
+            self.assertEqual(observation["failures"], [])
+        finally:
+            external.kill()
+            external.wait()
+
+    def test_timeout_returns_when_escaped_descendant_holds_output_pipe(self):
+        (self.dir / "run").mkdir()
+        pid_path = self.dir / "run" / "escaped.log"
+        code = (
+            "import os, time; pid = os.fork(); "
+            "os.setsid() if pid == 0 else None; "
+            "open('run/escaped.log', 'w').write(str(os.getpid())) if pid == 0 else None; "
+            "print('escaped-ready', flush=True) if pid == 0 else None; "
+            "time.sleep(5)"
+        )
+        cmd = shlex.join([sys.executable, "-c", code])
+        start = time.monotonic()
+        try:
+            result = self.run_script("baseline", "--cmd", cmd, "--timeout", "0.4")
+            duration = time.monotonic() - start
+            self.assertEqual(result.returncode, 2, result.stdout)
+            self.assertLess(duration, 2, "逃離群組的 pipe 不可延長到後代自行退出")
+            self.assertTrue(pid_path.exists(), "逃離群組的後代必須確實啟動")
+            child = int(pid_path.read_text())
+            os.kill(child, 0)
+            observation = json.loads(
+                (self.dir / "run" / "t.baseline_execution.json").read_text()
+            )["observations"][0]
+            self.assertEqual(observation["classification"], "timeout")
+            self.assertIn("escaped-ready", observation["stdout"])
+            self.assertLess(observation["duration_seconds"], 2)
+        finally:
+            if pid_path.exists():
+                try:
+                    os.kill(int(pid_path.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def test_mine_timeout_blocks_even_when_parent_exits_zero(self):
+        (self.dir / "run").mkdir()
+        (self.dir / "tests").mkdir()
+        (self.dir / "tests" / "test_fixture.py").write_text("", encoding="utf-8")
+        pid_path = self.dir / "run" / "escaped.log"
+        code = (
+            "import os, time; pid = os.fork(); "
+            "os._exit(0) if pid else None; os.setsid(); "
+            "open('run/escaped.log', 'w').write(str(os.getpid())); "
+            "print('escaped-ready', flush=True); time.sleep(5)"
+        )
+        try:
+            start = time.monotonic()
+            result = self.run_script(
+                "mine",
+                "--cmd",
+                shlex.join([sys.executable, "-c", code]),
+                "--timeout",
+                "0.4",
+            )
+            self.assertEqual(result.returncode, 2, result.stdout)
+            self.assertIn("timeout", result.stderr)
+            self.assertNotIn("mine PASS", result.stdout)
+            self.assertLess(time.monotonic() - start, 2)
+            self.assertTrue(pid_path.exists(), "runner 子程序必須確實啟動")
+            os.kill(int(pid_path.read_text()), 0)
+        finally:
+            if pid_path.exists():
+                try:
+                    os.kill(int(pid_path.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    def test_timeout_option_is_bounded(self):
+        for value in ("0", "-1", "86401", "nan", "inf"):
+            result = self.run_script("baseline", "--cmd", "exit 0", "--timeout", value)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("timeout", result.stderr)
 
     def test_related_maps_by_name_and_content(self):
         (self.dir / "src").mkdir()
         (self.dir / "tests").mkdir()
         (self.dir / "src" / "foo.py").write_text("def foo(): pass\n", encoding="utf-8")
-        (self.dir / "tests" / "test_foo.py").write_text("from src.foo import foo\n", encoding="utf-8")
-        (self.dir / "tests" / "test_service.py").write_text("import src.foo\n", encoding="utf-8")
-        (self.dir / "tests" / "test_unrelated.py").write_text("def test_x(): pass\n", encoding="utf-8")
+        (self.dir / "tests" / "test_foo.py").write_text(
+            "from src.foo import foo\n", encoding="utf-8"
+        )
+        (self.dir / "tests" / "test_service.py").write_text(
+            "import src.foo\n", encoding="utf-8"
+        )
+        (self.dir / "tests" / "test_unrelated.py").write_text(
+            "def test_x(): pass\n", encoding="utf-8"
+        )
         result = self.run_script("related", "--files", "src/foo.py")
         paths = set(result.stdout.split())
         self.assertIn("tests/test_foo.py", paths)
@@ -303,71 +546,14 @@ class BaselineScriptTest(unittest.TestCase):
         self.assertNotIn("tests/test_unrelated.py", paths)
 
 
-class SuiteSentinelIntegrationTest(unittest.TestCase):
-    """B1（cmd_baseline __suite__ 重跑分支）→ B2（cmd_check 失明警告）跨 item 串接驗證。
-    只驗證兩個 item 串起來的行為，不重覆 4.1／4.2 已各自涵蓋的單元案。
-    複用既有計數檔 stub（CMD_SUITE_ALWAYS／CMD_SUITE_THEN_CLEAN），不另存副本；
-    setUp／run_script／read_baseline／read_counter 沿用 BaselineScriptTest 的既有慣例，
-    不繼承其 test_* 方法（避免整合 class 重跑一遍單元案）。
-    """
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
-        (self.dir / "eval_state.json").write_text('{"run_id": "t"}', encoding="utf-8")
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def run_script(self, *args):
-        return subprocess.run(
-            [sys.executable, str(SCRIPT), *args],
-            cwd=self.dir, capture_output=True, text=True,
-        )
-
-    def read_baseline(self):
-        return json.loads((self.dir / "run" / "t.test_baseline.json").read_text(encoding="utf-8"))
-
-    def read_counter(self):
-        """讀計數檔 stub 的呼叫次數（== 全套實際執行次數）。"""
-        p = self.dir / "m"
-        return int(p.read_text().strip()) if p.exists() else 0
-
-    def test_reproducible_suite_crash_baseline_then_check_warns(self):
-        """情境①：baseline 遇可重現 __suite__（B1 照記＋stderr 警告）
-        → 對同 run baseline 跑 check，B2 亦印失明警告。"""
-        base_result = self.run_script("baseline", "--cmd", CMD_SUITE_ALWAYS)
-        self.assertEqual(base_result.returncode, 0, base_result.stderr)
-        self.assertIn("失明", base_result.stderr)  # B1 警告
-        data = self.read_baseline()
-        self.assertIn("__suite__", data["stable_failures"])
-        self.assertEqual(self.read_counter(), 2)  # 確認 stub 真的被 B1 重跑呼叫過
-
-        check_result = self.run_script("check", "--cmd", "exit 0", "--strike-key", "s1")
-        self.assertEqual(check_result.returncode, 0, check_result.stderr)
-        self.assertIn("失明", check_result.stderr)  # B2 警告
-
-    def test_transient_suite_crash_baseline_then_check_no_warning(self):
-        """情境②：暫時性路徑（B1 首崩重跑不崩 → 不記 __suite__）
-        → 對同 run baseline 跑 check，B2 無失明警告。"""
-        base_result = self.run_script("baseline", "--cmd", CMD_SUITE_THEN_CLEAN)
-        self.assertEqual(base_result.returncode, 0, base_result.stderr)
-        self.assertIn("未重現以重跑為準", base_result.stdout)
-        data = self.read_baseline()
-        self.assertNotIn("__suite__", data["stable_failures"])
-        self.assertEqual(self.read_counter(), 2)  # 確認 stub 真的被 B1 重跑呼叫過
-
-        check_result = self.run_script("check", "--cmd", "exit 0", "--strike-key", "s1")
-        self.assertEqual(check_result.returncode, 0, check_result.stderr)
-        self.assertNotIn("失明", check_result.stderr)
-
-
 class BuildMineCmdTest(unittest.TestCase):
     """build_mine_argv 純函式的單元測試（無 subprocess）。"""
 
     def test_pytest_appends_file_paths(self):
         argv = build_mine_argv("pytest -q", ["tests/test_foo.py", "tests/test_bar.py"])
-        self.assertEqual(argv, ["pytest", "-q", "tests/test_foo.py", "tests/test_bar.py"])
+        self.assertEqual(
+            argv, ["pytest", "-q", "tests/test_foo.py", "tests/test_bar.py"]
+        )
 
     def test_unittest_discover_converts_to_modules(self):
         argv = build_mine_argv(
@@ -382,7 +568,9 @@ class BuildMineCmdTest(unittest.TestCase):
             "python3 -m unittest",
             ["tests/test_foo.py", "tests/test_bar.py"],
         )
-        self.assertEqual(argv, ["python3", "-m", "unittest", "tests.test_foo", "tests.test_bar"])
+        self.assertEqual(
+            argv, ["python3", "-m", "unittest", "tests.test_foo", "tests.test_bar"]
+        )
 
     def test_is_test_file_detects_test_prefix(self):
         self.assertTrue(is_test_file("tests/test_foo.py"))
@@ -442,7 +630,9 @@ class BuildMineCmdTest(unittest.TestCase):
         # 測試目錄裡的 fixture／文件不餵 runner
         self.assertFalse(is_test_file("tests/fixture.json"))
         self.assertFalse(is_test_file("tests/README.md"))
-        self.assertFalse(is_test_file("test_plan.md"))  # TEST_FILE_RE 前綴命中但非 code 檔
+        self.assertFalse(
+            is_test_file("test_plan.md")
+        )  # TEST_FILE_RE 前綴命中但非 code 檔
 
     def test_is_test_file_keeps_multi_framework_conventions(self):
         # 多框架慣例不得因副檔名守門而誤傷
@@ -490,9 +680,20 @@ class MineSubcommandTest(unittest.TestCase):
         # 建立 git repo
         subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
         subprocess.run(
-            ["git", "-c", "user.email=t@t", "-c", "user.name=t",
-             "commit", "--allow-empty", "-q", "-m", "init"],
-            cwd=self.dir, check=True,
+            [
+                "git",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "--allow-empty",
+                "-q",
+                "-m",
+                "init",
+            ],
+            cwd=self.dir,
+            check=True,
         )
 
     def tearDown(self):
@@ -501,13 +702,17 @@ class MineSubcommandTest(unittest.TestCase):
     def run_script(self, *args):
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
-            cwd=self.dir, capture_output=True, text=True,
+            cwd=self.dir,
+            capture_output=True,
+            text=True,
         )
 
     def write_baseline(self):
         (self.dir / "run").mkdir(exist_ok=True)
         data = {
-            "run_id": "t", "cmd": "exit 0", "head_sha": "abc",
+            "run_id": "t",
+            "cmd": "exit 0",
+            "head_sha": "abc",
             "stable_failures": [],
         }
         (self.dir / "run" / "t.test_baseline.json").write_text(
@@ -540,15 +745,25 @@ class MineSubcommandTest(unittest.TestCase):
             "import unittest\nclass T(unittest.TestCase):\n    def test_fail(self): self.fail()\n",
             encoding="utf-8",
         )
-        r1 = self.run_script("mine", "--cmd", "python3 -m unittest discover -s tests",
-                             "--strike-key", "sub_task_1")
+        r1 = self.run_script(
+            "mine",
+            "--cmd",
+            "python3 -m unittest discover -s tests",
+            "--strike-key",
+            "sub_task_1",
+        )
         self.assertEqual(r1.returncode, 2)
         tf.write_text(
             "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self): pass\n",
             encoding="utf-8",
         )
-        r2 = self.run_script("mine", "--cmd", "python3 -m unittest discover -s tests",
-                             "--strike-key", "sub_task_1")
+        r2 = self.run_script(
+            "mine",
+            "--cmd",
+            "python3 -m unittest discover -s tests",
+            "--strike-key",
+            "sub_task_1",
+        )
         self.assertEqual(r2.returncode, 0, r2.stderr)
         self.assertFalse((self.dir / "run" / "t.mine_log.json").exists())
 
@@ -567,7 +782,9 @@ class MineSubcommandTest(unittest.TestCase):
             "import unittest\nclass T(unittest.TestCase):\n    def test_fail(self): self.fail()\n",
             encoding="utf-8",
         )
-        result = self.run_script("mine", "--cmd", "python3 -m unittest discover -s tests")
+        result = self.run_script(
+            "mine", "--cmd", "python3 -m unittest discover -s tests"
+        )
         self.assertEqual(result.returncode, 2, result.stdout)
 
     def test_mine_failure_with_strike_key_does_not_count(self):
@@ -579,7 +796,11 @@ class MineSubcommandTest(unittest.TestCase):
         )
         self.write_baseline()
         result = self.run_script(
-            "mine", "--cmd", "python3 -m unittest discover -s tests", "--strike-key", "sk1"
+            "mine",
+            "--cmd",
+            "python3 -m unittest discover -s tests",
+            "--strike-key",
+            "sk1",
         )
         self.assertEqual(result.returncode, 2)
         self.assertNotIn("2 次上限", result.stderr)
@@ -587,7 +808,9 @@ class MineSubcommandTest(unittest.TestCase):
         self.assertNotIn("strikes", self.read_baseline())
 
     def read_baseline(self):
-        return json.loads((self.dir / "run" / "t.test_baseline.json").read_text(encoding="utf-8"))
+        return json.loads(
+            (self.dir / "run" / "t.test_baseline.json").read_text(encoding="utf-8")
+        )
 
     def test_mine_no_baseline_does_not_create_baseline(self):
         """baseline 不存在時，mine 不建立 baseline 檔。"""
@@ -596,7 +819,13 @@ class MineSubcommandTest(unittest.TestCase):
             "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self): pass\n",
             encoding="utf-8",
         )
-        self.run_script("mine", "--cmd", "python3 -m unittest discover -s tests", "--strike-key", "sk1")
+        self.run_script(
+            "mine",
+            "--cmd",
+            "python3 -m unittest discover -s tests",
+            "--strike-key",
+            "sk1",
+        )
         self.assertFalse((self.dir / "run" / "t.test_baseline.json").exists())
 
     def test_mine_discover_cmd_does_not_pass_discover_flag(self):
@@ -609,7 +838,9 @@ class MineSubcommandTest(unittest.TestCase):
             encoding="utf-8",
         )
         result = self.run_script(
-            "mine", "--cmd", "python3 -m unittest discover -s tests",
+            "mine",
+            "--cmd",
+            "python3 -m unittest discover -s tests",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         # 確認沒有 discover 相關警告或錯誤（discover 若被傳入 unittest module 模式會出現 error）
@@ -624,9 +855,20 @@ class GitChangedFilesTest(unittest.TestCase):
         self.dir = Path(self.tmp.name)
         subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
         subprocess.run(
-            ["git", "-c", "user.email=t@t", "-c", "user.name=t",
-             "commit", "--allow-empty", "-q", "-m", "init"],
-            cwd=self.dir, check=True,
+            [
+                "git",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "--allow-empty",
+                "-q",
+                "-m",
+                "init",
+            ],
+            cwd=self.dir,
+            check=True,
         )
 
     def tearDown(self):
@@ -642,7 +884,9 @@ class GitChangedFilesTest(unittest.TestCase):
         )
         p = subprocess.run(
             [sys.executable, "-c", code],
-            cwd=self.dir, capture_output=True, text=True,
+            cwd=self.dir,
+            capture_output=True,
+            text=True,
         )
         lines = [l for l in p.stdout.splitlines() if l]
         return lines
@@ -650,7 +894,8 @@ class GitChangedFilesTest(unittest.TestCase):
     def git(self, *args):
         subprocess.run(
             ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
-            cwd=self.dir, check=True,
+            cwd=self.dir,
+            check=True,
         )
 
     def test_rename_takes_new_path(self):
@@ -704,9 +949,20 @@ class MineWithSpaceFilenameTest(unittest.TestCase):
         (self.dir / "eval_state.json").write_text('{"run_id": "t"}', encoding="utf-8")
         subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
         subprocess.run(
-            ["git", "-c", "user.email=t@t", "-c", "user.name=t",
-             "commit", "--allow-empty", "-q", "-m", "init"],
-            cwd=self.dir, check=True,
+            [
+                "git",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "--allow-empty",
+                "-q",
+                "-m",
+                "init",
+            ],
+            cwd=self.dir,
+            check=True,
         )
 
     def tearDown(self):
@@ -715,7 +971,9 @@ class MineWithSpaceFilenameTest(unittest.TestCase):
     def run_script(self, *args):
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
-            cwd=self.dir, capture_output=True, text=True,
+            cwd=self.dir,
+            capture_output=True,
+            text=True,
         )
 
     def test_mine_space_in_filename(self):
@@ -727,7 +985,9 @@ class MineWithSpaceFilenameTest(unittest.TestCase):
             encoding="utf-8",
         )
         result = self.run_script(
-            "mine", "--cmd", "python3 -m unittest discover -s tests",
+            "mine",
+            "--cmd",
+            "python3 -m unittest discover -s tests",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("PASS", result.stdout)

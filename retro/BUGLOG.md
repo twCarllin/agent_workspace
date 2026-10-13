@@ -23,3 +23,5 @@
 - 2026-10-04［tests/test_agent_refs.py／技能文件搬移］驗證盲點：eval-flow 規則移入 references/ 後，引用掃描仍只讀 SKILL.md，全套 test_non_vacuous 找不到 code-writer。使用者批准補齊共用活躍技能文件來源，安裝與引用／一致性檢查同源，保留全部斷言並補 reference 中無效 agent 的回歸案例。 同分類再次命中；R-005 已涵蓋部署端到端驗證，本次補回歸案例，不新增約束。 ↑RETRO
 - 2026-10-06［install_harness.py（EXCLUDE_PATHS）｜.agent-flow/scripts/worktree_link.py］驗證盲點：info/exclude 的目錄條目寫成 `/.agent-flow/`，結尾斜線只比對目錄，worktree 內同名 symlink 不被忽略而全數顯示為未追蹤檔；兩側各自單元測試全綠，組合路徑（安裝後的 worktree `git status`）收尾後才首次實跑。修法：條目去掉結尾斜線、保留開頭錨定，補 worktree status 與主工作區相等的回歸測試。同分類再次命中，加嚴 R-005 ↑RETRO
 - 2026-10-09［skills/task-decomposition（測試同步段）｜.claude/agents/task-decomposer］疏忽：skill 要拆分者執行 `test_baseline.py related`，但 task-decomposer 沒有 Bash；只加 Bash 不夠，因為 headless dispatch 用 acceptEdits 會拒 Bash，本 repo 能過只靠版控外的 settings.local.json。修法：改由主 flow 執行並把結果附進派工 prompt，角色工具不變
+
+- 2026-10-13［.agent-flow/scripts/test_baseline.py］架構限制：baseline 在修改後工作區執行卻以 HEAD 標成既有失敗，unittest 摘要又被當成案例 ID，使新增失敗被扣除；來源、重現確認與執行錯誤分類缺少驗證。修改前通過、修改後失敗的真實 CLI 重放已確認兩入口拒絕補建且阻擋新失敗；同模組再次命中，加嚴 R-010 的來源與消費驗證。↑RETRO
