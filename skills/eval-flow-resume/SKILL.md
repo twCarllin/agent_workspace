@@ -64,6 +64,7 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 
 ## 恢復守則
 
+- 恢復時需要派工，依 eval-flow `references/dispatch-control.md`「派工上下文」：同任務、同角色優先續用原 agent；無法續用才建立新 agent，Codex 明確給 `fork_turns: "none"`。交接只附規格、允許檔案、驗收與約束、有效證據及剩餘問題，不傳完整對話。此條不改本檔的審查與證據判定。
 - **已 `passed` 的 sub_task 一律不重跑**、其 staged 變更不動
 - **hook gates 照常生效**：恢復不是繞過 gate 的理由，被擋就依 stderr 訊息補狀態
 - **未證明完成的步驟不可跳過**：`step` 只保證「走到了這一步」，不保證完成；先核對實際證據，再重做缺席或失效的部分

@@ -8,11 +8,28 @@
 - **prompt 檔**：主 flow 把派工 prompt 全文（含硬性約束區、契約表原文——知識前置規則不變，R-011）寫到 `run/<run_id>.prompt-<role>-<n>.md`（冷溯源檔，不進版控）再派工，不走命令列參數；retro 條目不在此列——派 `code-writer` 時由 dispatch 依 `--files` 自動前置到 prompt 末尾，主 flow 不讀 RETRO.md、不貼條目
 - **輸出**：stdout＝子 agent 報告全文（主 flow 直接讀）；stderr 摘要行 `[dispatch] role=… backend=… session=<sid> turns=… tokens=… cost_usd=…`；exit 2＝信封 blocking（退件重取，見「主 flow 憑據紀律」）、exit 3＝子程序失敗／超時（預設 1200 秒）／報告超量（預設 60000 字元，截斷）、exit 4＝越界變更（退件；範圍外檔案列在 stderr，優先於 exit 2）
 - **越界檢查（主 flow 派 code-writer 時必帶 `--files`，值＝該 item 的 files 欄）**：script 以派工前後的 `git status` 對照，「派工後新出現且不在清單內」的路徑即越界。越界退件時主 flow 先看 stderr 清單裁決（真越界→`--resume` 要求還原；清單漏列→補 files 後照常收），不自行放行
-- **修正輪**：同一角色的修正／重取以 `--resume <sid>` 沿用原 session（context 仍熱，省重建稅），`<sid>` 取自上一輪 stderr 摘要行
+- **修正輪**：同一角色、同一任務的修正／重取沿用原 agent；原生工具用 followup，CLI 用 `--resume <sid>`（`<sid>` 取自上一輪 stderr 摘要行）。只傳未解問題、變更範圍與新增證據，不重送完整背景。原 agent 無法續用時，依下節建立新 agent 並附精簡交接資料；writer 與 reviewer 仍須由不同 agent 擔任。
 - **信封驗收內建**：script 以 `report_envelope_check.check_envelope` 判定（單一出處），blocking／advisory 處置同 PostToolUse hook（該 hook 仍掛在 `Agent` 工具路徑上）
 - **權限**：CLI 相容模式與原生工具的執行前提見目前 harness 適配層；目前 session 必須已授權該模式。CLI 派工為前景子程序
 - **留痕**：每次派工 append `run/<run_id>.dispatch.jsonl`（格式見 `SKILL.md「資料格式與操作規則」`），`token_usage.py` 收尾時併入用量；gate 7 對命令工具派工指令同樣生效（見 `SKILL.md「Gate 的硬性執行」`）
 - **範圍外**：parallel-run／[P] fan-out 使用獨立 Git worktree 與各 harness 的隔離執行方式；不能用背景旗標代替隔離
+
+## 派工上下文（所有角色與入口共用）
+
+- 新 agent 不繼承主對話。Codex 原生 `spawn_agent` 必須明確指定 `fork_turns: "none"`，不得省略或使用 `"all"`；CLI 的 prompt 也不得夾帶完整對話。此規則適用實作、審查、恢復與平行派工，不改角色模型或權限設定。
+- 派工只提供下列資料；沒有對話背景也必須能理解任務。必要的使用者裁決先寫入既有 Spec／task 或 run 紀錄，再引用位置。適用的硬性約束及本次契約仍按角色要求附原文，只摘相關條目，不貼整份流程文件。
+
+```text
+目標：本次要完成的結果
+規格：檔案路徑與相關章節
+範圍：允許修改／審查的檔案；共用工作區不得覆蓋他人變更
+驗收：本次 DoD／契約與交付格式
+約束：適用規則及已確認的使用者裁決
+證據：結果摘要與可讀取的位置；未決問題；修正輪的變更範圍
+```
+
+- 引用的檔案須在子 agent 的工作區可讀；不可只引用主對話中的「上面說過」。缺資料就補必要片段，不改用完整對話繼承。
+- 同一任務已讀且未變的內容沿用；只補讀變更或缺失部分。不要要求每個角色重新閱讀所有流程文件。派工前核對實際呼叫的 `fork_turns` 與以上資料，不為此另開審查或派工。
 
 ## 共用程式定位資訊
 

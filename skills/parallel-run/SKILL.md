@@ -41,7 +41,7 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
    - **worktree 起點＝主線本地 HEAD**：由目前 harness 配置或顯式 Git worktree 起點實現，包含尚未 push 的 commit。主 session 須位於 main；設定失效或起點落後時，由步驟 6 起手同步與驗證阻擋。該步不可移除。
    - run_id 依 eval-flow 慣例，不依 branch 名推導。
 
-6. **同一訊息 spawn 全部背景 agent**（一 run 一 agent，並發啟動）。每個 agent 的指示必須包含：
+6. **同一訊息 spawn 全部背景 agent**（一 run 一 agent，並發啟動）。派工依 eval-flow `references/dispatch-control.md`「派工上下文」；Codex 每次 `spawn_agent` 明確給 `fork_turns: "none"`，只提供該 run 所需資料，不繼承整批對話。每個 agent 的指示必須包含：
    - **起手三步（順序不可換，任一步不符即停下回報）**：
      - ①`pwd && git branch --show-current && git worktree list --porcelain`——核對工具 cwd 是計畫指派的独立 worktree，記下實際 branch 與工作區路徑；不得以目錄名稱判定隔離。
      - ②**`git merge main`**——確認與主線同步。即使起點已是本地主線 HEAD，仍保留此步，避免 harness 配置失效或 worktree 起點落後。
