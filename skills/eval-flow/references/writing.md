@@ -3,8 +3,8 @@
 1. 程式測試需扣除既有失敗時，第一次產品修改前先依 test-strategy「Baseline」建立可信基準；已有修改且缺可信基準的處置同該節。純設定依「依變更選擇驗證」。再依「派工機制」節派工 `code-writer` subagent 產出程式碼
    - **產碼品質前置**：先讀 `.agent-flow/CODE_QUALITY.md`，將適用的格式、可閱讀性與 log 條文原文貼進 writer prompt 硬性約束區，並註明專案設定、檔案範圍與不適用原因。涉及 log 的情境與憑據列入 DoD／契約表；reviewer prompt 同附適用原文。主 flow 直寫自行核對並留下相同交付證據。
    - writer 的共用定位內容依 [派工與證據控制「共用程式定位資訊」](dispatch-control.md#共用程式定位資訊) 組裝及核對。
-   - **批次派工（省 spawn 稅）**：派工單位＝**task**，同 task 多 item 一次派給同一 code-writer（知識前置一次組裝、item 間共用 context）。條件：①批內合計預估 ≤400 行（與合併審查上限對齊，超過拆批）②`[P]` item 不混批（保留平行／worktree 路徑）③**失敗隔離**：單 item 帶失敗交付只退該 item，其餘 item 照常收④工作報告與憑據**逐 item 分節**（審查輪輸入不變、逐 item 核對，格式住 code-writer.md）。單 item 的 task 照舊
-   - **知識前置（硬性步驟）**：呼叫前，主 flow 把三個來源的相關內容**原文貼進 writer prompt 的硬性約束區**——不是叫 writer「自己去讀」，知識只有以明文約束前置進 prompt 才有效（R-011）。三源：
+   - **批次派工（省 spawn 稅）**：派工單位＝**task**，同 task 多 item 一次派給同一 code-writer（知識前置一次組裝、item 間共用 context）。條件：①批內合計預估 ≤400 行（與合併審查上限對齊，超過拆批但續用未失效的原 writer session）②`[P]` item 不混批（保留平行／worktree 路徑）③**失敗隔離**：單 item 帶失敗交付只退該 item，其餘 item 照常收④工作報告與憑據**逐 item 分節**（審查輪輸入不變、逐 item 核對，格式住 code-writer.md）。相依 items 交同一 writer；因交付大小或 context 負載拆批時續用原 session，僅 session 不可用或 context 遺失才重建。每批 files 為該批 items 的聯集。獨立審查、測試管轄、契約仲裁與修正上限不變；單 item 的 task 照舊
+   - **知識前置（硬性步驟）**：呼叫前，主 flow 把三個來源的相關內容**原文貼進 writer prompt 的硬性約束區**——不是叫 writer「自己去讀」，首次／重建交接必須以明文約束前置（R-011）；同一 session 確有前次上下文且內容未變時沿用，只補新增或變更原文，規則見 dispatch-control.md「派工上下文」。三源：
      - **retro 條目**：派工路徑由 `dispatch.py` 依 `--files` 自動篩選 `retro/RETRO.md`（標籤第一段＝模組路徑，見 retro agent 規範）並附加到 prompt 末尾的硬性約束節——主 flow 不讀 `retro/RETRO.md`、不執行 `retro_select.py`、不貼條目；retire 候選取自 dispatch 的 stderr 摘要行，於收尾回報使用者
        - **篩選由 script 執行**：主 flow 直寫捷徑（自己當 writer）才執行 `python3 .agent-flow/scripts/retro_select.py --files <該 item 的 files>` 取選中條目——它一次做完下兩條（排除 retired、錨點鮮度檢查），輸出即可直接作為硬性約束的條目原文與 retire 候選清單。機械步驟不留給模型逐次手做；篩選以標籤命中為準，主 flow 不另行補判
        - **排除 retired 條目**：grep 命中標 `［retired ...］` 的條目一律不選（標記定義住 RETRO.md 檔頭，單一枚舉點——此處指向式引用、不重列格式）
@@ -16,12 +16,12 @@
      - **retro 約束 vs Spec 衝突仲裁**：**衝突成立判準（先驗）**——僅題材重疊／同域**不算**衝突；成立須同時①指認兩邊對撞的**條文原句**（R-NNN 約束句 vs Spec／DoD／契約 row 原文）②寫出**具體後果**（照約束做會違反 Spec 哪一句、產生什麼可觀察的錯誤行為）——寫不出後果＝不是衝突，不記仲裁、兩者照常都守。判準成立時：前置的 retro 約束與本 item 的 Spec／DoD／契約表衝突（新功能有正當理由要做某條約束禁止的事）→ **Spec 優先**，但 writer 與主 flow **不可靜默選邊**：須在交付報告寫仲裁記錄（衝突的 R-NNN、衝突點一句、採用哪邊、理由一句，比照契約仲裁記錄格式）。主 flow 收到後判「該約束前提已變、列 retire 候選」或「Spec 該收緊」——沉默採一邊會讓過期約束無限存活或讓 Spec 悄悄違反硬規則
    - **測試管轄註記**：派工 prompt 附一句「測試自驗只准跑 `python3 .agent-flow/scripts/test_baseline.py mine`，依你定義中的測試管轄規則」（**不傳 `--strike-key`**——該旗標只有 `check` 消費）（只適用程式測試；設定／操作自驗按 test-strategy「依變更選擇驗證」把方法與可接受結果原文貼入 prompt；writer 層 mine 模式細節住該 skill，不重述）
      - `[P]` item 在 fan-out（各開 worktree）或循序退回下 mine 模式均適用——隔離樹或逐個執行時未提交變更範圍可正確推導
-   - **契約前置與仲裁句（硬性）**：派工 prompt 必須把本 item 的**行為契約表原文**（task 檔的 `契約:` 行，含邊界 row，及 `退場:` 行——writer 須在同一 run 刪除其列出的測試，格式住 task-decomposition skill）貼進硬約束區作為仲裁基準——不是叫 writer 自己翻 task 檔（與知識前置同一教訓，R-011）。
+   - **契約前置與仲裁句（硬性）**：首次／重建交接的派工 prompt 必須把本批 items 的**行為契約表原文**（task 檔的 `契約:` 行，含邊界 row，及 `退場:` 行——writer 須在同一 run 刪除其列出的測試，格式住 task-decomposition skill）貼進硬約束區作為仲裁基準——不是叫 writer 自己翻 task 檔（與知識前置同一教訓，R-011）。
      - 並附一句：「測試紅時先仲裁再動手，對到契約表 row 判哪邊錯；**契約表沒答案 → 帶失敗交付是正確行為，硬湊綠燈才是違規**」
      - 無契約表的 item（Tier 1 無表 fallback）仲裁句改指 DoD
      - writer 以「表沒答案」帶失敗交付時，**主 flow 裁決**：讀 Spec／usage 報告判該行為的預期，把裁決結果補進契約表（表可增補、single source 不變）再回派；Spec 本身有洞才走升級逃生門問使用者
    - **交付稽核（writer 交付時）**——正常交付（記錄對得上）瞄一眼即過，不展開：核對工作報告的「仲裁記錄」——紅過的測試每條都要有仲裁行，判「測試超出契約」者核對 row 引文與 task 檔原文一致（對不上＝假仲裁，退件）。writer 的 mine 模式測試自驗不落檔、不跨對照；改測試湊綠由 checker 核對「契約 row 逐條有適用證據」時現形
-修正重審與驗證重用依 `SKILL.md「效率與驗證重用」`：首輪完整獨立審；僅已審版本到目前 index 的有效 delta 可縮小重審，契約與未解問題仍完整提供。
+修正重審與驗證重用依 `SKILL.md「效率與驗證重用」`：首輪完整獨立審；僅已審版本到目前 index 的有效 delta 可縮小重審，契約沿用與完整交接條件依該節，未解問題不可省略。
 
 2. 將變更檔案 `git add` 進 staging area（確保 checker／code-reviewer 可透過 `git diff --cached` 讀取）。
    - **預設派 task-verifier（checker）時，prompt 附 `git diff --cached --stat -- <files>` 輸出**（僅檔名與行數統計，checker 不讀 diff 內容）

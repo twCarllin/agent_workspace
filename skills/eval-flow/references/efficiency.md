@@ -6,7 +6,7 @@
 
 主 flow 在派首輪 reviewer 前，用 `review_delta.py capture --checkpoint run/<id>.review.json --files <task檔案> --contracts <Spec及task檔>` 保存 index 與契約雜湊。reviewer 完成後，index 與契約未變才用 `review_delta.py reviewed --checkpoint <同檔> --session <真實reviewer session>` 標記已審。此標記只證明該版本已看過，不表示通過。
 
-修正重審用 `review_delta.py diff --checkpoint <同檔> --files <同範圍> --contracts <同契約>`。`mode=delta` 時提供前次已審版本到目前 index 的差異；仍附契約全文、未解問題、先前完成度與新增測試證據，reviewer 可讀相關上下文與呼叫端。範圍／契約變更、checkpoint 缺失或失效則 `mode=full`，回到該 task 的完整 staged diff，不能因 fallback 省略首輪。
+修正重審用 `review_delta.py diff --checkpoint <同檔> --files <同範圍> --contracts <同契約>`。`mode=delta` 時提供前次已審版本到目前 index 的差異；同一 reviewer 確有前次上下文且契約未變時沿用，只傳未解問題、delta 與新增證據；reviewer 可讀相關上下文與呼叫端。新 reviewer 或 context 遺失時提供相應完整契約與完整 task staged diff；契約變動原文必須明示。範圍／契約變更、checkpoint 缺失或失效則 `mode=full`，提供相應完整契約與該 task 的完整 staged diff，不能因 fallback 省略首輪；checkpoint 捕捉、標記與失效規則不放寬。
 
 delta 為空不代表通過：有未解問題或缺少前次結論時不能自動放行。重審通過後的證據只適用該次 index；獨立性、引文核實與完成度檢查保持。
 
