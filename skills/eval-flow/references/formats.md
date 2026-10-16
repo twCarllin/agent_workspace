@@ -165,12 +165,12 @@
   - `step` 值序：`writing`→`reviewing`（並發 review＋verify 階段）→`fixing`（有 🔴 時）→`testing`→`done`；`verifying`／`scoring` 為舊版 run 的相容值，新路徑不寫入
   - code-writer 交付後立刻把本 sub_task 涉及的檔案清單寫入 `files`（修正時同步增補）——staged 變更與 sub_task 的對應關係只准活在這裡，不准只活在對話裡
 - **Tier 1 審查記錄**：用 `review-run <run_id> <reds> --checked-by <角色> --evidence "<獨立審查憑據>" [--passed]`；首輪紅數保留，當輪未通過會清除 `verify_passed`。只有全部 task 通過且當輪零紅問題才加 `--passed`。工具只記錄已取得的獨立結論。
-- **首輪審查結果出來後（step 3，checker 或升級輪 reviewer；下列 set-* 為 Tier 2 入口）**：執行 `python3 .agent-flow/scripts/eval_state.py set-review <id> <🔴數> [--dimensions '<json>']`
+- **首輪審查結果出來後（step 3，Tier 1 checker 或 reviewer；Tier 2 直接 reviewer；下列 set-* 為 Tier 2 入口）**：執行 `python3 .agent-flow/scripts/eval_state.py set-review <id> <🔴數> [--dimensions '<json>']`
   - `<🔴數>` 記首輪的 🔴 原始數（修正前，有無 🔴 皆須執行；**checker 輪固定填 0**）
-  - `--dimensions` 為升級輪 reviewer 報告末尾的維度統計（維度→問題數，五維詞彙：Clarity／Completeness／Testability／Non-functional／Technical_constraints），有 🔴／🟡 時必填，供 stats.py 維度分佈遙測（checker 輪無此節、免填）
+  - `--dimensions` 為reviewer 輪 報告末尾的維度統計（維度→問題數，五維詞彙：Clarity／Completeness／Testability／Non-functional／Technical_constraints），有 🔴／🟡 時必填，供 stats.py 維度分佈遙測（checker 輪無此節、免填）
   - commit gate 必填 `<🔴數>`，缺一擋歸檔
-- **checker 通過或升級輪 reviewer 完成度節通過且該輪零 🔴（step 4 放行、真正進 step 5 的輪次）**：執行 `python3 .agent-flow/scripts/eval_state.py set-verify <id>`，將 `verify_passed` 設為 `true`——commit gate 必填，缺一擋歸檔
-  - **語義**：`verify_passed` 記的是「checker 憑據節通過、或升級輪 reviewer 完成度節通過（DoD 無缺席、scope 無偏移）」；hook gate 判定不變
+- **checker 通過或reviewer 輪 完成度節通過且該輪零 🔴（step 4 放行、真正進 step 5 的輪次）**：執行 `python3 .agent-flow/scripts/eval_state.py set-verify <id>`，將 `verify_passed` 設為 `true`——commit gate 必填，缺一擋歸檔
+  - **語義**：`verify_passed` 記的是「Tier 1 checker 憑據節通過、或reviewer 輪 完成度節通過（DoD 無缺席、scope 無偏移）」；hook gate 判定不變
   - 有 🔴 的輪次**不得** set-verify（該輪修正可能改 code 行為）；與 `set-review` 記首輪原始數不同，`set-verify` 記的是**最終通過輪**
 - **本地測試通過後（step 5）**：`run_verify.py` 將該 sub_task 的 `local_test_passed` 設為 `true`、`local_test_evidence` 填入驗證證據（指令＋結果摘要；Tier 2 若更新過既有測試，一併註明 Spec／task 依據）。預設 `false`／`null`；hook 於 commit 時檢查歸檔檔中所有 sub_task 兩欄皆已填
 - **sub_task 通過**：將該 sub_task 的 `status` 設為 `"passed"`

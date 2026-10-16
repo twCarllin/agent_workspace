@@ -62,7 +62,7 @@ python3 .agent-flow/scripts/flow.py worktree-link --root <worktree 路徑>
 
 ## 獨立檢核資料
 
-派 checker 前依 [REVIEW_PACKET.md](REVIEW_PACKET.md) 組裝資料包，標準派工使用 `dispatch.py task-verifier --review-packet <檔案>`。必要資料缺漏時先補齊，ready 只表示資料與來源有效，不代表審查通過；checker 保留四類升級判斷。
+Tier 2 直接派 reviewer 審完整 task diff、需求與證據。Tier 1 派 checker 前依 [REVIEW_PACKET.md](REVIEW_PACKET.md) 組裝資料包，標準派工使用 `dispatch.py task-verifier --review-packet <檔案>`。必要資料缺漏時先補齊，ready 只表示資料與來源有效，不代表審查通過；checker 保留四類升級判斷。
 
 ## 收尾
 

@@ -1,7 +1,7 @@
 {
   "claude": {
     "code-reviewer": {
-      "frontmatter": "name: code-reviewer\ndescription: 升級路徑審查員：checker 四類升級觸發之一成立時、理由碼含信任邊界／公開契約的 run 直派、或高風險變更手動觸發時，以 `git diff --cached` 全 diff 審查安全、效能、邏輯正確性、可維護性、測試覆蓋，並核對 DoD 完成度。不修改任何檔案，僅輸出結構化審查報告。\ntools: Read, Grep, Glob, Bash\nmodel: claude-sonnet-5-5"
+      "frontmatter": "name: code-reviewer\ndescription: 獨立審查員：Tier 2 預設直接派審；Tier 1 checker 升級、邊界直派或手動派審時，以 `git diff --cached` 全 diff 審查安全、效能、邏輯正確性、可維護性、測試覆蓋，並核對 DoD 完成度。不修改任何檔案，僅輸出結構化審查報告。\ntools: Read, Grep, Glob, Bash\nmodel: claude-sonnet-5-5"
     },
     "impact-analyzer": {
       "frontmatter": "name: impact-analyzer\ndescription: 具名問題觸發的影響面盤點 agent：主 flow 附具名問題原文才可呼叫；從 manifest 的 spec_path 與既有程式碼盤點觸及模組、慣例、可重用元件、呼叫端與跨模組風險，答案寫進 Spec、不產獨立報告檔。唯讀，不修改程式碼。Tier 2 具名問題觸發使用；Tier 1 另有點名 advisor 路徑。\ntools: Read, Grep, Glob, Write, Bash\nmodel: claude-sonnet-5-5"
@@ -19,14 +19,14 @@
       "frontmatter": "name: usage-analyzer\ndescription: 具名問題觸發的使用情境分析 agent：主 flow 附具名問題原文才可呼叫；依 usage-scenario-analysis skill 從 Spec 盤點角色、情境、I/O 契約與開放問題，答案寫進 Spec、不產獨立報告檔。Tier 2 具名問題觸發使用；Tier 1 另有點名 advisor 路徑；Tier 0 不呼叫。\ntools: Read, Grep, Glob, Write, Edit\nmodel: claude-sonnet-5-5\nskills: usage-scenario-analysis"
     },
     "task-verifier": {
-      "frontmatter": "name: task-verifier\ndescription: checker——審查層預設位：eval-flow 循環 step 3 以 task 為單位派用（同 task 全部 item 交付完成後審一次）。不讀 diff，核對「宣稱與憑據對得上」：各 item 的 DoD 逐條有憑據、契約 row 逐條有對應測試斷言、仲裁記錄一致、sabotage 自檢證據存在、無疑似注入標註未處理。四種升級情況之一成立時自報建議，裁決與改派 code-reviewer 在主 flow。也可隨時手動觸發。不修改任何檔案，僅輸出結構化報告。\ntools: Read, Grep, Glob, Bash\nmodel: claude-sonnet-5-5"
+      "frontmatter": "name: task-verifier\ndescription: checker——Tier 1 審查層預設位：eval-flow 循環 step 3 以 task 為單位派用（同 task 全部 item 交付完成後審一次）。不讀 diff，核對「宣稱與憑據對得上」：各 item 的 DoD 逐條有憑據、需求逐條有適用證據（可沿用既有測試）、仲裁記錄一致、具名盲點驗證已處理、無疑似注入標註未處理。四種升級情況之一成立時自報建議，裁決與改派 code-reviewer 在主 flow。也可隨時手動觸發。不修改任何檔案，僅輸出結構化報告。\ntools: Read, Grep, Glob, Bash\nmodel: claude-sonnet-5-5"
     }
   },
   "codex": {
     "code-reviewer": {
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "description": "升級路徑審查員：checker 四類升級觸發之一成立時、理由碼含信任邊界／公開契約的 run 直派、或高風險變更手動觸發時，以 `git diff --cached` 全 diff 審查安全、效能、邏輯正確性、可維護性、測試覆蓋，並核對 DoD 完成度。不修改任何檔案，僅輸出結構化審查報告。"
+      "description": "獨立審查員：Tier 2 預設直接派審；Tier 1 checker 升級、邊界直派或手動派審時，以 `git diff --cached` 全 diff 審查安全、效能、邏輯正確性、可維護性、測試覆蓋，並核對 DoD 完成度。不修改任何檔案，僅輸出結構化審查報告。"
     },
     "impact-analyzer": {
       "model": "gpt-6.1-sol",
@@ -56,7 +56,7 @@
     "task-verifier": {
       "model": "gpt-6.1-sol",
       "reasoning_effort": "low",
-      "description": "checker——審查層預設位：eval-flow 循環 step 3 以 task 為單位派用（同 task 全部 item 交付完成後審一次）。不讀 diff，核對「宣稱與憑據對得上」：各 item 的 DoD 逐條有憑據、契約 row 逐條有對應測試斷言、仲裁記錄一致、sabotage 自檢證據存在、無疑似注入標註未處理。四種升級情況之一成立時自報建議，裁決與改派 code-reviewer 在主 flow。也可隨時手動觸發。不修改任何檔案，僅輸出結構化報告。"
+      "description": "checker——Tier 1 審查層預設位：eval-flow 循環 step 3 以 task 為單位派用（同 task 全部 item 交付完成後審一次）。不讀 diff，核對「宣稱與憑據對得上」：各 item 的 DoD 逐條有憑據、需求逐條有適用證據（可沿用既有測試）、仲裁記錄一致、具名盲點驗證已處理、無疑似注入標註未處理。四種升級情況之一成立時自報建議，裁決與改派 code-reviewer 在主 flow。也可隨時手動觸發。不修改任何檔案，僅輸出結構化報告。"
     }
   }
 }

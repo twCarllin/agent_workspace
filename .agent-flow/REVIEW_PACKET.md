@@ -1,7 +1,9 @@
 <!-- agent-workspace managed -->
-# 派 checker 前的資料包
+# Tier 1 派 checker 前的資料包
 
-主 flow 保留 writer 交付全文與 適用自驗的實際命令／輸出（程式測試用 mine；設定／操作用既定檢查）。資料包只檢查必要輸入齊全，不能取代 checker 的獨立核對，也不寫 verify_passed 或 local_test_passed。
+Tier 2 直接派 reviewer 審完整 task staged diff、需求與適用證據，不先派 checker。本資料包可供證據定位，不取代完整 diff 審查。
+
+主 flow 保留 writer 交付全文與 適用自驗的實際命令／輸出（程式測試用相關自驗；設定／操作用既定檢查）。資料包只檢查必要輸入齊全，不能取代 checker 的獨立核對，也不寫 verify_passed 或 local_test_passed。
 
 ```sh
 python3 .agent-flow/scripts/flow.py review-packet build --run-id <id> --sub-task 1 \

@@ -42,7 +42,7 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
 ```
 - [ ] step 1: 派工 code-writer（gate: 知識前置＋契約前置）
 - [ ] step 2: git add 進 staging（gate: file-scoped）
-- [ ] step 3: 派 checker 審查（gate: 兩節缺一退件）
+- [ ] step 3: Tier 1 派 checker；Tier 2 直接派 reviewer 審查（gate: 兩節缺一退件）
 - [ ] step 4: 審查結果處置（gate: 引文核實）
 - [ ] step 5: 本地測試驗證（gate: 依 test-strategy 選適用驗證；程式測試無新增穩定失敗）
 - [ ] step 6: 收尾順序（gate: hook 強制）
@@ -52,7 +52,7 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
 | 目前步驟 | 執行前必讀 |
 |---|---|
 | step 1–2 | [實作與 staging](references/writing.md) |
-| step 3–4 | [獨立檢核與處置](references/review.md)；step 3 派 checker 前再讀 `.agent-flow/REVIEW_PACKET.md` |
+| step 3–4 | [獨立檢核與處置](references/review.md)；step 3 派獨立審查前再讀 `.agent-flow/REVIEW_PACKET.md` |
 | step 5–7 | [測試、收尾與回顧](references/testing-finish.md)；step 5 載入 test-strategy，step 6 讀 `.agent-flow/FLOW_CLI.md`「收尾」節 |
 
 以上文件保留實際步驟 1–7 的單一規則枚舉。不可因根入口僅有導覽而跳過知識／契約前置、獨立審查、引文核實、四類升級、修正上限、step 5 與 commit gate。**寫的人 ≠ 審的人**，資料包 ready 與快取命中均不代表審查通過。

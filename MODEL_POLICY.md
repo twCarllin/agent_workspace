@@ -6,12 +6,12 @@
 
 | agent | model | 指派理由 |
 |---|---|---|
-| code-reviewer | claude-sonnet-5-5 | 升級路徑專用（checker 四類觸發之一成立時派用）＋高風險手動觸發；2026-09-29 由 opus-4-8 改（使用者裁決全部 sonnet-5-5），與 writer 的去相關化改由 session 層承擔（見約束節） |
+| code-reviewer | claude-sonnet-5-5 | Tier 2 預設直接審完整 task diff、需求與證據；Tier 1 checker 升級、邊界直派或手動派審；2026-09-29 由 opus-4-8 改（使用者裁決全部 sonnet-5-5），與 writer 的去相關化改由 session 層承擔（見約束節） |
 | code-writer | claude-sonnet-5-5 | 近 Opus 級 coding（2026-09-29 由 sonnet-5 升級） |
 | impact-analyzer | claude-sonnet-5-5 | 影響面盤點＝跨模組推理密集；2026-09-29 由 opus-4-8 改（使用者裁決） |
 | retro | claude-sonnet-5-5 | 歸因提煉為中等推理量，不需最強檔（2026-09-29 由 sonnet-4-6 升級，與 writer 同檔） |
 | task-decomposer | claude-sonnet-5-5 | 拆解＝規劃判斷密集，拆錯整條 flow 重跑；2026-09-29 由 opus-4-8 改（使用者裁決） |
-| task-verifier | claude-sonnet-5-5 | checker（審查層預設位，2026-09-05 起）——憑據逐條核對；2026-09-29 由 haiku-4-5 升級（使用者裁決；實測 haiku 首輪曾 1 turn 無憑據交付）；假放行率為回退依據（v3 回退機制見 retro/BUGLOG.md） |
+| task-verifier | claude-sonnet-5-5 | checker（Tier 1 審查層預設位）——憑據逐條核對；2026-09-29 由 haiku-4-5 升級（使用者裁決；實測 haiku 首輪曾 1 turn 無憑據交付）；假放行率為回退依據（v3 回退機制見 retro/BUGLOG.md） |
 | usage-analyzer | claude-sonnet-5-5 | 情境盤點＝判斷密集；2026-09-29 由 opus-4-8 改（使用者裁決） |
 
 ## Codex 政策表

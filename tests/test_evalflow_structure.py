@@ -9,6 +9,7 @@
 
 執行：python3 -m pytest tests/test_evalflow_structure.py -q
 """
+
 import re
 import sys
 import unittest
@@ -18,6 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".agent-flow/scripts"))
 from document_inventory import skill_documents
+
 SKILL = ROOT / "skills" / "eval-flow" / "SKILL.md"
 TIER2_PREP = ROOT / "skills" / "eval-flow" / "references" / "tier2-prep.md"
 
@@ -27,7 +29,10 @@ REFERENCED_ANCHORS = (
     ("## 共用：進場檢查", "Tier 1 第 1 點與 tier2-prep.md 前置 0 都指向它"),
     ("## Tier 1 精簡路徑", "CLAUDE.md、parallel-run、formats.md"),
     ("## Tier 2 完整路徑", "CLAUDE.md"),
-    ("## 循環", "retro.md／task-verifier.md／test-strategy／formats.md／hooks 以 step N 引用"),
+    (
+        "## 循環",
+        "retro.md／task-verifier.md／test-strategy／formats.md／hooks 以 step N 引用",
+    ),
     ("## 派工機制", "CLAUDE.md、MODEL_POLICY.md、formats.md"),
     ("## Model 指派原則", "MODEL_POLICY.md"),
     ("## 主 flow 憑據紀律", "dispatch.py、report_envelope_check.py"),
@@ -40,7 +45,10 @@ REFERENCED_ANCHORS = (
     ("## HITL gate", "formats.md"),
     ("**auto-mode 定義**", "parallel-run 步驟 4"),
     ("4. **主 flow 直寫捷徑", "formats.md 的 executor_notes 欄"),
-    ("- ②**冷溯源檔的進版控範圍**", "eval-flow-resume／parallel-run／test-strategy／gates.md／formats.md 皆引用「step 6 子項②」"),
+    (
+        "- ②**冷溯源檔的進版控範圍**",
+        "eval-flow-resume／parallel-run／test-strategy／gates.md／formats.md 皆引用「step 6 子項②」",
+    ),
 )
 
 CYCLE_HEAD = "## 循環"
@@ -57,7 +65,7 @@ def section(text, start_head, end_head):
     """取 [start_head, end_head) 之間的行（含 start_head 行）。"""
     lines = text.splitlines()
     i = next(n for n, l in enumerate(lines) if l.startswith(start_head))
-    j = next(n for n, l in enumerate(lines[i + 1:], i + 1) if l.startswith(end_head))
+    j = next(n for n, l in enumerate(lines[i + 1 :], i + 1) if l.startswith(end_head))
     return lines[i:j]
 
 
@@ -66,7 +74,7 @@ def cjk_or_ascii_anchors(name):
     out = [t for t in re.findall(r"[A-Za-z][A-Za-z\-]{3,}", name)]
     cjk = re.findall(r"[一-鿿]{3,}", name)
     for run in cjk:
-        out += [run[k:k + 3] for k in range(len(run) - 2)]
+        out += [run[k : k + 3] for k in range(len(run) - 2)]
     return out
 
 
@@ -79,13 +87,14 @@ def anchor_present(text, anchor):
     """
     if not anchor.startswith("## "):
         return anchor in text
-    pat = re.compile(r'^' + re.escape(anchor) + r'(?:[（：\s]|$)', re.M)
+    pat = re.compile(r"^" + re.escape(anchor) + r"(?:[（：\s]|$)", re.M)
     return bool(pat.search(text))
 
 
-
 LINK = re.compile(r"\[[^\]]+\]\((references/[a-z0-9-]+\.md)\)")
-STAGE_LINK = re.compile(r"^\| step (\d)(?:–(\d))? \| \[[^\]]+\]\((references/[a-z0-9-]+\.md)\)", re.M)
+STAGE_LINK = re.compile(
+    r"^\| step (\d)(?:–(\d))? \| \[[^\]]+\]\((references/[a-z0-9-]+\.md)\)", re.M
+)
 
 
 def reachable_references(entry):
@@ -101,8 +110,9 @@ def reachable_references(entry):
 
 def stage_references(entry):
     rows = STAGE_LINK.findall(read(entry))
-    covered = [n for first, last, _ in rows
-               for n in range(int(first), int(last or first) + 1)]
+    covered = [
+        n for first, last, _ in rows for n in range(int(first), int(last or first) + 1)
+    ]
     if covered != list(range(1, 8)):
         raise ValueError(f"必讀步驟導覽未完整涵蓋 1–7：{covered}")
     return [entry.parent / rel for _, _, rel in rows]
@@ -117,20 +127,29 @@ class MandatoryDeliveryTest(unittest.TestCase):
         stages = stage_references(SKILL)
         self.assertTrue(all(p in refs for p in stages))
         for p, expected in zip(stages, ({1, 2}, {3, 4}, {5, 6, 7})):
-            numbers = [int(m.group(1)) for m in
-                       (STEP_HEAD.match(l) for l in read(p).splitlines()) if m]
+            numbers = [
+                int(m.group(1))
+                for m in (STEP_HEAD.match(l) for l in read(p).splitlines())
+                if m
+            ]
             self.assertEqual(set(numbers), expected)
             self.assertEqual(len(numbers), len(expected), "實際規則不可重列")
 
     def test_safety_rules_have_one_reachable_source(self):
         text = "\n".join(read(p) for p in reachable_references(SKILL))
         for anchor in (
-            "**四類升級觸發", "**修正迭代上限（僅數升級輪）**",
-            "**契約前置與仲裁句（硬性）**", "**知識前置（硬性步驟）**",
-            "**發現不得自我授權（scope 防線）**", "**🔴 重裁條款**",
-            "**引文核實（重裁不限 🔴）**", "**機械退件門檻**",
-            "**冷溯源檔的進版控範圍**", "**`Run-Id: <run_id>` trailer 是硬要求**",
-            "**`[憑據:step5]` 條目在本步收口**", "**intent gate（不可鬆）**",
+            "**四類升級觸發",
+            "**修正迭代上限（僅數 reviewer 修正輪）**",
+            "**契約前置與仲裁句（硬性）**",
+            "**知識前置（硬性步驟）**",
+            "**發現不得自我授權（scope 防線）**",
+            "**疑點重裁條款**",
+            "**引文核實（重裁不限 🔴）**",
+            "**機械退件門檻**",
+            "**冷溯源檔的進版控範圍**",
+            "**`Run-Id: <run_id>` trailer 是硬要求**",
+            "**`[憑據:step5]` 條目在本步收口**",
+            "**intent gate（不可鬆）**",
             "**無人看管的 session（headless）不得自行確認**",
         ):
             self.assertEqual(text.count(anchor), 1, f"硬規則缺席或重列：{anchor}")
@@ -161,19 +180,32 @@ class MandatoryDeliveryTest(unittest.TestCase):
 class ReferencedAnchorsTest(unittest.TestCase):
     def test_all_externally_referenced_anchors_present(self):
         both = "\n".join(read(p) for p in reachable_references(SKILL))
-        missing = [f"{a}（引用者：{who}）" for a, who in REFERENCED_ANCHORS
-                   if not anchor_present(both, a)]
-        self.assertEqual(missing, [], "外部引用的錨點在 根入口與可到達必讀文件 中缺席或被改名，引用會靜默懸空：\n"
-                                      + "\n".join(missing))
+        missing = [
+            f"{a}（引用者：{who}）"
+            for a, who in REFERENCED_ANCHORS
+            if not anchor_present(both, a)
+        ]
+        self.assertEqual(
+            missing,
+            [],
+            "外部引用的錨點在 根入口與可到達必讀文件 中缺席或被改名，引用會靜默懸空：\n"
+            + "\n".join(missing),
+        )
 
 
 class Tier1BeforeCycleTest(unittest.TestCase):
     def test_tier1_path_precedes_shared_cycle(self):
         """Tier 1 佔多數 run，其路徑須排在共用循環之前（本 run 的重排目的）。"""
         lines = read(SKILL).splitlines()
-        tier1 = next(n for n, l in enumerate(lines) if l.startswith("## Tier 1 精簡路徑"))
+        tier1 = next(
+            n for n, l in enumerate(lines) if l.startswith("## Tier 1 精簡路徑")
+        )
         cycle = next(n for n, l in enumerate(lines) if l.startswith(CYCLE_HEAD))
-        self.assertLess(tier1, cycle, f"Tier 1 精簡路徑（L{tier1 + 1}）須排在循環（L{cycle + 1}）之前")
+        self.assertLess(
+            tier1,
+            cycle,
+            f"Tier 1 精簡路徑（L{tier1 + 1}）須排在循環（L{cycle + 1}）之前",
+        )
 
 
 class ReferenceDepthTest(unittest.TestCase):
@@ -190,7 +222,11 @@ class ReferenceDepthTest(unittest.TestCase):
             for hit in set(re.findall(r"references/([a-z0-9-]+\.md)", read(f))):
                 if hit != f.name:
                     offenders.append(f"{f.relative_to(ROOT)} → references/{hit}")
-        self.assertEqual(offenders, [], "references 互相指向（引用深度 >1）：\n" + "\n".join(offenders))
+        self.assertEqual(
+            offenders,
+            [],
+            "references 互相指向（引用深度 >1）：\n" + "\n".join(offenders),
+        )
 
 
 class CycleChecklistTest(unittest.TestCase):
@@ -200,29 +236,48 @@ class CycleChecklistTest(unittest.TestCase):
         real_steps = "\n".join(read(p) for p in stage_references(SKILL))
         checklist = [CHECKLIST_LINE.match(l) for l in cycle]
         checklist = [m for m in checklist if m]
-        heads = {int(m.group(1)): m.group(2) for m in
-                 (STEP_HEAD.match(l) for l in real_steps.splitlines()) if m}
+        heads = {
+            int(m.group(1)): m.group(2)
+            for m in (STEP_HEAD.match(l) for l in real_steps.splitlines())
+            if m
+        }
 
-        self.assertEqual([int(m.group(1)) for m in checklist], [1, 2, 3, 4, 5, 6, 7],
-                         "checklist 須恰 7 行、step 編號 1–7 依序")
+        self.assertEqual(
+            [int(m.group(1)) for m in checklist],
+            [1, 2, 3, 4, 5, 6, 7],
+            "checklist 須恰 7 行、step 編號 1–7 依序",
+        )
 
         # DoD 字面要求 checklist 放在 fenced code block 內（才能整塊複製進回報，
         # 且 prose lint 的日期／術語掃描會跳過 fence）——此斷言守護該字面要求。
         fences = [i for i, l in enumerate(cycle) if l.startswith("```")]
         idx = [i for i, l in enumerate(cycle) if CHECKLIST_LINE.match(l)]
-        self.assertGreaterEqual(len(fences), 2, "循環節的 checklist 須放在 fenced code block 內（未找到成對 fence）")
-        self.assertTrue(all(fences[0] < i < fences[1] for i in idx),
-                        f"checklist 行須全部落在第一組 fence 之間（fence 行號 {fences[:2]}，checklist 行號 {idx}）")
-        self.assertEqual(sorted(heads), [1, 2, 3, 4, 5, 6, 7],
-                         f"循環須恰 7 個數字步驟，實得 {sorted(heads)}")
+        self.assertGreaterEqual(
+            len(fences),
+            2,
+            "循環節的 checklist 須放在 fenced code block 內（未找到成對 fence）",
+        )
+        self.assertTrue(
+            all(fences[0] < i < fences[1] for i in idx),
+            f"checklist 行須全部落在第一組 fence 之間（fence 行號 {fences[:2]}，checklist 行號 {idx}）",
+        )
+        self.assertEqual(
+            sorted(heads),
+            [1, 2, 3, 4, 5, 6, 7],
+            f"循環須恰 7 個數字步驟，實得 {sorted(heads)}",
+        )
 
         mismatch = []
         for m in checklist:
             n, name = int(m.group(1)), m.group(2)
             anchors = cjk_or_ascii_anchors(name)
             if not any(a in heads[n] for a in anchors):
-                mismatch.append(f"step {n}: checklist「{name}」的錨點 {anchors} 都不在步驟標題內")
-        self.assertEqual(mismatch, [], "checklist 與步驟標題漂移：\n" + "\n".join(mismatch))
+                mismatch.append(
+                    f"step {n}: checklist「{name}」的錨點 {anchors} 都不在步驟標題內"
+                )
+        self.assertEqual(
+            mismatch, [], "checklist 與步驟標題漂移：\n" + "\n".join(mismatch)
+        )
 
 
 class FanoutPreconditionAnchorTest(unittest.TestCase):

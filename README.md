@@ -38,7 +38,7 @@
 3. **分拆 task**：拆成可驗收的小單位；小範圍由主 flow 直接建立，較大範圍派 task-decomposer
 4. **確認計畫**：提報 Spec 的開放問題與 task 計畫，留存使用者裁示
 
-之後進入實作循環：**寫 → checker 核對憑據（必要時 reviewer 審 diff）→ 本地測試 → commit**。邊界類變更直接派 reviewer。測試 gate 的標準是「無新增穩定失敗」；新 run 的最後驗證另綁定程式樹快照，提交前若程式碼改變就重驗。
+之後進入實作循環：**寫 → 獨立審查 → 本地驗證 → commit**。Tier 1 由 checker 核對憑據，必要時升級 reviewer；Tier 2 直接由 reviewer 一次審完整 task diff、需求與證據。邊界類變更直接派 reviewer，優先記 `reviewer:boundary`。writer 跑相關自驗，已有足夠測試時沿用；主 flow 補齊證據缺口，有效 run_verify 紀錄可依條件重用。測試 gate 的標準是「無新增穩定失敗」；新 run 的最後驗證另綁定程式樹快照，提交前若程式碼改變就重驗。
 
 Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改哪、多大、碰不碰高風險）在找到根因之前都不知道。
 
@@ -55,7 +55,7 @@ Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改
 
 ## 日常操作
 
-在專案根目錄執行 `python3 .agent-flow/scripts/flow.py status --run-id <id>` 查看紀錄進度。`preflight` 提早檢查環境；`watch` 顯示狀態變更；`finish` 串接驗證與提交。完整用法見 [.agent-flow/FLOW_CLI.md](.agent-flow/FLOW_CLI.md)。派 checker 前用 `flow.py review-packet build` 自動整理資料；缺漏先補齊，資料包不代替獨立審查。用法見 [.agent-flow/REVIEW_PACKET.md](.agent-flow/REVIEW_PACKET.md)。
+在專案根目錄執行 `python3 .agent-flow/scripts/flow.py status --run-id <id>` 查看紀錄進度。`preflight` 提早檢查環境；`watch` 顯示狀態變更；`finish` 串接驗證與提交。完整用法見 [.agent-flow/FLOW_CLI.md](.agent-flow/FLOW_CLI.md)。Tier 1 派 checker 前用 `flow.py review-packet build` 自動整理資料；缺漏先補齊，資料包不代替獨立審查。用法見 [.agent-flow/REVIEW_PACKET.md](.agent-flow/REVIEW_PACKET.md)。
 
 ## 安裝與更新
 

@@ -1,6 +1,6 @@
 ---
 name: test-strategy
-description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無新增穩定失敗」機制、writer 層 mine 模式、累積聯集相關測試、假測試 lint、mutation self-check、分 tier 的 commit 前收尾檢查與重開路徑、零測試專案處置、驗證豁免窗口。觸發語：Eval Flow 循環進入 step 5 時、「測試失敗怎麼辦」、「建測試 baseline」。不適用於：測試框架選型（Tier B bootstrap 的 HITL 決定）。
+description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無新增穩定失敗」機制、writer 相關自驗、累積聯集相關測試、假測試 lint、具名盲點驗證、分 tier 的 commit 前收尾檢查與重開路徑、零測試專案處置、驗證豁免窗口。觸發語：Eval Flow 循環進入 step 5 時、「測試失敗怎麼辦」、「建測試 baseline」。不適用於：測試框架選型（Tier B bootstrap 的 HITL 決定）。
 ---
 
 # Test Strategy（本地測試 gate 執行細節）
@@ -12,7 +12,7 @@ description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無
 
 ## 依變更選擇驗證（全 tier，單一枚舉點）
 
-**Tier 決定分析與獨立審查深度；變更內容決定驗證方式。** 主 flow 在規劃時列出每條 DoD／契約的驗證方法、可接受結果與證據位置，原文貼進 writer 的硬性約束區。下方 baseline、mine、lint、mutation、整合與完整回歸規則只適用其對應的程式／測試部分。
+**Tier 決定分析與獨立審查深度；變更內容決定驗證方式。** 主 flow 在規劃時列出每條 DoD／契約的驗證方法、可接受結果與證據位置，原文貼進 writer 的硬性約束區。下方 baseline、相關自驗、lint、具名盲點驗證、整合與完整回歸規則只適用其對應的程式／測試部分。
 
 - **純基礎設施設定**（例如 nginx、SSL）：使用設定檢查與必要操作驗證；這是有效驗證，不是 `test_policy` 豁免。不得僅因 Tier 2 強制新增 Docker、測試框架、單元／整合測試或 mutation。
 - **程式行為變更**：保留相關行為測試與既有失敗處置。**混合任務**逐部分取證，設定檢查不能替代程式測試，不能藉分類隱藏既有相關測試失敗。
@@ -40,7 +40,7 @@ python3 .agent-flow/scripts/test_baseline.py baseline
 - **既有壞測試 = 記錄級欠帳，不是攔截級**：與 hotfix `debt` 不同——不擋新 run、本 run 不修（修它是 scope 偏移），但 retro 時彙報數量與清單，讓債看得見
 - 無任何測試框架的專案不建 baseline，改走「零測試專案」節
 
-## Writer 層 mine 模式（code-writer 內迴圈的測試範圍）
+## Writer 相關自驗與 mine 快速模式
 
 ```
 # Tier 1／2（eval_state.json 存在）：run_id 與測試指令都自動解析
@@ -53,12 +53,12 @@ python3 .agent-flow/scripts/test_baseline.py mine --run-id <任意識別字串> 
 - **參數解析順序（實作為準）**：`--run-id` → `eval_state.json` 的 `run_id` → 失敗中止；`--cmd` → `run/<run_id>.json` 的 `test_command` → 失敗中止。故 **Tier 0 兩個都要給**——沒有 eval_state 也沒有 manifest 可查。`--run-id` 在 mine 的唯一用途是定位 manifest 取 `test_command`，給了 `--cmd` 之後它只是為了通過解析（已知小瑕疵，見本節末）
 - **不要傳 `--strike-key`**：該旗標只有 `check` 子命令消費（累犯計數）；mine 端無消費者，傳了會被 argparse 接受但完全忽略
 
-- **用途與分工**：code-writer 自驗**只准**用 mine——只跑自己未提交變更範圍內的測試檔；step 5 的 `check`（累積聯集＋baseline 扣除）是主 flow 的事。失敗歸因不留給弱 model：mine 範圍內的失敗全屬呼叫者（不做 baseline 扣除），範圍外的歸因由 script 與主 flow 仲裁
+- **用途與分工**：writer 依變更選相關測試，可直接執行派工命令，或用 `run_verify.py` 在相同 run／sub_task 留紀錄，供 step 5 核對與明確重用。mine 只是快速模式，不是唯一准用命令；只選未提交變更中的測試檔，不做 baseline 扣除。既有測試足夠時不必修改測試檔，仍須跑適用的相關測試。範圍外失敗回報主 flow，不自行擴修。
 - **範圍推導原理**：每 sub_task 結尾 commit ⇒ writer 開工時樹乾淨 ⇒ 當下 git 未提交變更（staged＋unstaged＋untracked）全屬該 writer，其中的測試檔即其管轄範圍——機械推導，零判斷
-- **抓不到的破壞是 by design**：writer 改 source 弄壞既有測試但沒碰測試檔時 mine 不會抓到——這類失敗由 step 5 的 check 現形（baseline 在其開工前是乾淨的，歸因必然準確），主 flow 拿具體失敗清單回派修正
+- **mine 的範圍限制**：writer 改 source 弄壞既有測試但沒碰測試檔時 mine 不會抓到——writer 須依變更另選相關既有測試，step 5 核對證據範圍並補缺口
 - **`[P]` item 的 mine 模式均適用**：`[P]` item 在 fan-out（各開 worktree，隔離樹）或門檻不足的循序退回（逐個執行）下，mine 範圍推導**均成立**（未提交變更只屬當前 item）；兩路徑均無多 writer 並發共樹
 - **已知小瑕疵（不影響正確性）**：`cmd_mine` 無條件先跑 `resolve_run_id()` 再跑 `resolve_cmd()`，所以即使給了 `--cmd`、`--run-id` 仍為必填。Tier 0 使用時隨便給一個識別字串即可
-- **mine 不落檔**：mine 每次執行不寫任何 `run/` 檔；writer 交付時主 flow 以工作報告的「仲裁記錄」稽核（見上），改測試湊綠的退路由 checker 核對「契約 row 逐條有對應測試斷言」現形
+- **mine 不落檔**：mine 每次執行不寫任何 `run/` 檔；writer 交付時主 flow 以工作報告的「仲裁記錄」稽核（見上），改測試湊綠的退路由獨立審查核對「需求逐條有適用證據」現形
 - writer 端的行為約束（先實作後測試、範圍外失敗照抄不修、仲裁三選一先判再動手、2 次上限帶失敗交付）住在 `.agent-flow/roles/code-writer.md` 的「測試管轄規則」節，不在此重述
 
 ## 前端／UI 實機驗證的定位（best-effort，非阻塞）
@@ -77,12 +77,12 @@ python3 .agent-flow/scripts/test_baseline.py mine --run-id <任意識別字串> 
 
 ## Step 5 執行順序（每個 sub_task）
 
-進入本步先依「依變更選擇驗證」選定方法。純設定直接由主 flow 用 `run_verify.py` 跑設定／操作檢查並核對全部必要結果，不走下列測試專用步驟；混合任務同時完成適用的兩部分。
+進入本步先核對 writer 已有紀錄的命令、範圍、快照、環境與結果有效性；以相同 target 的 `run_verify.py --reuse` 沿用有效證據，只有缺口、失敗、輸入改變、證據失效或具名疑點才重跑。mine 不落快照，不能當成完整回歸或可重用的 run_verify 紀錄。跨 task 與 manifest 不自動轉用證據；收尾無相符完整回歸紀錄時安全重跑。再依「依變更選擇驗證」選定方法。純設定直接由主 flow 用 `run_verify.py` 跑設定／操作檢查並核對全部必要結果，不走下列測試專用步驟；混合任務同時完成適用的兩部分。
 
 進入本步先按 `.agent-flow/CODE_QUALITY.md` 核對 formatter 與適用 log 證據。對本次 Python 檔執行選定 formatter 的檢查模式，以 `run_verify.py` 留下實際命令與結果；無適用檔案記原因，缺工具或檢查失敗不得記通過。格式化若改動受審內容，先重新 stage 並依 eval-flow 的增量審查規則核對變更，再驗證。log 測試併入下方相關測試，不另建重複案例。格式檢查成功不能代替本步功能測試或最後收尾驗證。
 
 0. **行為驗證紀律**：寫任何驗證程式（含臨時 harness）前，先確認實際介面——`inspect.signature`、讀函式定義，**不憑印象寫**（R-015）。
-   - 驗證碼不是 throwaway：它就是本 sub_task 單元測試的草稿，直接寫進該 item 的測試檔（單元測試隨實作 item，見 task-decomposition skill）
+   - 驗證碼不是 throwaway：缺口需要持續回歸時才加入相關測試；已有足夠測試時沿用，不為每次驗證新增檔案
 1. **選相關測試（累積聯集）**：
    ```
    python3 .agent-flow/scripts/test_baseline.py related --files $(python3 .agent-flow/scripts/eval_state.py list-files)
@@ -106,26 +106,11 @@ python3 .agent-flow/scripts/test_baseline.py mine --run-id <任意識別字串> 
    - exit 2 → 有真的（可重現）新增失敗，進下方分類決策樹
 4. **非確定性失敗由 script 自動放行**：非 baseline 的新失敗會自動重跑一次確認可重現——重跑通過（不可重現）→ 印警示「非確定性失敗，未阻擋」、不擋、**不持久化任何名單**；重跑仍失敗（可重現）→ 真新失敗，script append 一筆 `failure_log`（供稽核「紅過就有痕」）並 exit 2
 
-## Mutation self-check（每 run 抽樣一次，Tier 2）
+## 具名盲點的針對驗證
 
-測試會跑不代表斷言有效——斷言鑑別力要靠 sabotage 後測試真的 FAIL 來證明，此步制度化為整合測試 item 的收尾動作。
+不要求固定逐檔 sabotage、Tier 2 每 run mutation 或主 flow 獨立重放。reviewer 先審需求、實作與現有證據；只有指出具名盲點時，才要求針對該盲點補測試或實驗。已有足夠證據時不新增測試。
 
-**執行頻率：每 run 抽一個整合測試 item 做完整版（含下方第 6 步的主 flow 獨立重放），其餘整合測試 item 的 `local_test_evidence` 記「沿用本 run mutation 結論（抽樣 item：<id>）」即可**——斷言鑑別力是同一個 run 內測試撰寫習慣的性質，item 間高度相關，逐個重做的邊際資訊低。
-
-抽樣對象取**斷言最密集或行為點最關鍵的那個** item（不是最先做完的那個）。
-
-**抽樣不適用、須逐個做完整版的情況**：抽樣 item 的 sabotage 出現任一沒讓測試 FAIL（代表本 run 的斷言品質不可信，不能外推）；或各整合測試 item 由不同 code-writer 產出、撰寫習慣不同源。
-
-1. 挑本 task 至少 2 個**關鍵行為點**（計算邏輯、防呆條件——被弄壞會直接造成錯誤結果的那種）
-2. 逐一 sabotage（改壞實作的一行）→ 跑對應測試，**必須 FAIL**；恢復原狀 → 跑測試，**必須 PASS**
-3. **每次 sabotage 與恢復後清 `__pycache__`**（`find . -name __pycache__ -type d -exec rm -rf {} +`）——stale `.pyc` 會讓判定失真
-4. 任一 sabotage 沒讓測試 FAIL → **第一步先質疑需求，不是加壓**：追該行為點的最終消費點，確認該性質被破壞時可觀察輸出真的會變。
-   - 輸出不變＝該性質非 load-bearing（假需求，典型如「下游依 key／name 重新定位，中間順序根本不影響輸出」），回報使用者建議自 Spec／DoD 移除，探針作廢不補
-   - 確認是真需求 → 斷言無效，修測試後重做
-5. **停損（硬性）**：同一行為點 **2 次 sabotage 仍綠即停手回報使用者**，禁止繼續加時序延遲／調並發數／加壓力硬湊 FAIL（R-016）。
-   - 結果（sabotage 了哪些點、FAIL/PASS 確認、作廢的探針與理由）記入 `local_test_evidence`
-6. **獨立重放（主 flow 執行，不採信自報）**：**抽樣** item 的 step 5 收尾時，**主 flow 親自重放至少一組 sabotage→FAIL→恢復→PASS**，不採信 writer 的自報結果。
-   - 重放主體是主 flow 而非 code-reviewer——reviewer 是只讀角色，不改檔；重放同樣遵守第 3 步清 `__pycache__`，做完恢復原狀
+採 mutation／sabotage 時，只暫改具名行為點，確認對應測試 FAIL，再恢復並確認 PASS；清除受影響的 `__pycache__`，用 `git diff` 確認沒有實驗殘留。記錄破壞點、實際命令與 FAIL/PASS 輸出。不可只寫預期結果。實驗未能區分行為時先確認需求與最終消費點；同一行為點兩次仍無鑑別力即停止、帶結果交付，不加壓硬湊 FAIL。主 flow 只在證據失效或有具名疑點時補驗，不固定重放。
 
 ## 真新失敗的處置（script 確認可重現後才進這裡）
 

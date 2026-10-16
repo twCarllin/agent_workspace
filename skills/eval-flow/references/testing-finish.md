@@ -24,7 +24,7 @@
 7. **有條件** 依「派工機制」節派工 `retro` subagent：
    - code-reviewer 有 🔴 重大問題 → 修正後 commit 前呼叫 retro
    - code-reviewer 無 🔴 → **不呼叫 retro**（reviewer 一次過即無回顧價值）
-   - 本條件僅掛**升級輪**（reviewer 判定；邊界直派輪視同升級輪）——checker 通過輪與升級後零 🔴 輪都**不呼叫 retro**；升級本身是流程正常運作、不是教訓
+   - 本條件適用 reviewer 輪（含 Tier 2 直接派審、Tier 1 升級與邊界直派）——checker 通過輪與升級後零 🔴 輪都**不呼叫 retro**；升級本身是流程正常運作、不是教訓
 
 
 ## 標準收尾入口

@@ -45,20 +45,20 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 | step | 含義 | 從哪續跑 |
 |---|---|---|
 | `writing` | code-writer 執行中被斷 | 重跑循環步驟 1（code-writer；prompt 附上已 staged 的部分成果供其接續） |
-| `reviewing` | 審查中被斷 | **審查結論不落檔**：不追究上一輪發生過什麼，**一律重跑該輪、重派 checker**（`task-verifier`），從循環步驟 3 開始（兩節報告） |
-| `fixing` | review 有 🔴、修正中被斷 | 同 `reviewing`：**一律重跑該輪、重派 checker**（無落檔可讀、不試圖還原修正進度） |
-| `verifying` | （舊版 run 的相容值）審查階段 | 同 `reviewing`：一律重跑該輪、重派 checker |
+| `reviewing` | 審查中被斷 | **審查結論不落檔**：不追究上一輪發生過什麼，重跑該輪；Tier 2 重派 reviewer，Tier 1 預設重派 checker，邊界理由直接 reviewer，從循環步驟 3 開始（兩節報告） |
+| `fixing` | review 有 🔴、修正中被斷 | 同 `reviewing`：依 Tier 重派審查（Tier 2 reviewer；Tier 1 checker 或邊界 reviewer），無結論時不猜修正進度 |
+| `verifying` | （舊版 run 的相容值）審查階段 | 同 `reviewing`：依 Tier 重派審查 |
 | `testing` | 本地驗證中被斷 | 回到循環步驟 5，依有效證據完成剩餘驗證；失敗、缺席或失效的項目重驗，不採信中斷前的口頭結果。重用仍須符合 `references/efficiency.md` 的條件 |
 | `scoring` | （舊版 run 的相容值）無對應現行步驟 | 視同 testing 完成，直接進 step 6 收尾順序（歸檔 → 清除 eval_state → 回寫 token 用量 → commit；溯源檔不 `git add`，見 eval-flow SKILL.md step 6 子項②） |
 | `done` | 該 task 已收完 | 狀態應為 `passed`；不是 → 修正狀態後進下一個 task |
 
 恢復時若有有效 review checkpoint 與前次結論，可依 eval-flow `references/efficiency.md` 重派獨立 reviewer 做增量重審；前次結論缺失仍按本表重審，不以 checkpoint 代替審查結果。
 
-4. **輪數判定**：讀該 task 的 `review_reds`——**無值＝首輪**（重派 checker 視為首輪執行）；**有值＝已跑過至少一輪**（重派 checker 後若再有 🔴，依循環 step 3／4 的四類升級觸發改派 code-reviewer）
+4. **輪數判定**：讀該 task 的 `review_reds`——**無值＝首輪**（依 Tier 重派審查，視為首輪執行）；**有值＝已跑過至少一輪**（Tier 2 保持 reviewer；Tier 1 checker 有升級觸發時改派 reviewer）
 5. **已知缺陷（使用者已知情接受，不另設補償機制）**：
-   1. 中斷發生在「升級 reviewer 輪」時，恢復會誤降回 checker——`review_reds` 有無值只能判斷「跑過至少一輪」，讀不出上一輪究竟是 checker 輪還是已升級的 reviewer 輪
+   1. Tier 1 中斷發生在「升級 reviewer 輪」時，恢復會誤降回 checker——`review_reds` 有無值只能判斷「跑過至少一輪」，讀不出上一輪究竟是 checker 輪還是已升級的 reviewer 輪
    2. 2 輪修正上限的計數可能歸零——同樣因為只知「有無跑過」不知精確輪數，理論上某次恢復可能讓已修正過的輪被重新算為首輪，使該 task 突破 2 輪上限而不被攔下
-   3. 在 `reviewing` 恢復時，重派的 checker 可預期會升級為 code-reviewer（演練 1 觀察到：writer 工作報告不落檔，checker 輸入集缺它與 sabotage 自檢證據，依①③升級）。這是不落檔的代價、不是失敗；恢復者不要為了避免升級去補造 writer 報告
+   3. 在 `reviewing` 恢復時，Tier 2 直接重派 code-reviewer；Tier 1 checker 若缺 writer 報告等必要輸入，依①③升級。這是不落檔的代價、不是失敗；恢復者不要為了避免升級去補造 writer 報告
 
    此三者為審查結論與 writer 報告不落檔（換取記帳收斂）的直接代價，接手者續跑後**輪數可能被低估、reviewing 恢復可能多付一輪 reviewer**，須知情；不自行發明補償機制。
 
