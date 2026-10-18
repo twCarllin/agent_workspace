@@ -3,7 +3,8 @@
 
 用法：python3 .agent-flow/scripts/run_verify.py --run-id <id> [--sub-task <int>] --cmd "<指令>"
 
-- 指令以 shell=True 執行、輸出原樣直通（R-009：同 test_baseline.py run_tests 基準）
+- 指令以 shell=True 執行；預設輸出原樣直通（R-009：同 test_baseline.py run_tests 基準）
+- `--quiet-success` 將完整 stdout/stderr 保存於 run/，只顯示摘要；失敗另顯示末 40 行
 - 記錄面：eval_state.json 存在且給 --sub-task → 寫該 sub_task 的 verification_commands
   （Tier 2 路徑；事件沿 eval_state.append_event 慣例記 add-verification）；
   否則寫 manifest run/<run_id>.json 的 verification_commands 並記 verify_cmd 事件（Tier 1 路徑）
@@ -20,6 +21,7 @@ import sys
 import hashlib
 import shlex
 import time
+from collections import deque
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import eval_state  # noqa: E402
@@ -54,6 +56,12 @@ def combined_evidence(target, result):
     return previous + "\n" + result
 
 
+def show_failure_tail(path, limit=40):
+    with open(path, encoding="utf-8", errors="replace") as stream:
+        for line in deque(stream, maxlen=limit):
+            print(line, end="", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True)
@@ -66,6 +74,11 @@ def main():
         "--rerun-reason",
         choices=("user_requested",),
         help="Explicit user request to repeat this command",
+    )
+    parser.add_argument(
+        "--quiet-success",
+        action="store_true",
+        help="Save full output under run/ and print a short result",
     )
     args = parser.parse_args()
 
@@ -132,6 +145,8 @@ def main():
             record["rerun_reason"] = "previous_failed"
         else:
             record["rerun_reason"] = args.rerun_reason or "unknown"
+    prior_output = previous.get("output_file")
+    has_output = isinstance(prior_output, str) and os.path.isfile(prior_output)
     reusable = (
         args.reuse
         and before is not None
@@ -139,6 +154,7 @@ def main():
         and previous.get("snapshot_kind") == "inputs-v2"
         and previous.get("snapshot") == before
         and previous.get("context") == record.get("context")
+        and (not args.quiet_success or has_output)
     )
     if schema2 and before is None:
         exit_code = 2
@@ -150,9 +166,22 @@ def main():
             "sub_task": args.sub_task,
             "record_index": previous_index,
         }
+        if has_output:
+            record["output_file"] = prior_output
     else:
         record["executed"] = True
-        exit_code = subprocess.run(args.cmd, shell=True).returncode
+        if args.quiet_success:
+            label = f"task{args.sub_task}." if args.sub_task is not None else ""
+            output_file = os.path.join(
+                "run", f"{args.run_id}.{label}verify-{len(history)}.log"
+            )
+            with open(output_file, "w", encoding="utf-8") as stream:
+                exit_code = subprocess.run(
+                    args.cmd, shell=True, stdout=stream, stderr=subprocess.STDOUT
+                ).returncode
+            record["output_file"] = output_file
+        else:
+            exit_code = subprocess.run(args.cmd, shell=True).returncode
     if not record["executed"]:
         record.pop("rerun_reason", None)
     if schema2 and before is not None:
@@ -167,6 +196,12 @@ def main():
             record["error"] = str(error)
             exit_code = exit_code or 2
     record.update(exit_code=exit_code, elapsed_seconds=time.monotonic() - started)
+    if args.quiet_success and record.get("output_file"):
+        print(f"[run-verify] 完整輸出：{record['output_file']}")
+        if exit_code and record["executed"]:
+            show_failure_tail(record["output_file"])
+    if record.get("error"):
+        print(f"[run-verify] {record['error']}", file=sys.stderr)
     evidence = f"{args.cmd} -> exit={exit_code}; executed={record['executed']}; reused={record['reused']}"
     try:
         if use_state:

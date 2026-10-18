@@ -477,6 +477,74 @@ class RunVerifyCacheTest(RunVerifyTest):
         ):
             self.assertEqual(self.verify(True, command), 2)
 
+    def test_quiet_success_saves_full_output_and_reuse_preserves_log(self):
+        entry = (
+            Path(__file__).resolve().parents[1] / ".agent-flow/scripts/run_verify.py"
+        )
+        command = "python3 -c \"print('full output')\""
+        args = [
+            sys.executable,
+            str(entry),
+            "--run-id",
+            "r1",
+            "--cmd",
+            command,
+            "--quiet-success",
+        ]
+        first = subprocess.run(args, capture_output=True, text=True)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertNotIn("full output", first.stdout)
+        record = self.read_manifest()["verification_commands"][-1]
+        output = Path(record["output_file"])
+        self.assertEqual(output.read_text(), "full output\n")
+        reused = subprocess.run(args + ["--reuse"], capture_output=True, text=True)
+        self.assertEqual(reused.returncode, 0, reused.stderr)
+        self.assertEqual(
+            self.read_manifest()["verification_commands"][-1]["output_file"],
+            str(output),
+        )
+        self.assertEqual(output.read_text(), "full output\n")
+
+    def test_quiet_failure_shows_tail_and_retains_full_output(self):
+        entry = (
+            Path(__file__).resolve().parents[1] / ".agent-flow/scripts/run_verify.py"
+        )
+        command = "python3 -c \"print('failure detail'); raise SystemExit(7)\""
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(entry),
+                "--run-id",
+                "r1",
+                "--cmd",
+                command,
+                "--quiet-success",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 7)
+        self.assertIn("failure detail", result.stderr)
+        record = self.read_manifest()["verification_commands"][-1]
+        self.assertIn("failure detail", Path(record["output_file"]).read_text())
+
+    def test_quiet_reuse_executes_if_prior_success_has_no_output_file(self):
+        entry = (
+            Path(__file__).resolve().parents[1] / ".agent-flow/scripts/run_verify.py"
+        )
+        command = "python3 -c \"print('saved on second run')\""
+        args = [sys.executable, str(entry), "--run-id", "r1", "--cmd", command]
+        first = subprocess.run(args, capture_output=True, text=True)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        result = subprocess.run(
+            args + ["--quiet-success", "--reuse"], capture_output=True, text=True
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        record = self.read_manifest()["verification_commands"][-1]
+        self.assertTrue(record["executed"])
+        self.assertFalse(record["reused"])
+        self.assertIn("saved on second run", Path(record["output_file"]).read_text())
+
 
 if __name__ == "__main__":
     unittest.main()
