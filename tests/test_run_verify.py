@@ -3,6 +3,7 @@
 執行：python3 -m unittest discover -s tests -v
 在暫存目錄操作真實檔案（wrapper 以 cwd 的 run/ 與 eval_state.json 為對象）。
 """
+
 import json
 import os
 import sys
@@ -55,83 +56,163 @@ class RunVerifyTest(unittest.TestCase):
         with open(os.path.join("run", f"{run_id}.events.jsonl"), encoding="utf-8") as f:
             return [json.loads(line) for line in f if line.strip()]
 
-    def test_real_subprocess_v2_rejects_nested_then_reuses_approved_exclusion(self):
-        subprocess.run(['git', 'init', '-q'], check=True, capture_output=True)
+    def test_rerun_reasons_real_subprocess(self):
+        subprocess.run(["git", "init", "-q"], check=True, capture_output=True)
         self.write_manifest()
         manifest = self.read_manifest()
-        manifest['evidence_schema'] = 2
-        Path('run/r1.json').write_text(json.dumps(manifest))
-        Path('agent_workspace').mkdir()
-        subprocess.run(['git', '-C', 'agent_workspace', 'init', '-q'], check=True, capture_output=True)
-        Path('agent_workspace/code.py').write_text('child')
-        entry = Path(__file__).resolve().parents[1] / '.agent-flow/scripts/run_verify.py'
-        argv = [sys.executable, str(entry), '--run-id', 'r1', '--cmd', 'python3 -c pass']
+        manifest["evidence_schema"] = 2
+        Path("run/r1.json").write_text(json.dumps(manifest))
+        entry = (
+            Path(__file__).resolve().parents[1] / ".agent-flow/scripts/run_verify.py"
+        )
+        command = """python3 -c 'from pathlib import Path; raise SystemExit(0 if Path("ok").exists() else 1)'"""
+        argv = [sys.executable, str(entry), "--run-id", "r1", "--cmd", command]
+        for expected, extra in (
+            (1, []),
+            (1, []),
+            (0, []),
+            (0, ["--rerun-reason", "user_requested"]),
+            (0, []),
+        ):
+            if expected == 0:
+                Path("ok").touch()
+            result = subprocess.run(argv + extra, capture_output=True, text=True)
+            self.assertEqual(result.returncode, expected, result.stderr)
+        records = self.read_manifest()["verification_commands"]
+        self.assertNotIn("rerun_reason", records[0])
+        self.assertEqual(
+            [row["rerun_reason"] for row in records[1:]],
+            ["previous_failed", "input_changed", "user_requested", "unknown"],
+        )
+        self.assertTrue(all(row["elapsed_seconds"] >= 0 for row in records))
+        event = [row for row in self.read_events("r1") if row["cmd"] == "verify_cmd"][
+            -1
+        ]
+        self.assertEqual(event["args"]["rerun_reason"], "unknown")
+        self.assertGreaterEqual(event["args"]["elapsed_seconds"], 0)
+
+    def test_real_subprocess_v2_rejects_nested_then_reuses_approved_exclusion(self):
+        subprocess.run(["git", "init", "-q"], check=True, capture_output=True)
+        self.write_manifest()
+        manifest = self.read_manifest()
+        manifest["evidence_schema"] = 2
+        Path("run/r1.json").write_text(json.dumps(manifest))
+        Path("agent_workspace").mkdir()
+        subprocess.run(
+            ["git", "-C", "agent_workspace", "init", "-q"],
+            check=True,
+            capture_output=True,
+        )
+        Path("agent_workspace/code.py").write_text("child")
+        entry = (
+            Path(__file__).resolve().parents[1] / ".agent-flow/scripts/run_verify.py"
+        )
+        argv = [
+            sys.executable,
+            str(entry),
+            "--run-id",
+            "r1",
+            "--cmd",
+            "python3 -c pass",
+        ]
         blocked = subprocess.run(argv, capture_output=True, text=True)
         self.assertEqual(blocked.returncode, 2, blocked.stderr)
-        self.assertIn('Untracked nested repository', self.read_manifest()['verification_commands'][-1]['error'])
-        self.assertFalse(self.read_manifest()['verification_commands'][-1]['executed'])
-        self.assertFalse(self.read_manifest()['local_test_passed'])
-        self.assertEqual([ev['cmd'] for ev in self.read_events('r1')], ['verify_cmd'])
-        Path('.git/info/exclude').write_text('agent_workspace/\n')
+        self.assertIn(
+            "Untracked nested repository",
+            self.read_manifest()["verification_commands"][-1]["error"],
+        )
+        self.assertFalse(self.read_manifest()["verification_commands"][-1]["executed"])
+        self.assertFalse(self.read_manifest()["local_test_passed"])
+        self.assertEqual([ev["cmd"] for ev in self.read_events("r1")], ["verify_cmd"])
+        Path(".git/info/exclude").write_text("agent_workspace/\n")
         first = subprocess.run(argv, capture_output=True, text=True)
         self.assertEqual(first.returncode, 0, first.stderr)
-        record = self.read_manifest()['verification_commands'][-1]
-        self.assertEqual(record['snapshot_kind'], 'inputs-v2')
-        reused = subprocess.run(argv + ['--reuse'], capture_output=True, text=True)
+        record = self.read_manifest()["verification_commands"][-1]
+        self.assertEqual(record["snapshot_kind"], "inputs-v2")
+        reused = subprocess.run(argv + ["--reuse"], capture_output=True, text=True)
         self.assertEqual(reused.returncode, 0, reused.stderr)
-        self.assertTrue(self.read_manifest()['verification_commands'][-1]['reused'])
+        self.assertTrue(self.read_manifest()["verification_commands"][-1]["reused"])
+        self.assertNotIn(
+            "rerun_reason", self.read_manifest()["verification_commands"][-1]
+        )
         manifest = self.read_manifest()
-        self.assertTrue(manifest['local_test_passed'])
-        self.assertIn('python3 -c pass -> exit=0; executed=False; reused=True', manifest['local_test_evidence'].splitlines())
-        event = self.read_events('r1')[-1]
-        self.assertEqual(event['cmd'], 'verified')
-        self.assertEqual(event['args'], {'sub_task': None, 'verify_command': 'python3 -c pass', 'exit_code': 0,
-            'executed': False, 'reused': True, 'evidence': 'python3 -c pass -> exit=0; executed=False; reused=True'})
-        with Path('.git/info/exclude').open('a') as stream:
-            stream.write('# approved scope changed\n')
-        changed = subprocess.run(argv + ['--reuse'], capture_output=True, text=True)
+        self.assertTrue(manifest["local_test_passed"])
+        self.assertIn(
+            "python3 -c pass -> exit=0; executed=False; reused=True",
+            manifest["local_test_evidence"].splitlines(),
+        )
+        event = self.read_events("r1")[-1]
+        self.assertEqual(event["cmd"], "verified")
+        self.assertEqual(
+            event["args"],
+            {
+                "sub_task": None,
+                "verify_command": "python3 -c pass",
+                "exit_code": 0,
+                "executed": False,
+                "reused": True,
+                "evidence": "python3 -c pass -> exit=0; executed=False; reused=True",
+            },
+        )
+        with Path(".git/info/exclude").open("a") as stream:
+            stream.write("# approved scope changed\n")
+        changed = subprocess.run(argv + ["--reuse"], capture_output=True, text=True)
         self.assertEqual(changed.returncode, 0, changed.stderr)
-        self.assertFalse(self.read_manifest()['verification_commands'][-1]['reused'])
+        self.assertFalse(self.read_manifest()["verification_commands"][-1]["reused"])
 
     def test_arbitration_evidence_survives_failure_success_and_reuse(self):
-        subprocess.run(['git', 'init', '-q'], check=True, capture_output=True)
+        subprocess.run(["git", "init", "-q"], check=True, capture_output=True)
         self.write_manifest()
         manifest = self.read_manifest()
-        note = '仲裁：依原契約修正；豁免說明保留'
+        note = "仲裁：依原契約修正；豁免說明保留"
         manifest.update(evidence_schema=2, local_test_evidence=note, verify_passed=True)
-        Path('run/r1.json').write_text(json.dumps(manifest))
-        entry = Path(__file__).resolve().parents[1] / '.claude/hooks/run_verify.py'
+        Path("run/r1.json").write_text(json.dumps(manifest))
+        entry = Path(__file__).resolve().parents[1] / ".claude/hooks/run_verify.py"
         failure = "python3 -c 'raise SystemExit(3)'"
-        success = 'python3 -c pass'
+        success = "python3 -c pass"
         expected = [note]
-        for command, reuse, status in ((failure, False, 3), (success, False, 0),
-                                       (success, True, 0), (success, True, 0)):
-            argv = [sys.executable, str(entry), '--run-id', 'r1', '--cmd', command]
+        for command, reuse, status in (
+            (failure, False, 3),
+            (success, False, 0),
+            (success, True, 0),
+            (success, True, 0),
+        ):
+            argv = [sys.executable, str(entry), "--run-id", "r1", "--cmd", command]
             if reuse:
-                argv.append('--reuse')
+                argv.append("--reuse")
             result = subprocess.run(argv, capture_output=True, text=True)
             self.assertEqual(result.returncode, status, result.stderr)
-            summary = f'{command} -> exit={status}; executed={not reuse}; reused={reuse}'
+            summary = (
+                f"{command} -> exit={status}; executed={not reuse}; reused={reuse}"
+            )
             if summary not in expected:
                 expected.append(summary)
             manifest = self.read_manifest()
-            self.assertEqual(manifest['local_test_evidence'], '\n'.join(expected))
-            self.assertEqual(manifest['local_test_passed'], status == 0)
-            self.assertTrue(manifest['verify_passed'])
+            self.assertEqual(manifest["local_test_evidence"], "\n".join(expected))
+            self.assertEqual(manifest["local_test_passed"], status == 0)
+            self.assertTrue(manifest["verify_passed"])
 
     def test_event_write_failure_is_warning_after_test_state_saved(self):
         self.write_manifest()
         Path("run/r1.events.jsonl").mkdir()
-        entry = Path(__file__).resolve().parents[1] / '.claude/hooks/run_verify.py'
-        result = subprocess.run([sys.executable, str(entry), '--run-id', 'r1', '--cmd', 'python3 -c pass'],
-                                capture_output=True, text=True)
+        entry = Path(__file__).resolve().parents[1] / ".claude/hooks/run_verify.py"
+        result = subprocess.run(
+            [sys.executable, str(entry), "--run-id", "r1", "--cmd", "python3 -c pass"],
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('事件記錄寫入失敗', result.stderr)
+        self.assertIn("事件記錄寫入失敗", result.stderr)
         manifest = self.read_manifest()
-        self.assertTrue(manifest['local_test_passed'])
-        self.assertEqual(manifest['local_test_evidence'], 'python3 -c pass -> exit=0; executed=True; reused=False')
-        self.assertEqual(manifest['verification_commands'][0]['command'], 'python3 -c pass')
-        self.assertEqual(manifest['verification_commands'][0]['exit_code'], 0)
+        self.assertTrue(manifest["local_test_passed"])
+        self.assertEqual(
+            manifest["local_test_evidence"],
+            "python3 -c pass -> exit=0; executed=True; reused=False",
+        )
+        self.assertEqual(
+            manifest["verification_commands"][0]["command"], "python3 -c pass"
+        )
+        self.assertEqual(manifest["verification_commands"][0]["exit_code"], 0)
 
     def test_tier1_success_records_to_manifest_and_events(self):
         self.write_manifest()
@@ -140,19 +221,33 @@ class RunVerifyTest(unittest.TestCase):
         cmds = self.read_manifest()["verification_commands"]
         manifest = self.read_manifest()
         self.assertTrue(manifest["local_test_passed"])
-        self.assertEqual(manifest["local_test_evidence"], "python3 -c pass -> exit=0; executed=True; reused=False")
+        self.assertEqual(
+            manifest["local_test_evidence"],
+            "python3 -c pass -> exit=0; executed=True; reused=False",
+        )
         self.assertNotIn("verify_passed", manifest)
         verified = self.read_events("r1")[-1]
         self.assertEqual(verified["cmd"], "verified")
-        self.assertEqual(verified["args"], {"sub_task": None, "verify_command": "python3 -c pass",
-            "exit_code": 0, "executed": True, "reused": False, "evidence": manifest["local_test_evidence"]})
+        self.assertEqual(
+            verified["args"],
+            {
+                "sub_task": None,
+                "verify_command": "python3 -c pass",
+                "exit_code": 0,
+                "executed": True,
+                "reused": False,
+                "evidence": manifest["local_test_evidence"],
+            },
+        )
         self.assertEqual(len(cmds), 1)
         self.assertEqual(cmds[0]["exit_code"], 0)
         ev = self.read_events("r1")[-2]
         self.assertEqual(ev["cmd"], "verify_cmd")
         self.assertIn("ts", ev)
         self.assertEqual(ev["args"]["exit_code"], 0)
-        self.assertEqual(ev["args"]["verify_command"], "python3 -c pass")  # 2026-09-21：指令原文留痕
+        self.assertEqual(
+            ev["args"]["verify_command"], "python3 -c pass"
+        )  # 2026-09-21：指令原文留痕
 
     def test_failing_command_exit_code_propagated_and_recorded(self):
         self.write_manifest()
@@ -167,7 +262,10 @@ class RunVerifyTest(unittest.TestCase):
         manifest = self.read_manifest()
         self.assertFalse(manifest["local_test_passed"])
         self.assertTrue(manifest["verify_passed"])
-        self.assertEqual(manifest["local_test_evidence"], "python3 -c 'raise SystemExit(3)' -> exit=3; executed=True; reused=False")
+        self.assertEqual(
+            manifest["local_test_evidence"],
+            "python3 -c 'raise SystemExit(3)' -> exit=3; executed=True; reused=False",
+        )
         self.assertEqual([ev["cmd"] for ev in self.read_events("r1")], ["verify_cmd"])
 
     def test_tier2_records_to_subtask_not_manifest(self):
@@ -179,17 +277,33 @@ class RunVerifyTest(unittest.TestCase):
         with open("eval_state.json", encoding="utf-8") as f:
             st = json.load(f)["sub_tasks"][0]
         self.assertTrue(st["local_test_passed"])
-        self.assertEqual(st["local_test_evidence"], "python3 -c pass -> exit=0; executed=True; reused=False")
+        self.assertEqual(
+            st["local_test_evidence"],
+            "python3 -c pass -> exit=0; executed=True; reused=False",
+        )
         self.assertFalse(st["verify_passed"])
         verified = self.read_events("r1")[-1]
         self.assertEqual(verified["cmd"], "verified")
-        self.assertEqual(verified["args"], {"sub_task": 1, "verify_command": "python3 -c pass", "exit_code": 0,
-            "executed": True, "reused": False, "evidence": st["local_test_evidence"]})
+        self.assertEqual(
+            verified["args"],
+            {
+                "sub_task": 1,
+                "verify_command": "python3 -c pass",
+                "exit_code": 0,
+                "executed": True,
+                "reused": False,
+                "evidence": st["local_test_evidence"],
+            },
+        )
         self.assertEqual(len(st["verification_commands"]), 1)
-        self.assertEqual(self.read_manifest()["verification_commands"], [])  # manifest 不動
+        self.assertEqual(
+            self.read_manifest()["verification_commands"], []
+        )  # manifest 不動
         ev = self.read_events("r1")[-2]
         self.assertEqual(ev["cmd"], "add-verification")
-        self.assertEqual(ev["args"]["verify_command"], "python3 -c pass")  # Tier 2 路徑同樣留痕
+        self.assertEqual(
+            ev["args"]["verify_command"], "python3 -c pass"
+        )  # Tier 2 路徑同樣留痕
 
     def test_missing_manifest_exits_before_running_command(self):
         code = run_cli("--run-id", "no-such", "--cmd", "python3 -c pass")
@@ -217,14 +331,22 @@ class RunVerifyCacheTest(RunVerifyTest):
         self.command = "python3 -c \"from pathlib import Path; p=Path('counter'); p.write_text(str(int(p.read_text())+1) if p.exists() else '1')\""
 
     def verify(self, reuse=False, command=None):
-        return run_cli("--run-id", "r1", "--cmd", command or self.command,
-                       *(["--reuse"] if reuse else []))
+        return run_cli(
+            "--run-id",
+            "r1",
+            "--cmd",
+            command or self.command,
+            *(["--reuse"] if reuse else []),
+        )
 
     def test_reuse_requires_optin_and_matching_inputs_environment(self):
         self.assertEqual(self.verify(), 0)
         self.assertEqual(self.verify(True), 0)
         self.assertEqual(Path("counter").read_text(), "1")
         self.assertTrue(self.read_manifest()["verification_commands"][-1]["reused"])
+        self.assertNotIn(
+            "rerun_reason", self.read_manifest()["verification_commands"][-1]
+        )
         self.assertFalse(self.read_manifest()["verification_commands"][-1]["executed"])
         Path("README.md").write_text("doc")
         self.assertEqual(self.verify(True), 0)
@@ -236,19 +358,37 @@ class RunVerifyCacheTest(RunVerifyTest):
         self.assertEqual(Path("counter").read_text(), "4")
 
     def test_input_mutation_and_snapshot_errors_fail_closed(self):
-        self.assertEqual(self.verify(command="python3 -c \"from pathlib import Path; Path('input.py').write_text('changed')\""), 2)
+        self.assertEqual(
+            self.verify(
+                command="python3 -c \"from pathlib import Path; Path('input.py').write_text('changed')\""
+            ),
+            2,
+        )
         record = self.read_manifest()["verification_commands"][-1]
         self.assertNotIn("snapshot", record)
-        with mock.patch.object(run_verify.verification_snapshot, "input_snapshot_v2", side_effect=OSError("error")):
+        with mock.patch.object(
+            run_verify.verification_snapshot,
+            "input_snapshot_v2",
+            side_effect=OSError("error"),
+        ):
             self.assertEqual(self.verify(True), 2)
         self.assertNotIn("snapshot", self.read_manifest()["verification_commands"][-1])
 
     def test_snapshot_before_failure_records_blocked_without_command_side_effect(self):
         Path("agent_workspace").mkdir()
-        subprocess.run(["git", "-C", "agent_workspace", "init", "-q"], check=True, capture_output=True)
-        entry = Path(__file__).resolve().parents[1] / ".agent-flow/scripts/run_verify.py"
-        proc = subprocess.run([sys.executable, str(entry), "--run-id", "r1", "--cmd", self.command],
-                              capture_output=True, text=True)
+        subprocess.run(
+            ["git", "-C", "agent_workspace", "init", "-q"],
+            check=True,
+            capture_output=True,
+        )
+        entry = (
+            Path(__file__).resolve().parents[1] / ".agent-flow/scripts/run_verify.py"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(entry), "--run-id", "r1", "--cmd", self.command],
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(proc.returncode, 2, proc.stderr)
         self.assertFalse(Path("counter").exists())
         record = self.read_manifest()["verification_commands"][-1]
@@ -258,10 +398,15 @@ class RunVerifyCacheTest(RunVerifyTest):
         self.assertIn("agent_workspace", record["error"])
 
     def test_snapshot_after_failure_records_actual_execution(self):
-        entry = Path(__file__).resolve().parents[1] / ".agent-flow/scripts/run_verify.py"
+        entry = (
+            Path(__file__).resolve().parents[1] / ".agent-flow/scripts/run_verify.py"
+        )
         command = self.command + " && git init -q agent_workspace"
-        proc = subprocess.run([sys.executable, str(entry), "--run-id", "r1", "--cmd", command],
-                              capture_output=True, text=True)
+        proc = subprocess.run(
+            [sys.executable, str(entry), "--run-id", "r1", "--cmd", command],
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(proc.returncode, 2, proc.stderr)
         self.assertEqual(Path("counter").read_text(), "1")
         record = self.read_manifest()["verification_commands"][-1]
@@ -274,8 +419,14 @@ class RunVerifyCacheTest(RunVerifyTest):
         self.assertEqual(self.verify(), 0)
         real_run = subprocess.run
         with mock.patch.object(run_verify.subprocess, "run") as runner:
+
             def execute(*args, **kwargs):
-                return subprocess.CompletedProcess(args[0], 3) if kwargs.get("shell") else real_run(*args, **kwargs)
+                return (
+                    subprocess.CompletedProcess(args[0], 3)
+                    if kwargs.get("shell")
+                    else real_run(*args, **kwargs)
+                )
+
             runner.side_effect = execute
             self.assertEqual(self.verify(), 3)
         self.assertEqual(self.verify(True), 0)
@@ -289,19 +440,41 @@ class RunVerifyCacheTest(RunVerifyTest):
         self.assertEqual(run_cli(*args, "--reuse"), 0)
         self.assertEqual(Path("counter").read_text(), "1")
         self.write_manifest("r2")
-        self.assertEqual(run_cli("--run-id", "r2", "--sub-task", "1", "--cmd", self.command, "--reuse"), 2)
+        self.assertEqual(
+            run_cli(
+                "--run-id", "r2", "--sub-task", "1", "--cmd", self.command, "--reuse"
+            ),
+            2,
+        )
 
     def test_real_cli_and_compatibility_entrypoint_share_cache(self):
         root = Path(__file__).resolve().parents[1]
-        for entry, extra in ((root / '.agent-flow/scripts/run_verify.py', []),
-                             (root / '.claude/hooks/run_verify.py', ['--reuse'])):
-            proc = subprocess.run([sys.executable, str(entry), '--run-id', 'r1',
-                                   '--cmd', self.command, *extra], capture_output=True)
+        for entry, extra in (
+            (root / ".agent-flow/scripts/run_verify.py", []),
+            (root / ".claude/hooks/run_verify.py", ["--reuse"]),
+        ):
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(entry),
+                    "--run-id",
+                    "r1",
+                    "--cmd",
+                    self.command,
+                    *extra,
+                ],
+                capture_output=True,
+            )
             self.assertEqual(proc.returncode, 0, proc.stderr.decode())
-        self.assertEqual(Path('counter').read_text(), '1')
+        self.assertEqual(Path("counter").read_text(), "1")
 
     def test_live_reuse_is_rejected_before_execution(self):
-        for command in ("python3 harness_smoke.py --live", "python3 skill_eval.py", "codex exec test", "claude -p test"):
+        for command in (
+            "python3 harness_smoke.py --live",
+            "python3 skill_eval.py",
+            "codex exec test",
+            "claude -p test",
+        ):
             self.assertEqual(self.verify(True, command), 2)
 
 

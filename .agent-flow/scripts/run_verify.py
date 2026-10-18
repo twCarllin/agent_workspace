@@ -11,6 +11,7 @@
 - 記錄目標的存在性在跑指令**前**檢查（配置錯誤早退）；指令跑完後的記錄寫入失敗
   僅 stderr warning、不改 exit code（旁路不得變主路，同 append_event 慣例）
 """
+
 import argparse
 import json
 import os
@@ -27,14 +28,20 @@ import verification_snapshot  # noqa: E402
 
 def environment_digest():
     """Keep environment values private; compare only their digest."""
-    return hashlib.sha256(json.dumps(dict(os.environ), sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(dict(os.environ), sort_keys=True).encode()
+    ).hexdigest()
 
 
 def live_command(command):
     tokens = shlex.split(command)
-    return (any(os.path.basename(token) in ("codex", "claude") for token in tokens)
-            or (any("harness_smoke" in token for token in tokens) and "--live" in tokens)
-            or (any("skill_eval" in token for token in tokens) and "--dry-run" not in tokens))
+    return (
+        any(os.path.basename(token) in ("codex", "claude") for token in tokens)
+        or (any("harness_smoke" in token for token in tokens) and "--live" in tokens)
+        or (
+            any("skill_eval" in token for token in tokens) and "--dry-run" not in tokens
+        )
+    )
 
 
 def combined_evidence(target, result):
@@ -52,7 +59,14 @@ def main():
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--sub-task", type=int, default=None, dest="sub_task")
     parser.add_argument("--cmd", required=True)
-    parser.add_argument("--reuse", action="store_true", help="Reuse matching local success in this run")
+    parser.add_argument(
+        "--reuse", action="store_true", help="Reuse matching local success in this run"
+    )
+    parser.add_argument(
+        "--rerun-reason",
+        choices=("user_requested",),
+        help="Explicit user request to repeat this command",
+    )
     args = parser.parse_args()
 
     manifest_path = os.path.join("run", f"{args.run_id}.json")
@@ -66,8 +80,10 @@ def main():
             sys.exit(2)
         eval_state.find_subtask(state, args.sub_task)  # 找不到 → fail() 非零退出
     elif not os.path.exists(manifest_path):
-        print(f"[run-verify] 找不到 {manifest_path}——先建 manifest（Tier 2 記 sub_task 需同時給 --sub-task 且 eval_state.json 存在）",
-              file=sys.stderr)
+        print(
+            f"[run-verify] 找不到 {manifest_path}——先建 manifest（Tier 2 記 sub_task 需同時給 --sub-task 且 eval_state.json 存在）",
+            file=sys.stderr,
+        )
         sys.exit(2)
 
     with open(manifest_path, encoding="utf-8") as stream:
@@ -80,30 +96,65 @@ def main():
     record = {"command": args.cmd, "reused": False, "executed": False}
     before = None
     if schema2:
-        record.update(snapshot_kind="inputs-v2", context={"environment": environment_digest()})
+        record.update(
+            snapshot_kind="inputs-v2", context={"environment": environment_digest()}
+        )
         try:
             before = verification_snapshot.input_snapshot_v2()
         except (OSError, subprocess.CalledProcessError) as error:
             record["error"] = str(error)
-    target = eval_state.find_subtask(eval_state.load(), args.sub_task) if use_state else manifest
+    target = (
+        eval_state.find_subtask(eval_state.load(), args.sub_task)
+        if use_state
+        else manifest
+    )
     history = target.get("verification_commands", [])
-    previous_index = next((index for index in range(len(history) - 1, -1, -1)
-                           if history[index].get("command") == args.cmd), None)
+    previous_index = next(
+        (
+            index
+            for index in range(len(history) - 1, -1, -1)
+            if history[index].get("command") == args.cmd
+        ),
+        None,
+    )
     previous = history[previous_index] if previous_index is not None else {}
-    reusable = (args.reuse and before is not None and previous.get("exit_code") == 0
-                and previous.get("snapshot_kind") == "inputs-v2"
-                and previous.get("snapshot") == before
-                and previous.get("context") == record.get("context"))
+    if before is not None:
+        record["input_snapshot"] = before
+    if previous_index is not None:
+        previous_input = previous.get("input_snapshot", previous.get("snapshot"))
+        if (
+            before is not None
+            and previous_input is not None
+            and before != previous_input
+        ):
+            record["rerun_reason"] = "input_changed"
+        elif isinstance(previous.get("exit_code"), int) and previous["exit_code"] != 0:
+            record["rerun_reason"] = "previous_failed"
+        else:
+            record["rerun_reason"] = args.rerun_reason or "unknown"
+    reusable = (
+        args.reuse
+        and before is not None
+        and previous.get("exit_code") == 0
+        and previous.get("snapshot_kind") == "inputs-v2"
+        and previous.get("snapshot") == before
+        and previous.get("context") == record.get("context")
+    )
     if schema2 and before is None:
         exit_code = 2
     elif reusable:
         exit_code = 0
         record["reused"] = True
-        record["reused_from"] = {"run_id": args.run_id, "sub_task": args.sub_task,
-                                 "record_index": previous_index}
+        record["reused_from"] = {
+            "run_id": args.run_id,
+            "sub_task": args.sub_task,
+            "record_index": previous_index,
+        }
     else:
         record["executed"] = True
         exit_code = subprocess.run(args.cmd, shell=True).returncode
+    if not record["executed"]:
+        record.pop("rerun_reason", None)
     if schema2 and before is not None:
         try:
             after = verification_snapshot.input_snapshot_v2()
@@ -122,30 +173,60 @@ def main():
             state = eval_state.load()
             st = eval_state.find_subtask(state, args.sub_task)
             st.setdefault("verification_commands", []).append(record)
-            st.update(local_test_passed=exit_code == 0,
-                      local_test_evidence=combined_evidence(st, evidence))
+            st.update(
+                local_test_passed=exit_code == 0,
+                local_test_evidence=combined_evidence(st, evidence),
+            )
             eval_state.save(state)
             # 鍵名用 verify_command：append_event 過濾 `command` 鍵（子命令 dest 同名），見 eval_state.cmd_add_verification
             eval_state.append_event(
-                state.get("run_id"), "add-verification",
-                argparse.Namespace(id=args.sub_task, verify_command=args.cmd, exit_code=exit_code))
+                state.get("run_id"),
+                "add-verification",
+                argparse.Namespace(
+                    id=args.sub_task,
+                    verify_command=args.cmd,
+                    exit_code=exit_code,
+                    elapsed_seconds=record["elapsed_seconds"],
+                    rerun_reason=record.get("rerun_reason"),
+                ),
+            )
         else:
             with open(manifest_path, encoding="utf-8") as f:
                 m = json.load(f)
             m.setdefault("verification_commands", []).append(record)
-            m.update(local_test_passed=exit_code == 0,
-                     local_test_evidence=combined_evidence(m, evidence))
+            m.update(
+                local_test_passed=exit_code == 0,
+                local_test_evidence=combined_evidence(m, evidence),
+            )
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(m, f, ensure_ascii=False, indent=2)
             eval_state.append_event(
-                args.run_id, "verify_cmd",
-                argparse.Namespace(verify_command=args.cmd, exit_code=exit_code))
+                args.run_id,
+                "verify_cmd",
+                argparse.Namespace(
+                    verify_command=args.cmd,
+                    exit_code=exit_code,
+                    elapsed_seconds=record["elapsed_seconds"],
+                    rerun_reason=record.get("rerun_reason"),
+                ),
+            )
         if exit_code == 0:
-            eval_state.append_event(args.run_id, "verified", argparse.Namespace(
-                sub_task=args.sub_task, verify_command=args.cmd, exit_code=exit_code,
-                executed=record["executed"], reused=record["reused"], evidence=evidence))
-        print(f"[run-verify] 已記錄 verification（exit={exit_code}）"
-              f" -> {'eval_state.json sub_task ' + str(args.sub_task) if use_state else manifest_path}")
+            eval_state.append_event(
+                args.run_id,
+                "verified",
+                argparse.Namespace(
+                    sub_task=args.sub_task,
+                    verify_command=args.cmd,
+                    exit_code=exit_code,
+                    executed=record["executed"],
+                    reused=record["reused"],
+                    evidence=evidence,
+                ),
+            )
+        print(
+            f"[run-verify] 已記錄 verification（exit={exit_code}）"
+            f" -> {'eval_state.json sub_task ' + str(args.sub_task) if use_state else manifest_path}"
+        )
     except Exception as e:
         print(f"[run-verify] verification 記錄寫入失敗（{e}）", file=sys.stderr)
         if schema2:

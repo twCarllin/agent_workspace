@@ -4,6 +4,10 @@
 
 格式：`- YYYY-MM-DD［模組路徑］根因分類：根因一句`（已升級者尾註 `↑RETRO`）
 
+新條目可在根因句後增加選填欄位：`｜原 run ID=<ID 或無記錄>｜原審查方式=<checker／reviewer／無記錄>｜漏查點=<有證據的漏查行為或無記錄>｜回歸測試=<檔案:測試名稱或無記錄>`。
+
+寫入時機：bugfix 修正與相關回歸驗證完成後，由主 flow append 新條目。從原 manifest、審查報告及測試位置取證；未知資料填「無記錄」，不能憑審查通過結果推定漏查點。既有條目不改寫，未附新欄位的舊格式仍有效。
+
 **選填尾註 `[checker-passed]`（回退機制 v3，2026-09-05 起）**：eval-flow 循環 step 3 由 `task-verifier`（checker）checker-only 放行的 item，事後爆 bug 且根因屬「reviewer 讀 diff 可攔」型時，本行加註 `[checker-passed]`（機械留痕，不影響既有格式）。append 時 grep 同根因分類＋`[checker-passed]` 尾註，**第 2 次命中 → 強制停下、產出裁決 packet 交使用者**：packet 含兩個 bug 的根因、checker 當輪審查落檔、四個選項附成本——(a) 上游規則提案（retro 產出＋出生證）(b) 新增升級觸發⑥（該類特徵命中即派 reviewer）(c) 恢復 reviewer 預設 (d) 接受風險。**agent 不可自行選任一補救**（比照 Hotfix「不可自行認定」原則），不設自動總開關，每次命中都過人。
 
 ---

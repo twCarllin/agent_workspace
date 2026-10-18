@@ -3,6 +3,7 @@
 執行：python3 -m unittest discover -s tests -v
 在暫存目錄操作真實檔案（helper 以 cwd 的 eval_state.json 為對象）。
 """
+
 import contextlib
 import io
 import json
@@ -41,42 +42,165 @@ class EvalStateHelperTest(unittest.TestCase):
         run_cli("init", "--run-id", "2026-07-15-demo")
         run_cli("add-subtask", "--id", "1", "--name", "demo")
 
+    def test_legacy_review_does_not_become_first_round(self):
+        for legacy_reds in (0, 1):
+            with self.subTest(legacy_reds=legacy_reds):
+                if not Path("eval_state.json").exists():
+                    self.bootstrap()
+                state = self.read_state()
+                task = state["sub_tasks"][0]
+                task.pop("review_rounds", None)
+                task.pop("first_review_reds", None)
+                task["review_reds"] = legacy_reds
+                Path("eval_state.json").write_text(json.dumps(state))
+                run_cli("set-review", "1", "0", "--checked-by", "checker")
+                task = self.read_state()["sub_tasks"][0]
+                self.assertNotIn("first_review_reds", task)
+                self.assertEqual(
+                    [row["review_reds"] for row in task["review_rounds"]], [None, 0]
+                )
+                self.assertIsNone(task["review_rounds"][0]["checked_by"])
+                self.assertIsNone(task["review_rounds"][0]["passed"])
+
+    def test_explicit_first_review_survives_round_migration(self):
+        self.bootstrap()
+        state = self.read_state()
+        state["sub_tasks"][0].update(review_reds=0, first_review_reds=2)
+        Path("eval_state.json").write_text(json.dumps(state))
+        run_cli("set-review", "1", "0", "--checked-by", "checker")
+        task = self.read_state()["sub_tasks"][0]
+        self.assertEqual(task["first_review_reds"], 2)
+        self.assertEqual([row["review_reds"] for row in task["review_rounds"]], [2, 0])
+
+    def test_tier2_review_rounds_real_cli(self):
+        import subprocess
+
+        entry = (
+            Path(__file__).resolve().parents[1] / ".agent-flow/scripts/eval_state.py"
+        )
+        self.bootstrap()
+        for reds, reviewer in ((2, "checker"), (0, "reviewer:manual")):
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(entry),
+                    "set-review",
+                    "1",
+                    str(reds),
+                    "--checked-by",
+                    reviewer,
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+        task = self.read_state()["sub_tasks"][0]
+        self.assertEqual(task["review_reds"], 2)
+        self.assertEqual(
+            [
+                (row["review_reds"], row["checked_by"], row["passed"])
+                for row in task["review_rounds"]
+            ],
+            [(2, "checker", False), (0, "reviewer:manual", True)],
+        )
+
     def test_tier1_operations_real_compatibility_entries(self):
         import subprocess
+
         root = Path(__file__).resolve().parents[1]
-        for entry in (root / ".agent-flow/scripts/eval_state.py", root / ".claude/hooks/eval_state.py"):
-            run_id = "flow" + str(len(list(Path("run").glob("*.json")))) if Path("run").exists() else "flow0"
-            argv = [sys.executable, str(entry), "init-run", "--run-id", run_id,
-                    "--harness", "codex", "--spec-inline", "page change",
-                    "--tier-rationale", "bounded change", "--test-command", "python3 -m unittest",
-                    "--task-file", "task/flow.md"]
+        for entry in (
+            root / ".agent-flow/scripts/eval_state.py",
+            root / ".claude/hooks/eval_state.py",
+        ):
+            run_id = (
+                "flow" + str(len(list(Path("run").glob("*.json"))))
+                if Path("run").exists()
+                else "flow0"
+            )
+            argv = [
+                sys.executable,
+                str(entry),
+                "init-run",
+                "--run-id",
+                run_id,
+                "--harness",
+                "codex",
+                "--spec-inline",
+                "page change",
+                "--tier-rationale",
+                "bounded change",
+                "--test-command",
+                "python3 -m unittest",
+                "--task-file",
+                "task/flow.md",
+            ]
             result = subprocess.run(argv, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             path = Path(f"run/{run_id}.json")
             manifest = json.loads(path.read_text())
-            expected = {"run_id": run_id, "framework_version": (root / ".agent-flow/scripts/VERSION").read_text().strip(), "harness": "codex", "evidence_schema": 2, "tier": 1,
-                        "spec_inline": "page change", "tier_rationale": "bounded change",
-                        "test_command": "python3 -m unittest", "task_file": "task/flow.md",
-                        "status": "in_progress", "phase": "init", "verification_commands": []}
+            expected = {
+                "run_id": run_id,
+                "framework_version": (root / ".agent-flow/scripts/VERSION")
+                .read_text()
+                .strip(),
+                "harness": "codex",
+                "evidence_schema": 2,
+                "tier": 1,
+                "spec_inline": "page change",
+                "tier_rationale": "bounded change",
+                "test_command": "python3 -m unittest",
+                "task_file": "task/flow.md",
+                "status": "in_progress",
+                "phase": "init",
+                "verification_commands": [],
+            }
             for key, value in expected.items():
                 self.assertEqual(manifest[key], value, key)
-            for key in ("risk_report_path", "usage_report_path", "impact_report_path", "local_test_passed",
-                        "local_test_evidence", "review_reds", "verify_passed", "checked_by", "review_evidence"):
+            for key in (
+                "risk_report_path",
+                "usage_report_path",
+                "impact_report_path",
+                "local_test_passed",
+                "local_test_evidence",
+                "review_reds",
+                "verify_passed",
+                "checked_by",
+                "review_evidence",
+            ):
                 self.assertIsNone(manifest[key], key)
             self.assertTrue(manifest["created_at"])
             self.assertFalse(Path("eval_state.json").exists())
             events_path = Path(f"run/{run_id}.events.jsonl")
             event = json.loads(events_path.read_text())
             self.assertEqual(event["cmd"], "init")
-            self.assertEqual(event["args"], {"run_id": run_id, "harness": "codex",
-                "spec_inline": "page change", "tier_rationale": "bounded change",
-                "test_command": "python3 -m unittest", "task_file": "task/flow.md"})
+            self.assertEqual(
+                event["args"],
+                {
+                    "run_id": run_id,
+                    "harness": "codex",
+                    "spec_inline": "page change",
+                    "tier_rationale": "bounded change",
+                    "test_command": "python3 -m unittest",
+                    "task_file": "task/flow.md",
+                },
+            )
             before = events_path.read_text()
             self.assertNotEqual(subprocess.run(argv, capture_output=True).returncode, 0)
             self.assertEqual(events_path.read_text(), before)
-            review = [sys.executable, str(entry), "review-run", run_id, "2", "--checked-by",
-                      "reviewer:manual", "--evidence", "two issues"]
-            self.assertNotEqual(subprocess.run(review, capture_output=True).returncode, 0)
+            review = [
+                sys.executable,
+                str(entry),
+                "review-run",
+                run_id,
+                "2",
+                "--checked-by",
+                "reviewer:manual",
+                "--evidence",
+                "two issues",
+            ]
+            self.assertNotEqual(
+                subprocess.run(review, capture_output=True).returncode, 0
+            )
             self.assertEqual(events_path.read_text(), before)
             manifest["phase"] = "decomposed"
             path.write_text(json.dumps(manifest))
@@ -88,29 +212,59 @@ class EvalStateHelperTest(unittest.TestCase):
             self.assertEqual(manifest["review_evidence"], "two issues")
             event = json.loads(events_path.read_text().splitlines()[-1])
             self.assertEqual(event["cmd"], "reviewed")
-            self.assertEqual(event["args"], {"run_id": run_id, "reds": 2, "checked_by": "reviewer:manual",
-                                          "evidence": "two issues", "passed": False})
+            self.assertEqual(
+                event["args"],
+                {
+                    "run_id": run_id,
+                    "reds": 2,
+                    "checked_by": "reviewer:manual",
+                    "evidence": "two issues",
+                    "passed": False,
+                },
+            )
             before = events_path.read_text()
-            self.assertNotEqual(subprocess.run(review + ["--passed"], capture_output=True).returncode, 0)
+            self.assertNotEqual(
+                subprocess.run(review + ["--passed"], capture_output=True).returncode, 0
+            )
             self.assertEqual(events_path.read_text(), before)
             review[4] = "0"
             review[-1] = "fixed and checked"
-            self.assertEqual(subprocess.run(review + ["--passed"], capture_output=True).returncode, 0)
+            self.assertEqual(
+                subprocess.run(review + ["--passed"], capture_output=True).returncode, 0
+            )
             manifest = json.loads(path.read_text())
             self.assertEqual(manifest["review_reds"], 2)
             self.assertTrue(manifest["verify_passed"])
             self.assertEqual(manifest["review_evidence"], "fixed and checked")
+            self.assertEqual(
+                [row["review_reds"] for row in manifest["review_rounds"]], [2, 0]
+            )
+            self.assertEqual(
+                [row["passed"] for row in manifest["review_rounds"]], [False, True]
+            )
+            self.assertTrue(
+                all(
+                    row["checked_by"] == "reviewer:manual"
+                    for row in manifest["review_rounds"]
+                )
+            )
             manifest["status"] = "completed"
             path.write_text(json.dumps(manifest))
             before = events_path.read_text()
-            self.assertNotEqual(subprocess.run(review, capture_output=True).returncode, 0)
+            self.assertNotEqual(
+                subprocess.run(review, capture_output=True).returncode, 0
+            )
             self.assertEqual(events_path.read_text(), before)
             invalid = argv.copy()
             invalid[4] = "../escape"
-            self.assertNotEqual(subprocess.run(invalid, capture_output=True).returncode, 0)
+            self.assertNotEqual(
+                subprocess.run(invalid, capture_output=True).returncode, 0
+            )
             invalid[4] = "empty"
             invalid[8] = " "
-            self.assertNotEqual(subprocess.run(invalid, capture_output=True).returncode, 0)
+            self.assertNotEqual(
+                subprocess.run(invalid, capture_output=True).returncode, 0
+            )
             self.assertFalse(Path("run/empty.json").exists())
             self.assertFalse(Path("run/empty.events.jsonl").exists())
 
@@ -148,6 +302,7 @@ class EvalStateHelperTest(unittest.TestCase):
         run_cli("set-files", "1", "src/a.py")
         run_cli("set-files", "2", "src/b.py", "src/a.py")
         import io
+
         buf = io.StringIO()
         with mock.patch.object(sys, "stdout", buf):
             run_cli("list-files")
@@ -189,11 +344,24 @@ class EvalStateHelperTest(unittest.TestCase):
         """
         self.bootstrap()
         st = self.read_state()["sub_tasks"][0]
-        self.assertEqual(set(st.keys()), {
-            "id", "name", "status", "step", "files", "warning",
-            "local_test_passed", "local_test_evidence", "verification_commands",
-            "review_reds", "review_dimensions", "checked_by", "verify_passed",
-        })
+        self.assertEqual(
+            set(st.keys()),
+            {
+                "id",
+                "name",
+                "status",
+                "step",
+                "files",
+                "warning",
+                "local_test_passed",
+                "local_test_evidence",
+                "verification_commands",
+                "review_reds",
+                "review_dimensions",
+                "checked_by",
+                "verify_passed",
+            },
+        )
 
     def test_add_subtask_skeleton_has_no_item_layer(self):
         """Q10：確認 skeleton 不含 items（曾於 2026-09-22 短暫加入後依裁示移除）。"""
@@ -224,7 +392,9 @@ class EvalStateHelperTest(unittest.TestCase):
         """Q9 契約 row 3：set-files 寫入反映在 task 層 files 聯集。"""
         self.bootstrap()
         run_cli("set-files", "1", "src/a.py", "src/b.py")
-        self.assertEqual(self.read_state()["sub_tasks"][0]["files"], ["src/a.py", "src/b.py"])
+        self.assertEqual(
+            self.read_state()["sub_tasks"][0]["files"], ["src/a.py", "src/b.py"]
+        )
 
     def test_set_review_writes_reds(self):
         self.bootstrap()
@@ -254,24 +424,37 @@ class EvalStateHelperTest(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 run_cli("set-review", "1", "0", "--checked-by", "reviewer:⑥")
         self.assertEqual(ctx.exception.code, 2)  # 契約：exit 非 0
-        self.assertIn("checker", captured.getvalue())  # 契約：stderr 含合法值清單（寬鬆存在性）
+        self.assertIn(
+            "checker", captured.getvalue()
+        )  # 契約：stderr 含合法值清單（寬鬆存在性）
         self.assertEqual(self.read_state(), before)  # 檔案不變
 
     def test_set_review_checked_by_boundary_is_valid(self):
         """邊界直派（2026-09-21）：reviewer:boundary 為合法審定者值。"""
         self.bootstrap()
         run_cli("set-review", "1", "0", "--checked-by", "reviewer:boundary")
-        self.assertEqual(self.read_state()["sub_tasks"][0]["checked_by"], "reviewer:boundary")
+        self.assertEqual(
+            self.read_state()["sub_tasks"][0]["checked_by"], "reviewer:boundary"
+        )
 
     def test_add_verification_event_records_command_text(self):
         """事件鍵 verify_command：append_event 過濾 `command` 鍵（子命令 dest），指令原文須以
         verify_command 鍵留痕（2026-09-21 修正；消費端 stats.py 全套次數）。"""
         self.bootstrap()
-        run_cli("add-verification", "1", "--command", "pytest -q --strike-key full_suite", "--exit-code", "0")
+        run_cli(
+            "add-verification",
+            "1",
+            "--command",
+            "pytest -q --strike-key full_suite",
+            "--exit-code",
+            "0",
+        )
         with open("run/2026-07-15-demo.events.jsonl", encoding="utf-8") as f:
             ev = [json.loads(line) for line in f if line.strip()][-1]
         self.assertEqual(ev["cmd"], "add-verification")
-        self.assertEqual(ev["args"]["verify_command"], "pytest -q --strike-key full_suite")
+        self.assertEqual(
+            ev["args"]["verify_command"], "pytest -q --strike-key full_suite"
+        )
         self.assertEqual(ev["args"]["exit_code"], 0)
         self.assertEqual(ev["args"]["id"], 1)
 
@@ -311,7 +494,9 @@ class EvalStateHelperTest(unittest.TestCase):
     # set-review --dimensions 案例
     def test_set_review_with_valid_dimensions(self):
         self.bootstrap()
-        run_cli("set-review", "1", "2", "--dimensions", '{"Clarity":1,"Completeness":1}')
+        run_cli(
+            "set-review", "1", "2", "--dimensions", '{"Clarity":1,"Completeness":1}'
+        )
         st = self.read_state()["sub_tasks"][0]
         self.assertEqual(st["review_reds"], 2)
         self.assertEqual(st["review_dimensions"], {"Clarity": 1, "Completeness": 1})
@@ -335,7 +520,7 @@ class EvalStateHelperTest(unittest.TestCase):
     def test_set_review_bad_json_dimensions_exits(self):
         self.bootstrap()
         with self.assertRaises(SystemExit) as ctx:
-            run_cli("set-review", "1", "1", "--dimensions", '{not valid json}')
+            run_cli("set-review", "1", "1", "--dimensions", "{not valid json}")
         self.assertEqual(ctx.exception.code, 2)
         # 不落盤
         self.assertIsNone(self.read_state()["sub_tasks"][0]["review_dimensions"])
@@ -349,12 +534,17 @@ class EvalStateHelperTest(unittest.TestCase):
     def test_add_verification_appends_in_order(self):
         self.bootstrap()
         run_cli("add-verification", "1", "--command", "pytest -q", "--exit-code", "0")
-        run_cli("add-verification", "1", "--command", "ruff check .", "--exit-code", "1")
+        run_cli(
+            "add-verification", "1", "--command", "ruff check .", "--exit-code", "1"
+        )
         vc = self.read_state()["sub_tasks"][0]["verification_commands"]
-        self.assertEqual(vc, [
-            {"command": "pytest -q", "exit_code": 0},
-            {"command": "ruff check .", "exit_code": 1},
-        ])
+        self.assertEqual(
+            vc,
+            [
+                {"command": "pytest -q", "exit_code": 0},
+                {"command": "ruff check .", "exit_code": 1},
+            ],
+        )
 
     def test_add_verification_accepts_negative_exit_code(self):
         self.bootstrap()
@@ -392,6 +582,7 @@ class EvalStateHelperTest(unittest.TestCase):
 
 # --- 2a：events.jsonl append（旁路記錄，不得影響主命令 exit code）---
 
+
 class EventAppendTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -425,7 +616,9 @@ class EventAppendTest(unittest.TestCase):
         run_cli("add-subtask", "--id", "1", "--name", "demo")
         run_cli("set-step", "1", "writing")
         events = self.read_events("r2")
-        self.assertEqual([e["cmd"] for e in events], ["init", "add-subtask", "set-step"])
+        self.assertEqual(
+            [e["cmd"] for e in events], ["init", "add-subtask", "set-step"]
+        )
 
     def test_list_files_does_not_append(self):
         run_cli("init", "--run-id", "r3")
@@ -438,7 +631,9 @@ class EventAppendTest(unittest.TestCase):
         after = len(self.read_events("r3"))
         self.assertEqual(before, after)  # 唯讀命令不 append
 
-    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root 略過檔案權限測試")
+    @unittest.skipIf(
+        hasattr(os, "geteuid") and os.geteuid() == 0, "root 略過檔案權限測試"
+    )
     def test_events_dir_unwritable_main_command_still_succeeds(self):
         """events 目錄不可寫（無法新建檔案）→ 主命令仍成功，僅 stderr warning（風險技術#1）。"""
         with open("eval_state.json", "w", encoding="utf-8") as f:
@@ -464,7 +659,9 @@ class EventAppendTest(unittest.TestCase):
         with mock.patch.object(sys, "stderr", stderr_buf):
             run_cli("add-subtask", "--id", "1", "--name", "demo")
         self.assertIn("run_id 缺失", stderr_buf.getvalue())
-        self.assertEqual(self.read_state()["sub_tasks"][0]["name"], "demo")  # 主命令仍成功
+        self.assertEqual(
+            self.read_state()["sub_tasks"][0]["name"], "demo"
+        )  # 主命令仍成功
         self.assertFalse(os.path.isdir("run"))  # 未產生任何 events 檔
 
     def test_arg_value_over_200_chars_truncated(self):
@@ -488,7 +685,7 @@ class EventAppendTest(unittest.TestCase):
         """含特殊字元：中文／引號／emoji 的 arg 值原樣寫入 events.jsonl（json.dumps ensure_ascii=False）。"""
         run_cli("init", "--run-id", "r8")
         run_cli("add-subtask", "--id", "1", "--name", "demo")
-        special_val = '含「引號」與換行\n特殊字元 🎉'
+        special_val = "含「引號」與換行\n特殊字元 🎉"
         run_cli("set-test", "1", "--passed", "--evidence", special_val)
         events = self.read_events("r8")
         self.assertEqual(events[-1]["args"]["evidence"], special_val)
@@ -562,8 +759,9 @@ class Tier01TelemetryTest(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=False):
             os.environ.pop("CLAUDE_CONFIG_DIR", None)
             run_cli("event", "t1-run", "init")
-        self.assertEqual(self.read_manifest("t1-run")["config_dir"],
-                         os.path.expanduser("~/.claude"))
+        self.assertEqual(
+            self.read_manifest("t1-run")["config_dir"], os.path.expanduser("~/.claude")
+        )
 
     def test_event_init_without_session_env_leaves_manifest_untouched(self):
         self.write_manifest("t1-run")
@@ -589,7 +787,9 @@ class Tier01TelemetryTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join("run", "t1-run.json")))
         env = {"CLAUDE_CODE_SESSION_ID": "sess-abc"}
         stderr = io.StringIO()
-        with mock.patch.dict(os.environ, env, clear=False), mock.patch("sys.stderr", stderr):
+        with mock.patch.dict(os.environ, env, clear=False), mock.patch(
+            "sys.stderr", stderr
+        ):
             run_cli("event", "t1-run", "init")
         self.assertEqual([e["cmd"] for e in self.read_events("t1-run")], ["init"])
         self.assertIn("session 對應鍵未寫入", stderr.getvalue())
@@ -597,7 +797,9 @@ class Tier01TelemetryTest(unittest.TestCase):
 
     def test_non_init_event_does_not_record_session(self):
         self.write_manifest("t1-run")
-        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "sess-abc"}, clear=False):
+        with mock.patch.dict(
+            os.environ, {"CLAUDE_CODE_SESSION_ID": "sess-abc"}, clear=False
+        ):
             run_cli("event", "t1-run", "hitl_confirmed")
         self.assertNotIn("session_id", self.read_manifest("t1-run"))
 
@@ -607,13 +809,17 @@ class Tier01TelemetryTest(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=False):
             run_cli("init", "--run-id", "r2")
         after = self.read_manifest("r2")
-        self.assertEqual((after["session_id"], after["config_dir"]), ("sess-t2", "/cfg"))
+        self.assertEqual(
+            (after["session_id"], after["config_dir"]), ("sess-t2", "/cfg")
+        )
 
     def test_event_appends_in_order(self):
         run_cli("event", "t1-run", "init_done")
         run_cli("event", "t1-run", "item_reviewed")
-        self.assertEqual([e["cmd"] for e in self.read_events("t1-run")],
-                         ["init_done", "item_reviewed"])
+        self.assertEqual(
+            [e["cmd"] for e in self.read_events("t1-run")],
+            ["init_done", "item_reviewed"],
+        )
 
     # --- tier0 自算行數（item 13.3）---
     #
@@ -625,36 +831,51 @@ class Tier01TelemetryTest(unittest.TestCase):
     def git_repo(self):
         """在 cwd 建一個有 baseline commit 的 git repo（tier0 自算需要 git diff HEAD）。"""
         import subprocess
-        for cmd in (["git", "init", "-q"], ["git", "config", "user.email", "t@t.com"],
-                    ["git", "config", "user.name", "T"]):
+
+        for cmd in (
+            ["git", "init", "-q"],
+            ["git", "config", "user.email", "t@t.com"],
+            ["git", "config", "user.name", "T"],
+        ):
             subprocess.run(cmd, check=True, capture_output=True)
         with open("seed.txt", "w", encoding="utf-8") as f:
             f.write("seed\n")
         subprocess.run(["git", "add", "seed.txt"], check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-q", "-m", "baseline"], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "baseline"], check=True, capture_output=True
+        )
 
     def tracked_file(self, name, lines):
         """建一個已追蹤檔並改 lines 行（git diff HEAD 可見）。"""
         import subprocess
+
         with open(name, "w", encoding="utf-8") as f:
             f.write("x\n")
         subprocess.run(["git", "add", name], check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-q", "-m", f"add {name}"], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", f"add {name}"],
+            check=True,
+            capture_output=True,
+        )
         with open(name, "w", encoding="utf-8") as f:
             f.write("".join(f"line{i}\n" for i in range(lines)))
 
     def test_tier0_appends_entry_with_verified_lines(self):
         """新契約：留痕的 lines 來自 git diff 實得，並多記 lines_verified／per_file_lines。"""
         self.git_repo()
-        self.tracked_file("a.py", 8)   # 1 行刪 + 8 行增 = 9
+        self.tracked_file("a.py", 8)  # 1 行刪 + 8 行增 = 9
         with open("b.md", "w", encoding="utf-8") as f:
             f.write("m1\nm2\nm3\n")  # 未追蹤：3 行全新增
-        run_cli("tier0", "--summary", "文案微調", "--files", "a.py, b.md", "--lines", "12")
+        run_cli(
+            "tier0", "--summary", "文案微調", "--files", "a.py, b.md", "--lines", "12"
+        )
         entries = self.read_tier0()
         self.assertEqual(len(entries), 1)
         e = entries[0]
-        self.assertEqual(set(e), {"ts", "summary", "files", "lines", "lines_verified",
-                                  "per_file_lines"})
+        self.assertEqual(
+            set(e),
+            {"ts", "summary", "files", "lines", "lines_verified", "per_file_lines"},
+        )
         self.assertEqual(e["summary"], "文案微調")
         self.assertEqual(e["files"], ["a.py", "b.md"])
         self.assertEqual(e["lines"], 12)
@@ -669,7 +890,9 @@ class Tier01TelemetryTest(unittest.TestCase):
             f.write("one\ntwo\n")
         run_cli("tier0", "--summary", "第一筆", "--files", "a.py", "--lines", "1")
         run_cli("tier0", "--summary", "第二筆", "--files", "b.py", "--lines", "2")
-        self.assertEqual([e["summary"] for e in self.read_tier0()], ["第一筆", "第二筆"])
+        self.assertEqual(
+            [e["summary"] for e in self.read_tier0()], ["第一筆", "第二筆"]
+        )
 
     def test_tier0_rejects_blank_summary(self):
         with self.assertRaises(SystemExit):
@@ -699,7 +922,15 @@ class Tier01TelemetryTest(unittest.TestCase):
             names.append(n)
         with io.StringIO() as buf, contextlib.redirect_stderr(buf):
             with self.assertRaises(SystemExit):
-                run_cli("tier0", "--summary", "s", "--files", ",".join(names), "--lines", "4")
+                run_cli(
+                    "tier0",
+                    "--summary",
+                    "s",
+                    "--files",
+                    ",".join(names),
+                    "--lines",
+                    "4",
+                )
             err = buf.getvalue()
         self.assertIn("上限為 3 個檔案", err)
         self.assertIn("重新分級", err)
@@ -713,7 +944,9 @@ class Tier01TelemetryTest(unittest.TestCase):
             f.write("".join(f"l{i}\n" for i in range(81)))
         with io.StringIO() as buf, contextlib.redirect_stderr(buf):
             with self.assertRaises(SystemExit):
-                run_cli("tier0", "--summary", "s", "--files", "big.txt", "--lines", "81")
+                run_cli(
+                    "tier0", "--summary", "s", "--files", "big.txt", "--lines", "81"
+                )
             err = buf.getvalue()
         self.assertIn("合計 80 行", err)
         self.assertIn("Tier 1", err)
@@ -737,6 +970,7 @@ class Tier01TelemetryTest(unittest.TestCase):
     def test_tier0_real_cli_rejects_cross_file_bypass(self):
         """共用入口與相容入口均拒絕 6 檔及已移除旗標，不改歷史留痕。"""
         import subprocess
+
         self.git_repo()
         names = [f"m{i}.txt" for i in range(6)]
         for name in names:
@@ -746,13 +980,32 @@ class Tier01TelemetryTest(unittest.TestCase):
         history = '{"summary":"舊記錄","mechanical":true}\n'
         log.write_text(history, encoding="utf-8")
         root = Path(__file__).resolve().parents[1]
-        for entry in (".agent-flow/scripts/eval_state.py", ".claude/hooks/eval_state.py"):
-            for extra, expected in (([], "重新分級"), (["--mechanical"], "unrecognized arguments")):
+        for entry in (
+            ".agent-flow/scripts/eval_state.py",
+            ".claude/hooks/eval_state.py",
+        ):
+            for extra, expected in (
+                ([], "重新分級"),
+                (["--mechanical"], "unrecognized arguments"),
+            ):
                 with self.subTest(entry=entry, extra=extra):
                     result = subprocess.run(
-                        [sys.executable, str(root / entry), "tier0", "--summary", "混合修改",
-                         "--files", ",".join(names), "--lines", "6", *extra],
-                        capture_output=True, text=True, check=False)
+                        [
+                            sys.executable,
+                            str(root / entry),
+                            "tier0",
+                            "--summary",
+                            "混合修改",
+                            "--files",
+                            ",".join(names),
+                            "--lines",
+                            "6",
+                            *extra,
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(expected, result.stderr)
                     self.assertEqual(log.read_text(encoding="utf-8"), history)
@@ -760,11 +1013,14 @@ class Tier01TelemetryTest(unittest.TestCase):
     def test_tier0_rejects_binary_change(self):
         """🟡-2：二進位檔的 numstat 為 `-`，以 0 計會讓任意大小的改動偷渡 → 直接拒絕。"""
         import subprocess
+
         self.git_repo()
         with open("b.bin", "wb") as f:
             f.write(b"\x00" * 16)
         subprocess.run(["git", "add", "b.bin"], check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-q", "-m", "add bin"], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "add bin"], check=True, capture_output=True
+        )
         with open("b.bin", "wb") as f:
             f.write(b"\x01" * 5000)
         with io.StringIO() as buf, contextlib.redirect_stderr(buf):
@@ -778,26 +1034,40 @@ class Tier01TelemetryTest(unittest.TestCase):
     def test_tier0_supports_deleted_file(self):
         """🟡-3：合法的 Tier 0 刪檔（工作區已無、git diff 看得到）須能留痕。"""
         import subprocess
+
         self.git_repo()
         with open("gone.txt", "w", encoding="utf-8") as f:
             f.write("a\nb\nc\n")
         subprocess.run(["git", "add", "gone.txt"], check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-q", "-m", "add gone"], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "add gone"], check=True, capture_output=True
+        )
         os.remove("gone.txt")
-        run_cli("tier0", "--summary", "刪掉過期文案檔", "--files", "gone.txt", "--lines", "3")
+        run_cli(
+            "tier0",
+            "--summary",
+            "刪掉過期文案檔",
+            "--files",
+            "gone.txt",
+            "--lines",
+            "3",
+        )
         e = self.read_tier0()[0]
         self.assertEqual(e["per_file_lines"], {"gone.txt": 3})
 
     def test_tier0_rejects_directory_pathspec(self):
         """🟡-B：目錄會讓檔數上限失效（git diff 展開目錄下全部檔案）→ 拒絕，要求逐檔列出。"""
         import subprocess
+
         self.git_repo()
         os.makedirs("d", exist_ok=True)
         for i in range(5):
             with open(os.path.join("d", f"f{i}.txt"), "w", encoding="utf-8") as f:
                 f.write("x\n")
         subprocess.run(["git", "add", "d"], check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-q", "-m", "add d"], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "add d"], check=True, capture_output=True
+        )
         for i in range(5):
             with open(os.path.join("d", f"f{i}.txt"), "w", encoding="utf-8") as f:
                 f.write("changed\n")
@@ -853,9 +1123,16 @@ class HitlConfirmTest(unittest.TestCase):
     RID = "2026-10-03-probe"
 
     def write_manifest(self, **over):
-        m = {"run_id": self.RID, "tier": 1, "status": "in_progress", "phase": "init",
-             "spec_inline": "一句需求", "task_file": "task/2026-10-03.md",
-             "hitl_confirmed_at": None, "hitl_rulings": None}
+        m = {
+            "run_id": self.RID,
+            "tier": 1,
+            "status": "in_progress",
+            "phase": "init",
+            "spec_inline": "一句需求",
+            "task_file": "task/2026-10-03.md",
+            "hitl_confirmed_at": None,
+            "hitl_rulings": None,
+        }
         m.update(over)
         with open(os.path.join("run", f"{self.RID}.json"), "w", encoding="utf-8") as f:
             json.dump(m, f, ensure_ascii=False)
@@ -882,7 +1159,14 @@ class HitlConfirmTest(unittest.TestCase):
 
     def test_confirms_and_advances_phase(self):
         self.write_manifest()
-        run_cli("hitl-confirm", self.RID, "--note", "確認 2 tasks／4 items", "--rulings", "2")
+        run_cli(
+            "hitl-confirm",
+            self.RID,
+            "--note",
+            "確認 2 tasks／4 items",
+            "--rulings",
+            "2",
+        )
         m = self.read_manifest()
         self.assertEqual(m["phase"], "decomposed")
         self.assertEqual(m["hitl_rulings"], 2)
@@ -924,7 +1208,9 @@ class HitlConfirmTest(unittest.TestCase):
         err = self._expect_exit1("hitl-confirm", self.RID, "--note", "新確認")
         self.assertIn("已有 hitl_confirmed_at", err)
         self.assertIn("原確認", err)
-        self.assertEqual(self.read_manifest()["hitl_confirmed_at"], "2026-10-01 09:00 — 原確認")
+        self.assertEqual(
+            self.read_manifest()["hitl_confirmed_at"], "2026-10-01 09:00 — 原確認"
+        )
 
     def test_unattended_session_cannot_self_confirm(self):
         """無人看管（ATTENDED=0）→ exit 1、三欄不變。出生證：headless 評測中模型自行確認後動工。"""
@@ -949,8 +1235,12 @@ class HitlConfirmTest(unittest.TestCase):
     def test_missing_attended_env_is_recorded_as_unknown(self):
         """環境未提供該變數（例如直接在終端跑）→ 不擋，但留痕為 None 供稽核。"""
         self.write_manifest()
-        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ATTENDED"}
-        with mock.patch.dict(os.environ, env, clear=True):  # clear 後 setUp 的釘樁不生效
+        env = {
+            k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ATTENDED"
+        }
+        with mock.patch.dict(
+            os.environ, env, clear=True
+        ):  # clear 後 setUp 的釘樁不生效
             run_cli("hitl-confirm", self.RID, "--note", "終端手動確認")
         m = self.read_manifest()
         self.assertEqual(m["phase"], "decomposed")

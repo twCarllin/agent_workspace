@@ -10,6 +10,7 @@
 
 exit 0 = 放行；exit 2 = block（stderr 說明原因，回饋給 Claude 修正）。
 """
+
 import glob
 import json
 import os
@@ -40,7 +41,9 @@ RUN_ID_TRAILER_RE = re.compile(r"^[ \t]*Run-Id:[ \t]*([A-Za-z0-9._-]+)", re.MULT
 # 同受 gate 7 phase 狀態機。role＝`dispatch.py` 後第一個非旗標 token；旗標（`--x`／`--x value`）
 # 可在 role 之前。解析對象同 GIT_COMMIT_RE 是 Bash 指令原文，故 heredoc 內容含此字樣亦會觸發
 # （已知假陽性，與 commit gate 同型；phase 已達門檻時無害）。
-DISPATCH_RE = re.compile(r"\bdispatch\.py\s+(?:--[A-Za-z0-9-]+(?:[= ]\S+)?\s+)*([A-Za-z][A-Za-z0-9-]*)")
+DISPATCH_RE = re.compile(
+    r"\bdispatch\.py\s+(?:--[A-Za-z0-9-]+(?:[= ]\S+)?\s+)*([A-Za-z][A-Za-z0-9-]*)"
+)
 
 TEST_FILE_NAME_RE = re.compile(r"^(test_.*|.*_test)\.py$")
 TEST_DIR_NAMES = {"test", "tests", "__tests__", "spec"}
@@ -51,7 +54,7 @@ TEST_DIR_NAMES = {"test", "tests", "__tests__", "spec"}
 PHASES = flow_rules.PHASES
 PENDING_STATUSES = flow_rules.PENDING_STATUSES
 AGENT_MIN_PHASE = {
-    "usage-analyzer": "init",   # 具名問題隨時可觸發（前置 2 改觸發式，Spec §3.1 D2）
+    "usage-analyzer": "init",  # 具名問題隨時可觸發（前置 2 改觸發式，Spec §3.1 D2）
     "impact-analyzer": "init",  # 具名問題隨時可觸發（前置 2.5 改觸發式，Spec §3.1 D2）
     "task-decomposer": "init",  # 分拆隨時可做（前置 3 改條件派工，Spec §3.1）
     "code-writer": "decomposed",  # 前置 3（task 分拆）完成才可進循環
@@ -64,33 +67,61 @@ AGENT_MIN_PHASE = {
 # 回報計畫請確認，卻在確認前就改了實作檔（phase 仍為 init，未造假）——prose 守不住，改由本 gate 攔。
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 # 豁免：前置階段（phase 仍為 init）本來就要寫這些溯源與規格檔；evals/results 為評測輸出
-WRITE_GATE_EXEMPT_PREFIXES = ("run/", "task/", "spec/", "retro/", "usage/", "impact/", "risk/",
-                              "evals/results/")
+WRITE_GATE_EXEMPT_PREFIXES = (
+    "run/",
+    "task/",
+    "spec/",
+    "retro/",
+    "usage/",
+    "impact/",
+    "risk/",
+    "evals/results/",
+)
 WRITE_GATE_EXEMPT_EXACT = ("eval_state.json",)
 
 
 # hook 模式下被擋時附上；流程細節不在常駐 context，被擋常代表 skill 未載入或已被 compact
 SKILL_HINT = "（流程細節住在 eval-flow skill：若尚未載入或 context 被 compact，先載入 .agents/skills/eval-flow/SKILL.md，再依檔案狀態修正）"
 _hint_enabled = False
+_hook_run_id = None
 
 
-def log_gate_hit(msg):
-    """gate 命中遙測：append 到 run/gate_hits.log（stats.py 彙總用）。
-    只在 run/ 已存在時寫（不在非 flow 專案留檔）；失敗不影響攔截本身。"""
+def log_gate_hit(msg, gate_id, run_id=None):
+    """Append structured telemetry; a write failure must not change blocking."""
     if not os.path.isdir("run"):
         return
     try:
-        from datetime import datetime
-        first_line = msg.splitlines()[0][:200]
-        with open("run/gate_hits.log", "a", encoding="utf-8") as f:
-            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}\t{first_line}\n")
+        from datetime import datetime, timezone
+
+        if run_id is None:
+            run_id = _hook_run_id
+        if run_id is None:
+            try:
+                with open("eval_state.json", encoding="utf-8") as state_stream:
+                    state = json.load(state_stream)
+                run_id = state.get("run_id") if isinstance(state, dict) else None
+            except (OSError, ValueError):
+                pass
+        record = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": "INFO",
+            "logger": "eval_gates",
+            "event": "gate.blocked",
+            "message": msg,
+            "gate_id": gate_id,
+            "reason": gate_id,
+            "run_id": run_id,
+            "outcome": "blocked",
+        }
+        with open("run/gate_hits.log", "a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
     except OSError:
         pass
 
 
-def block(msg):
+def block(msg, gate_id="gate.blocked", run_id=None):
     if _hint_enabled:
-        log_gate_hit(msg)
+        log_gate_hit(msg, gate_id, run_id)
     hint = f"\n[gate-check] {SKILL_HINT}" if _hint_enabled else ""
     print(f"[gate-check] BLOCK: {msg}{hint}", file=sys.stderr)
     sys.exit(2)
@@ -100,7 +131,23 @@ def _rule_call(operation, *args, **kwargs):
     try:
         return operation(*args, **kwargs)
     except flow_rules.RuleViolation as error:
-        block(str(error))
+        gate_id = {
+            "load_json": "gate.json_invalid",
+            "validate_credentials": "gate.credentials_invalid",
+            "validate_evidence_snapshot": "gate.snapshot_invalid",
+            "validate_state": "gate.state_invalid",
+            "check_manifest": "gate.manifest_invalid",
+            "manifest_phase": "gate.phase_invalid",
+            "load_json_quiet": "gate.json_invalid",
+        }[operation.__name__]
+        source = args[0] if args else None
+        match = MANIFEST_RE.fullmatch(source) if isinstance(source, str) else None
+        run_id = (
+            match.group("run_id")
+            if match
+            else (source.get("run_id") if isinstance(source, dict) else None)
+        )
+        block(str(error), gate_id=gate_id, run_id=run_id)
 
 
 def load_json(*args, **kwargs):
@@ -145,13 +192,17 @@ def check_other_runs(current_run_id):
         if other.get("debt"):
             block(
                 f"{path} 有未清欠帳 debt={other.get('debt')}（hotfix 遺留）："
-                f"須先還清（補 risk 分析／回歸測試／retro，還一項移除一項）才可啟動新 run"
+                f"須先還清（補 risk 分析／回歸測試／retro，還一項移除一項）才可啟動新 run",
+                gate_id="gate.run_debt",
+                run_id=other_id,
             )
         if other_id != current_run_id and other.get("status") in PENDING_STATUSES:
             block(
                 f"本工作區已有另一個未完成的 run（{path}）："
                 f"一個 worktree 同時只允許一個 run。先收尾／封存該 run，"
-                f"要並行請開 git worktree，中斷續跑依 eval-flow-resume skill"
+                f"要並行請開 git worktree，中斷續跑依 eval-flow-resume skill",
+                gate_id="gate.concurrent_run",
+                run_id=other_id,
             )
 
 
@@ -165,7 +216,9 @@ def _git_diff_cached_paths(*extra_args):
     try:
         out = subprocess.run(
             ["git", "diff", "--cached", "--name-only", "-z", *extra_args],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout
     except (OSError, subprocess.CalledProcessError):
         return None
@@ -187,8 +240,10 @@ def check_manifest_deletion():
         if MANIFEST_RE.match(path):
             block(
                 f"{path} 被刪除：manifest 是冷溯源檔，永不可刪除。"
-                f"這個 run 若要放棄，改標記 status: \"aborted\" 並填寫 failed_reason，不要刪檔\n"
-                f"→ 補救：`git restore --staged {path}`（取消刪除的暫存），再視需要標 aborted"
+                f'這個 run 若要放棄，改標記 status: "aborted" 並填寫 failed_reason，不要刪檔\n'
+                f"→ 補救：`git restore --staged {path}`（取消刪除的暫存），再視需要標 aborted",
+                gate_id="gate.manifest_deleted",
+                run_id=MANIFEST_RE.match(path).group("run_id"),
             )
 
 
@@ -259,7 +314,9 @@ def check_inprogress_runs():
             block(
                 f"{path} 仍為 {m.get('status')}：該 run 尚未完成，不可在缺 Run-Id 的情況下 commit\n"
                 f"→ 補救：走完 eval-flow step 5／6（填四欄憑據、status 設 ready_to_commit），並於 commit message 加 Run-Id；"
-                f"若決定放棄該 run，改標 status: \"aborted\" 並填 failed_reason（不要刪檔）"
+                f'若決定放棄該 run，改標 status: "aborted" 並填 failed_reason（不要刪檔）',
+                gate_id="gate.run_unfinished",
+                run_id=m.get("run_id"),
             )
 
 
@@ -273,7 +330,9 @@ def _managed_commit_hook_available():
             return False  # An external hooksPath has not been wired by our installer.
         result = subprocess.run(
             ["git", "rev-parse", "--git-path", "hooks/commit-msg"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         path = result.stdout.strip()
         with open(path, encoding="utf-8") as stream:
@@ -303,7 +362,10 @@ def check_staged_test_lint(staged):
     )
     if p.returncode != 0:
         detail = (p.stdout + p.stderr).strip()
-        block(f"假測試 lint 未過（修測試或以行尾 `# testlint: allow` 豁免並留痕）：\n{detail}")
+        block(
+            f"假測試 lint 未過（修測試或以行尾 `# testlint: allow` 豁免並留痕）：\n{detail}",
+            gate_id="gate.test_lint",
+        )
 
 
 def _find_unique_tier1_inprogress(*args, **kwargs):
@@ -319,7 +381,9 @@ def _rel_to_cwd(file_path):
     if not isinstance(file_path, str) or not file_path:
         return None  # 缺鍵或非字串（payload 形狀不可信任）→ 不屬本 gate 管轄，不拋例外
     try:
-        rel = os.path.relpath(os.path.realpath(file_path), os.path.realpath(os.getcwd()))
+        rel = os.path.relpath(
+            os.path.realpath(file_path), os.path.realpath(os.getcwd())
+        )
     except (ValueError, OSError, TypeError):
         return None
     if rel == ".." or rel.startswith(".." + os.sep):
@@ -348,7 +412,9 @@ def _runs_before_hitl():
 
 def check_write_gate(tool_input):
     """HITL 未過不得寫實作檔（攔截型，exit 2）。無進行中的 run 一律放行。"""
-    rel = _rel_to_cwd(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
+    rel = _rel_to_cwd(
+        tool_input.get("file_path") or tool_input.get("notebook_path") or ""
+    )
     if rel is None:
         return  # repo 外的檔案不屬本 gate 管轄
     if rel in WRITE_GATE_EXEMPT_EXACT or rel.startswith(WRITE_GATE_EXEMPT_PREFIXES):
@@ -361,9 +427,11 @@ def check_write_gate(tool_input):
     block(
         f"{manifest_path} 的 HITL 未過（phase={manifest_phase(manifest)}）：不可在使用者確認計畫前寫 {rel}\n"
         f"→ 補救一：把「N tasks／M items」計畫回報使用者，確認後跑 "
-        f"`python3 .agent-flow/scripts/eval_state.py hitl-confirm {run_id} --note \"<時間＋確認範圍一句>\" [--rulings N]`\n"
+        f'`python3 .agent-flow/scripts/eval_state.py hitl-confirm {run_id} --note "<時間＋確認範圍一句>" [--rulings N]`\n'
         f"→ 補救二：本 run 不再續跑 → 由使用者裁決把該 manifest 的 status 改 aborted（並填 failed_reason）\n"
-        f"（溯源與規格檔不受本 gate 限制：{'／'.join(WRITE_GATE_EXEMPT_PREFIXES)} 與 eval_state.json 照常可寫）"
+        f"（溯源與規格檔不受本 gate 限制：{'／'.join(WRITE_GATE_EXEMPT_PREFIXES)} 與 eval_state.json 照常可寫）",
+        gate_id="gate.write_before_hitl",
+        run_id=run_id,
     )
 
 
@@ -379,19 +447,29 @@ def check_task_gate(tool_input):
         state = load_json("eval_state.json")
         run_id = state.get("run_id")
         if not run_id:
-            block(f"eval_state.json 缺 run_id，無法定位 manifest；呼叫 {agent} 被擋\n"
-                  f"→ 補救：`python3 .agent-flow/scripts/eval_state.py init --run-id <run_id>` 重建（run_id 須與 run/<run_id>.json 一致）")
+            block(
+                f"eval_state.json 缺 run_id，無法定位 manifest；呼叫 {agent} 被擋\n"
+                f"→ 補救：`python3 .agent-flow/scripts/eval_state.py init --run-id <run_id>` 重建（run_id 須與 run/<run_id>.json 一致）",
+                gate_id="gate.state_run_id_missing",
+            )
         manifest_path = f"run/{run_id}.json"
         if not os.path.exists(manifest_path):
-            block(f"{manifest_path} 不存在（前置 0 未完成），不可呼叫 {agent}")
+            block(
+                f"{manifest_path} 不存在（前置 0 未完成），不可呼叫 {agent}",
+                gate_id="gate.manifest_missing",
+                run_id=run_id,
+            )
         manifest = load_json(manifest_path)
     else:
         state = None
         # DoD (a)：找唯一 tier 1 in_progress manifest 作為當前 run 依據
         tier1 = _find_unique_tier1_inprogress()
         if tier1 is None:
-            block(f"呼叫 {agent} 前須完成前置 0：eval_state.json 不存在（run 未初始化）\n"
-                  f"→ 補救：`python3 .agent-flow/scripts/eval_state.py init --run-id <run_id>`（Tier 1 不建 eval_state.json，若本 run 為 Tier 1 請改走精簡路徑）")
+            block(
+                f"呼叫 {agent} 前須完成前置 0：eval_state.json 不存在（run 未初始化）\n"
+                f"→ 補救：`python3 .agent-flow/scripts/eval_state.py init --run-id <run_id>`（Tier 1 不建 eval_state.json，若本 run 為 Tier 1 請改走精簡路徑）",
+                gate_id="gate.run_not_initialized",
+            )
         manifest_path, manifest = tier1
         run_id = MANIFEST_RE.match(manifest_path).group("run_id")
 
@@ -399,13 +477,19 @@ def check_task_gate(tool_input):
     check_other_runs(run_id)
 
     if not (manifest.get("spec_path") or manifest.get("spec_inline")):
-        block(f"{manifest_path} intent gate 未過：spec_path 與 spec_inline 皆空，不可呼叫 {agent}")
+        block(
+            f"{manifest_path} intent gate 未過：spec_path 與 spec_inline 皆空，不可呼叫 {agent}",
+            gate_id="gate.intent_missing",
+            run_id=run_id,
+        )
 
     phase = manifest_phase(manifest)
     if PHASES.index(phase) < PHASES.index(required):
         block(
             f"phase 狀態機：呼叫 {agent} 需 manifest.phase >= {required}，"
-            f"目前為 {phase}。請先完成缺少的前置步驟並更新 manifest.phase"
+            f"目前為 {phase}。請先完成缺少的前置步驟並更新 manifest.phase",
+            gate_id="gate.agent_phase",
+            run_id=run_id,
         )
 
     # task-decomposer 的 usage_report_path 擋人判定已移除（2026-09-22 tier2-slimming
@@ -413,7 +497,11 @@ def check_task_gate(tool_input):
 
     if agent == "code-writer":
         if not manifest.get("task_file"):
-            block(f"{manifest_path} task_file 為空：前置 3 未完成，不可呼叫 code-writer")
+            block(
+                f"{manifest_path} task_file 為空：前置 3 未完成，不可呼叫 code-writer",
+                gate_id="gate.task_file_missing",
+                run_id=run_id,
+            )
         # risk_analysis.blocking 遍歷已移除（Q8：前置 1 風險分析連同本刪除，生產者消失、
         # 此 gate 永遠不觸發；`risk_analysis` 欄位寫入路徑同步自 eval_state.py 移除）。
 
@@ -432,7 +520,10 @@ def _git_toplevel(path):
     try:
         result = subprocess.run(
             ["git", "-C", path, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, errors="replace", timeout=5,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=5,
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -472,7 +563,8 @@ def _resolve_root(payload):
 
 
 def run_hook():
-    global _hint_enabled
+    global _hint_enabled, _hook_run_id
+    _hook_run_id = None
     _hint_enabled = True  # 只在 hook 模式附提示；--validate 為人工自檢，不需要
     try:
         payload = json.load(sys.stdin)
@@ -480,6 +572,7 @@ def run_hook():
         sys.exit(0)  # 非預期輸入，不擋
 
     import harness_adapter
+
     payload = harness_adapter.normalize_hook(payload)
 
     root = _resolve_root(payload)
@@ -487,10 +580,13 @@ def run_hook():
     # 連結工具鏈進 linked worktree（缺才補、fail-open 回空清單）；放在任何 gate 判定之前，
     # 不是 gate、不改 exit code。
     import worktree_link
+
     worktree_link.ensure_links(root)
 
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input") or {}
+    trailer = RUN_ID_TRAILER_RE.search(tool_input.get("command", ""))
+    _hook_run_id = trailer.group(1) if trailer else None
 
     if tool_name in ("Task", "Agent"):
         check_task_gate(tool_input)
@@ -536,7 +632,8 @@ def run_hook():
             "eval_state.json 仍存在。須先歸檔為 run/<run_id>.eval.json 並清除後才可 commit；"
             "若為失敗收尾（status: failed），依規則由使用者裁決，不可由 Claude commit\n"
             "→ 補救：`python3 .agent-flow/scripts/eval_state.py archive`（會驗四項憑據、寫出歸檔檔並刪除 eval_state.json），"
-            "再把 manifest 標 status: completed（歸檔檔是冷溯源檔，留在工作目錄即可，不需 git add）"
+            "再把 manifest 標 status: completed（歸檔檔是冷溯源檔，留在工作目錄即可，不需 git add）",
+            gate_id="gate.state_not_archived",
         )
 
     # 待驗 manifest ＝ staged 中匹配者（向後相容：舊 run，以及仍把 run/ 納入版控的專案）
@@ -551,7 +648,11 @@ def run_hook():
     # 亦即該次 commit 不含任何 code、只為留痕放棄的 run；那條逃生門不該被另一個未收尾的 run
     # 卡死。兩者的 status 條件（aborted／failed vs in_progress）互斥，不存在互相遮蔽的情境。
     if not manifests:
-        if _managed_commit_hook_available() and "--no-verify" not in command and "core.hooksPath" not in command:
+        if (
+            _managed_commit_hook_available()
+            and "--no-verify" not in command
+            and "core.hooksPath" not in command
+        ):
             # Git's commit-msg hook receives the final message, including -F and editor input.
             # The tool hook still blocks an unarchived scratchpad above.
             return

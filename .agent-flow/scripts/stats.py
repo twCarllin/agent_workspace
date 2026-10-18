@@ -9,7 +9,7 @@
   waive 率         驗證豁免有沒有變質為常態後門
   HITL 打回率      歷史指標，僅供對照——人閘門的價值信號改看裁示數（實測：打回率 0% 的 HITL 單場出 5 條裁示）
   rework 率（首輪即有 🔴）  幾成 sub_task 首輪就有 review_reds >= 1（需要第二輪）；
-                            legacy 歸檔無頂層 review_reds 時 fallback len(rounds) >= 2；
+                            首輪資料優先；舊資料僅讀明確 first_review_reds，其他缺資料不入分母；
                             **分母語義斷點（PER_TASK_CUTOFF）**：2026-09-22 起一筆歸檔＝一個 task，
                             此前一筆＝一個 item（Q2/Q9）——兩期分母意義不同，report() 分開顯示、
                             不合併成單一趨勢（R-010：每次輸出都須明示此斷點，不得只在有新資料時才顯示）
@@ -42,6 +42,7 @@
 資料來源：run/*.json（manifest）、run/*.eval.json、run/*.test_baseline.json、
 run/*.events.jsonl、run/gate_hits.log。欄位缺漏時顯示 n/a 並註明需要什麼資料，不猜。
 """
+
 import argparse
 import datetime
 import glob
@@ -120,7 +121,11 @@ def _events_summary(events):
             timestamps.append(datetime.datetime.fromisoformat(ts))
         except ValueError:
             continue
-    span_seconds = (max(timestamps) - min(timestamps)).total_seconds() if len(timestamps) >= 2 else None
+    span_seconds = (
+        (max(timestamps) - min(timestamps)).total_seconds()
+        if len(timestamps) >= 2
+        else None
+    )
 
     step_hits = Counter()
     for e in events:
@@ -139,13 +144,22 @@ def _events_summary(events):
             if isinstance(cmd_text, str) and "--strike-key full_suite" in cmd_text:
                 full_suite += 1
 
-    return {"count": len(events), "span_seconds": span_seconds, "reentry": reentry, "full_suite": full_suite}
+    return {
+        "count": len(events),
+        "span_seconds": span_seconds,
+        "reentry": reentry,
+        "full_suite": full_suite,
+    }
 
 
 def _duration(value):
     """未知、布林、非有限值及負值不作時間樣本；零是有效樣本。"""
-    return (isinstance(value, (int, float)) and not isinstance(value, bool)
-            and math.isfinite(value) and value >= 0)
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value >= 0
+    )
 
 
 def _verification_efficiency(rows, efficiency, commands):
@@ -204,49 +218,142 @@ def _packet_efficiency(events, efficiency):
             efficiency["packet_timed"][action] += 1
         missing = args.get("missing")
         if isinstance(missing, list):
-            efficiency["packet_missing"].update(x for x in missing if isinstance(x, str))
+            efficiency["packet_missing"].update(
+                x for x in missing if isinstance(x, str)
+            )
 
 
 def append_efficiency(out, data):
     e = data["efficiency"]
-    out.append(f"驗證效率：實跑 {e['executed']}／沿用 {e['reused']}／相同指令重複實跑 {e['repeated']}"
-               f"／執行前阻擋 {e['blocked']}／是否實跑未知 {e['execution_unknown']}"
-               f"（各 run 內依指令原文計算，不推定原因）；無記錄 {len(data['runs']) - data['verif_runs']} 個 run；無效列 {e['invalid_rows']}")
+    out.append(
+        f"驗證效率：實跑 {e['executed']}／沿用 {e['reused']}／相同指令重複實跑 {e['repeated']}"
+        f"／執行前阻擋 {e['blocked']}／是否實跑未知 {e['execution_unknown']}"
+        f"（各 run 內依指令原文計算，不推定原因）；無記錄 {len(data['runs']) - data['verif_runs']} 個 run；無效列 {e['invalid_rows']}"
+    )
+
     def elapsed(total, count):
         return f"{total:.3f}s（{count} 筆有時間記錄）" if count else "n/a（無時間記錄）"
-    out.append("驗證已記錄時間：" + "／".join(
-        label + " " + elapsed(e[kind + "_seconds"], e[kind + "_timed"])
-        for kind, label in (("executed", "實跑"), ("reused", "沿用"))))
-    out.append("審查資料包：" + "／".join(
-        f"{action} {e['packet_actions'][action]} 筆，" + elapsed(e["packet_seconds"][action], e["packet_timed"][action])
-        for action in ("build", "validate")) + f"；無 events 記錄 {e['packet_missing_runs']} 個 run")
-    out.append(f"資料包缺少輸入原因：{dict(e['packet_missing'].most_common())}（事件出現次數；資料包就緒不代表 checker 通過）")
+
+    out.append(
+        "驗證已記錄時間："
+        + "／".join(
+            label + " " + elapsed(e[kind + "_seconds"], e[kind + "_timed"])
+            for kind, label in (("executed", "實跑"), ("reused", "沿用"))
+        )
+    )
+    out.append(
+        "審查資料包："
+        + "／".join(
+            f"{action} {e['packet_actions'][action]} 筆，"
+            + elapsed(e["packet_seconds"][action], e["packet_timed"][action])
+            for action in ("build", "validate")
+        )
+        + f"；無 events 記錄 {e['packet_missing_runs']} 個 run"
+    )
+    out.append(
+        f"資料包缺少輸入原因：{dict(e['packet_missing'].most_common())}（事件出現次數；資料包就緒不代表 checker 通過）"
+    )
+
+
+def count_reruns(rows, data):
+    seen = set()
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or not isinstance(row.get("command"), str):
+            continue
+        command = row["command"]
+        if row.get("reused") is True or row.get("executed") is False:
+            continue
+        if command in seen:
+            reason = row.get("rerun_reason")
+            if reason in (
+                "input_changed",
+                "previous_failed",
+                "user_requested",
+                "unknown",
+            ):
+                data["rerun_reasons"][reason] += 1
+            else:
+                data["rerun_missing"] += 1
+        seen.add(command)
+
+
+def first_review_reds(target):
+    rounds = target.get("review_rounds", target.get("rounds"))
+    if isinstance(rounds, list) and rounds:
+        first = rounds[0]
+        value = first.get("review_reds") if isinstance(first, dict) else None
+        if "review_rounds" not in target and value is None:
+            value = target.get("first_review_reds")
+    else:
+        value = target.get("first_review_reds")
+    return (
+        value
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        else None
+    )
 
 
 def collect(run_dir="run"):
     data = {
-        "efficiency": {"executed": 0, "reused": 0, "blocked": 0, "execution_unknown": 0, "repeated": 0, "invalid_rows": 0,
-                       "executed_seconds": 0, "reused_seconds": 0, "executed_timed": 0, "reused_timed": 0,
-                       "packet_actions": Counter(), "packet_seconds": Counter(), "packet_timed": Counter(),
-                       "packet_missing": Counter(), "packet_missing_runs": 0},
-        "runs": [], "tiers": Counter(), "statuses": Counter(),
-        "waived": 0, "hitl_confirmed": 0, "hitl_rejections": 0,
+        "efficiency": {
+            "executed": 0,
+            "reused": 0,
+            "blocked": 0,
+            "execution_unknown": 0,
+            "repeated": 0,
+            "invalid_rows": 0,
+            "executed_seconds": 0,
+            "reused_seconds": 0,
+            "executed_timed": 0,
+            "reused_timed": 0,
+            "packet_actions": Counter(),
+            "packet_seconds": Counter(),
+            "packet_timed": Counter(),
+            "packet_missing": Counter(),
+            "packet_missing_runs": 0,
+        },
+        "runs": [],
+        "tiers": Counter(),
+        "statuses": Counter(),
+        "waived": 0,
+        "hitl_confirmed": 0,
+        "hitl_rejections": 0,
         # sub_tasks／rework／checked_by_*：分母語義斷點（PER_TASK_CUTOFF）——本組無 `_new` 後綴的鍵
         # 代表「舊期」（2026-09-22 前，一筆＝一個 item）；`_new` 後綴代表「新期」（一筆＝一個 task）。
         # 兩期絕不相加成單一數字（R-010／DoD③），report() 分開顯示。
-        "sub_tasks": 0, "rework": 0,
-        "sub_tasks_new": 0, "rework_new": 0,
-        "scores": [], "dim_counter": Counter(), "has_legacy_dims": False,
+        "rework_recorded": 0,
+        "rework_missing": 0,
+        "rework_recorded_new": 0,
+        "rework_missing_new": 0,
+        "rerun_reasons": Counter(),
+        "rerun_missing": 0,
+        "sub_tasks": 0,
+        "rework": 0,
+        "sub_tasks_new": 0,
+        "rework_new": 0,
+        "scores": [],
+        "dim_counter": Counter(),
+        "has_legacy_dims": False,
         "baseline": [],  # (run_id, stable)
-        "verif_runs": 0, "verif_cmds": 0,
-        "gate_hits": Counter(), "gate_hit_lines": [],
+        "verif_runs": 0,
+        "verif_cmds": 0,
+        "gate_hits": Counter(),
+        "gate_hit_lines": [],
         "events": [],  # (run_id, summary dict | None)
-        "hitl_rulings": [], "hitl_rulings_missing": 0,
-        "checked_by_direct": 0, "checked_by_escalated": 0,
-        "checked_by_dist": Counter(), "checked_by_none": 0, "checked_by_boundary": 0,
-        "checked_by_direct_new": 0, "checked_by_escalated_new": 0,
-        "checked_by_dist_new": Counter(), "checked_by_none_new": 0, "checked_by_boundary_new": 0,
-        "subagent_usage": [], "subagent_usage_missing": 0,  # (run_id, prep, loop)，僅實測 run
+        "hitl_rulings": [],
+        "hitl_rulings_missing": 0,
+        "checked_by_direct": 0,
+        "checked_by_escalated": 0,
+        "checked_by_dist": Counter(),
+        "checked_by_none": 0,
+        "checked_by_boundary": 0,
+        "checked_by_direct_new": 0,
+        "checked_by_escalated_new": 0,
+        "checked_by_dist_new": Counter(),
+        "checked_by_none_new": 0,
+        "checked_by_boundary_new": 0,
+        "subagent_usage": [],
+        "subagent_usage_missing": 0,  # (run_id, prep, loop)，僅實測 run
         "subagent_usage_main": [],  # (run_id, main) 選填鍵，主 flow 用量（實測 run）
         "subagent_usage_legacy": 0,  # 有 subagent_usage 無 token_usage：舊制自報，不併計
     }
@@ -277,13 +384,17 @@ def collect(run_dir="run"):
         usage = m.get("subagent_usage")
         if (
             isinstance(usage, dict)
-            and isinstance(usage.get("prep"), int) and not isinstance(usage.get("prep"), bool)
-            and isinstance(usage.get("loop"), int) and not isinstance(usage.get("loop"), bool)
+            and isinstance(usage.get("prep"), int)
+            and not isinstance(usage.get("prep"), bool)
+            and isinstance(usage.get("loop"), int)
+            and not isinstance(usage.get("loop"), bool)
         ):
             if not isinstance(m.get("token_usage"), dict):
                 data["subagent_usage_legacy"] += 1  # 舊制自報：單位不同，不進清單與比值
             else:
-                data["subagent_usage"].append((m["run_id"], usage["prep"], usage["loop"]))
+                data["subagent_usage"].append(
+                    (m["run_id"], usage["prep"], usage["loop"])
+                )
                 main = usage.get("main")  # 選填；非 int 寬容跳過（prep/loop 照收）
                 if isinstance(main, int) and not isinstance(main, bool):
                     data["subagent_usage_main"].append((m["run_id"], main))
@@ -293,37 +404,45 @@ def collect(run_dir="run"):
         # verification_commands：Tier 1 記在 manifest、Tier 2 記在各 sub_task（下方 archive 迴圈併計）。
         # 鍵不存在＝該 run 無記錄（不計入平均分母）；存在但為空陣列＝有記錄但 0 條
         commands = Counter()
-        _verification_efficiency(m.get("verification_commands"), data["efficiency"], commands)
+        count_reruns(m.get("verification_commands"), data)
+        if not os.path.exists(os.path.join(run_dir, f"{m['run_id']}.eval.json")):
+            suffix = "_new" if _period(m["run_id"]) == "new" else ""
+            reds = first_review_reds(m)
+            data["rework_missing" + suffix] += int(reds is None)
+            data["rework_recorded" + suffix] += int(reds is not None)
+            data["rework" + suffix] += int(reds is not None and reds >= 1)
+        _verification_efficiency(
+            m.get("verification_commands"), data["efficiency"], commands
+        )
         verif_recorded = isinstance(m.get("verification_commands"), list)
         verif_cmds = len(m["verification_commands"]) if verif_recorded else 0
 
         archive = load(os.path.join(run_dir, f"{m['run_id']}.eval.json"))
         if isinstance(archive, dict):
-            period = _period(m["run_id"])  # "old"（一筆＝item）或 "new"（一筆＝task，Q2/Q9）
+            period = _period(
+                m["run_id"]
+            )  # "old"（一筆＝item）或 "new"（一筆＝task，Q2/Q9）
             sub_tasks = archive.get("sub_tasks")
             for st in sub_tasks if isinstance(sub_tasks, list) else []:
                 if not isinstance(st, dict):
                     continue
                 rounds = st.get("rounds")
-                rounds = [r for r in rounds if isinstance(r, dict)] if isinstance(rounds, list) else []
+                rounds = (
+                    [r for r in rounds if isinstance(r, dict)]
+                    if isinstance(rounds, list)
+                    else []
+                )
                 if period == "new":
                     data["sub_tasks_new"] += 1
                 else:
                     data["sub_tasks"] += 1
-                # rework：優先讀頂層 review_reds；legacy 歸檔（無頂層 review_reds）fallback rounds 數
-                is_rework = False
-                top_reds = st.get("review_reds")
-                if top_reds is not None:
-                    if isinstance(top_reds, int) and not isinstance(top_reds, bool) and top_reds >= 1:
-                        is_rework = True
+                suffix = "_new" if period == "new" else ""
+                reds = first_review_reds(st)
+                if reds is None:
+                    data["rework_missing" + suffix] += 1
                 else:
-                    if len(rounds) >= 2:
-                        is_rework = True
-                if is_rework:
-                    if period == "new":
-                        data["rework_new"] += 1
-                    else:
-                        data["rework"] += 1
+                    data["rework_recorded" + suffix] += 1
+                    data["rework" + suffix] += int(reds >= 1)
                 # legacy quality_score
                 for rnd in rounds:
                     score = rnd.get("quality_score")
@@ -331,6 +450,7 @@ def collect(run_dir="run"):
                         data["scores"].append(score)
                 # 維度分佈：優先讀 review_dimensions（維度→問題數）
                 sub_vc = st.get("verification_commands")
+                count_reruns(sub_vc, data)
                 _verification_efficiency(sub_vc, data["efficiency"], commands)
                 if isinstance(sub_vc, list):
                     verif_recorded = True
@@ -383,9 +503,7 @@ def collect(run_dir="run"):
 
         base = load(os.path.join(run_dir, f"{m['run_id']}.test_baseline.json"))
         if isinstance(base, dict):
-            data["baseline"].append(
-                (m["run_id"], len(base.get("stable_failures", [])))
-            )
+            data["baseline"].append((m["run_id"], len(base.get("stable_failures", []))))
 
         events = _parse_events(os.path.join(run_dir, f"{m['run_id']}.events.jsonl"))
         _packet_efficiency(events, data["efficiency"])
@@ -401,9 +519,15 @@ def collect(run_dir="run"):
         valid = [e for e in tier0_entries if isinstance(e, dict)]
         data["tier0"] = {
             "count": len(valid),
-            "lines": sum(e["lines"] for e in valid
-                         if isinstance(e.get("lines"), int) and not isinstance(e.get("lines"), bool)),
-            "last_ts": max((e["ts"] for e in valid if isinstance(e.get("ts"), str)), default=None),
+            "lines": sum(
+                e["lines"]
+                for e in valid
+                if isinstance(e.get("lines"), int)
+                and not isinstance(e.get("lines"), bool)
+            ),
+            "last_ts": max(
+                (e["ts"] for e in valid if isinstance(e.get("ts"), str)), default=None
+            ),
         }
 
     log_path = os.path.join(run_dir, "gate_hits.log")
@@ -414,8 +538,13 @@ def collect(run_dir="run"):
                 if not line.strip():
                     continue
                 data["gate_hit_lines"].append(line)
-                msg = line.split("\t", 1)[-1]
-                key = msg.split("：")[0].split(":")[0][:40]  # 訊息開頭當 gate 識別
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    record = None
+                key = record.get("gate_id") if isinstance(record, dict) else None
+                if not isinstance(key, str) or not key:
+                    key = "legacy"
                 data["gate_hits"][key] += 1
     return data
 
@@ -438,10 +567,14 @@ def append_hitl_rulings(out, data):
 
 def append_rework_rate(out, data):
     # 舊期（此前）：與改版前完全相同的字面格式，既有斷言相容
-    line = f"rework 率（首輪即有 🔴）：{pct(data['rework'], data['sub_tasks'])}"
+    line = f"rework 率（首輪即有 🔴）：{pct(data['rework'], data['rework_recorded'])}"
     # 新期（斷點起）：R-010，每次都明示斷點存在，不因新期無資料而省略
-    line += _BREAKPOINT_LABEL + pct(data["rework_new"], data["sub_tasks_new"])
+    line += _BREAKPOINT_LABEL + pct(data["rework_new"], data["rework_recorded_new"])
+    line += f"；無首輪記錄：舊期 {data['rework_missing']}／新期 {data['rework_missing_new']}"
     out.append(line)
+    out.append(
+        f"驗證重跑原因：{dict(data['rerun_reasons'])}；無記錄 {data['rerun_missing']}"
+    )
 
 
 def _checker_escalation_segment(direct, escalated, none_cnt, boundary_cnt, dist):
@@ -462,14 +595,20 @@ def _checker_escalation_segment(direct, escalated, none_cnt, boundary_cnt, dist)
 def append_checker_escalation(out, data):
     # 舊期（此前）：與改版前完全相同的字面格式，既有斷言相容
     old_seg = _checker_escalation_segment(
-        data["checked_by_direct"], data["checked_by_escalated"],
-        data["checked_by_none"], data["checked_by_boundary"], data["checked_by_dist"],
+        data["checked_by_direct"],
+        data["checked_by_escalated"],
+        data["checked_by_none"],
+        data["checked_by_boundary"],
+        data["checked_by_dist"],
     )
     line = "checker 升級率：" + old_seg
     # 新期（斷點起）：R-010，每次都明示斷點存在，不因新期無資料而省略
     new_seg = _checker_escalation_segment(
-        data["checked_by_direct_new"], data["checked_by_escalated_new"],
-        data["checked_by_none_new"], data["checked_by_boundary_new"], data["checked_by_dist_new"],
+        data["checked_by_direct_new"],
+        data["checked_by_escalated_new"],
+        data["checked_by_none_new"],
+        data["checked_by_boundary_new"],
+        data["checked_by_dist_new"],
     )
     line += _BREAKPOINT_LABEL + new_seg
     out.append(line)
@@ -486,13 +625,17 @@ def append_subagent_usage(out, data):
         total_prep = sum(prep for _, prep, _ in data["subagent_usage"])
         total_loop = sum(loop for _, _, loop in data["subagent_usage"])
         ratio = f"{total_prep / total_loop:.2f}" if total_loop else "n/a"
-        line = f"前置/循環成本比（實測）：{'、'.join(parts)}　合計比值 prep:loop = {ratio}"
+        line = (
+            f"前置/循環成本比（實測）：{'、'.join(parts)}　合計比值 prep:loop = {ratio}"
+        )
         if main_by_run:
             line += f"　main 合計 {sum(main_by_run.values())}（{len(main_by_run)} 個 run 有記錄）"
     else:
         line = "前置/循環成本比：無實測記錄（需要 token_usage.py --write）"
-    out.append(line + f"　舊制自報不併計：{data['subagent_usage_legacy']} 個 run"
-               f"　無記錄：{data['subagent_usage_missing']} 個 run")
+    out.append(
+        line + f"　舊制自報不併計：{data['subagent_usage_legacy']} 個 run"
+        f"　無記錄：{data['subagent_usage_missing']} 個 run"
+    )
 
 
 def append_gate_hits(out, data):
@@ -516,17 +659,25 @@ def report(data):
     t0 = data.get("tier0")
     if t0:
         last = t0["last_ts"] or "n/a"
-        out.append(f"Tier 0 留痕：{t0['count']} 筆／合計 {t0['lines']} 行／最近一筆 {last}")
+        out.append(
+            f"Tier 0 留痕：{t0['count']} 筆／合計 {t0['lines']} 行／最近一筆 {last}"
+        )
     else:
-        out.append("Tier 0 留痕：無記錄（需要 run/tier0.jsonl，見 eval_state.py tier0）")
+        out.append(
+            "Tier 0 留痕：無記錄（需要 run/tier0.jsonl，見 eval_state.py tier0）"
+        )
     out.append(f"waive 率：{pct(data['waived'], n_runs)}")
     hitl_total = data["hitl_confirmed"] + data["hitl_rejections"]
-    out.append(f"HITL 打回率：{pct(data['hitl_rejections'], hitl_total)}（歷史指標，價值信號看裁示數）")
+    out.append(
+        f"HITL 打回率：{pct(data['hitl_rejections'], hitl_total)}（歷史指標，價值信號看裁示數）"
+    )
     append_hitl_rulings(out, data)
     append_rework_rate(out, data)
     append_checker_escalation(out, data)
     if data["scores"]:
-        out.append(f"quality_score（legacy）：平均 {sum(data['scores']) / len(data['scores']):.1f}（{len(data['scores'])} rounds）")
+        out.append(
+            f"quality_score（legacy）：平均 {sum(data['scores']) / len(data['scores']):.1f}（{len(data['scores'])} rounds）"
+        )
     if data["dim_counter"]:
         suffix = "（含 legacy 扣分權重）" if data["has_legacy_dims"] else ""
         out.append(f"維度分佈{suffix}：{dict(data['dim_counter'].most_common())}")
@@ -537,7 +688,9 @@ def report(data):
             f"（平均 {avg:.1f} 條）　無記錄：{n_runs - data['verif_runs']} 個 run"
         )
     else:
-        out.append(f"驗證指令數：無記錄（{n_runs} 個 run 皆無 verification_commands 欄位）")
+        out.append(
+            f"驗證指令數：無記錄（{n_runs} 個 run 皆無 verification_commands 欄位）"
+        )
     if data["baseline"]:
         trend = "、".join(f"{r}: stable {s}" for r, s in data["baseline"])
         out.append(f"baseline 欠帳走勢：{trend}")
@@ -549,8 +702,14 @@ def report(data):
             if info is None:
                 parts.append(f"{run_id}: 無記錄")
             else:
-                span = f"{info['span_seconds']:.1f}s" if info["span_seconds"] is not None else "n/a"
-                parts.append(f"{run_id}: {info['count']} 事件／時距 {span}／重入 {info['reentry']}／全套 {info['full_suite']}")
+                span = (
+                    f"{info['span_seconds']:.1f}s"
+                    if info["span_seconds"] is not None
+                    else "n/a"
+                )
+                parts.append(
+                    f"{run_id}: {info['count']} 事件／時距 {span}／重入 {info['reentry']}／全套 {info['full_suite']}"
+                )
         out.append(f"事件記錄：{'、'.join(parts)}")
     append_gate_hits(out, data)
     return "\n".join(out)
@@ -561,7 +720,10 @@ def main():
     parser.add_argument("--dir", default="run")
     args = parser.parse_args()
     if not os.path.isdir(args.dir):
-        print(f"[stats] {args.dir}/ 不存在——不在 flow 專案根目錄，或尚無任何 run", file=sys.stderr)
+        print(
+            f"[stats] {args.dir}/ 不存在——不在 flow 專案根目錄，或尚無任何 run",
+            file=sys.stderr,
+        )
         sys.exit(1)
     print(report(collect(args.dir)))
 

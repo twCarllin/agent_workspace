@@ -22,6 +22,7 @@
 archive 前驗證全部 sub_task passed 且測試欄位齊備（同 eval_gates 的 commit gate 標準），
 驗證不過即 exit 2 不落盤。exit 0 = 成功；exit 1 = 使用錯誤；exit 2 = 驗證不過。
 """
+
 import argparse
 import datetime
 import json
@@ -75,20 +76,31 @@ def append_event(run_id, cmd_name, args):
     """2a：寫入子命令成功後的事件留痕（旁路）。append 必須發生在 save() 成功之後，
     失敗僅 stderr warning、不改主子命令的 exit code（風險技術#1：旁路不得變主路）。"""
     if not run_id:
-        print(f"[eval-state] 警告：run_id 缺失，略過事件記錄（cmd={cmd_name}）", file=sys.stderr)
+        print(
+            f"[eval-state] 警告：run_id 缺失，略過事件記錄（cmd={cmd_name}）",
+            file=sys.stderr,
+        )
         return
     try:
         event = {
             "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "cmd": cmd_name,
-            "args": {k: _truncate_value(v) for k, v in vars(args).items()
-                     if k not in ("func", "command")},
+            "args": {
+                k: _truncate_value(v)
+                for k, v in vars(args).items()
+                if k not in ("func", "command")
+            },
         }
         os.makedirs("run", exist_ok=True)
-        with open(os.path.join("run", f"{run_id}.events.jsonl"), "a", encoding="utf-8") as f:
+        with open(
+            os.path.join("run", f"{run_id}.events.jsonl"), "a", encoding="utf-8"
+        ) as f:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
     except Exception as e:
-        print(f"[eval-state] 警告：事件記錄寫入失敗（{e}），不影響本次操作", file=sys.stderr)
+        print(
+            f"[eval-state] 警告：事件記錄寫入失敗（{e}），不影響本次操作",
+            file=sys.stderr,
+        )
 
 
 def record_session(run_id):
@@ -106,10 +118,15 @@ def record_session(run_id):
         if manifest.get("session_id"):
             return
         manifest["session_id"] = session_id
-        manifest["config_dir"] = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+        manifest["config_dir"] = os.environ.get(
+            "CLAUDE_CONFIG_DIR"
+        ) or os.path.expanduser("~/.claude")
         save(manifest, path)
     except Exception as e:
-        print(f"[eval-state] 警告：session 對應鍵未寫入 manifest（{e}），不影響本次操作", file=sys.stderr)
+        print(
+            f"[eval-state] 警告：session 對應鍵未寫入 manifest（{e}），不影響本次操作",
+            file=sys.stderr,
+        )
 
 
 def find_subtask(state, sid):
@@ -124,7 +141,9 @@ def find_subtask(state, sid):
 
 def cmd_init(args):
     if os.path.exists(STATE_PATH):
-        fail(f"{STATE_PATH} 已存在：一個 worktree 同時只跑一個 run，先收尾或歸檔既有 run")
+        fail(
+            f"{STATE_PATH} 已存在：一個 worktree 同時只跑一個 run，先收尾或歸檔既有 run"
+        )
     save({"run_id": args.run_id, "sub_tasks": []})
     append_event(args.run_id, "init", args)
     record_session(args.run_id)
@@ -150,19 +169,34 @@ def cmd_init_run(args):
         fail("--task-file 不可為空字串")
     if os.path.exists(path):
         fail(f"{path} 已存在：不得覆寫既有 run")
-    with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "VERSION"), encoding="utf-8") as stream:
+    with open(
+        os.path.join(os.path.dirname(os.path.realpath(__file__)), "VERSION"),
+        encoding="utf-8",
+    ) as stream:
         framework_version = stream.read().strip()
     manifest = {
-        "run_id": args.run_id, "framework_version": framework_version,
+        "run_id": args.run_id,
+        "framework_version": framework_version,
         "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "harness": args.harness, "evidence_schema": 2, "tier": 1,
-        "tier_rationale": args.tier_rationale, "spec_inline": args.spec_inline,
-        "test_command": args.test_command, "task_file": args.task_file,
-        "phase": "init", "status": "in_progress",
-        "risk_report_path": None, "usage_report_path": None, "impact_report_path": None,
-        "local_test_passed": None, "local_test_evidence": None,
-        "review_reds": None, "verify_passed": None,
-        "checked_by": None, "review_evidence": None, "verification_commands": [],
+        "harness": args.harness,
+        "evidence_schema": 2,
+        "tier": 1,
+        "tier_rationale": args.tier_rationale,
+        "spec_inline": args.spec_inline,
+        "test_command": args.test_command,
+        "task_file": args.task_file,
+        "phase": "init",
+        "status": "in_progress",
+        "risk_report_path": None,
+        "usage_report_path": None,
+        "impact_report_path": None,
+        "local_test_passed": None,
+        "local_test_evidence": None,
+        "review_reds": None,
+        "verify_passed": None,
+        "checked_by": None,
+        "review_evidence": None,
+        "verification_commands": [],
     }
     os.makedirs("run", exist_ok=True)
     with open(path, "x", encoding="utf-8") as stream:
@@ -173,6 +207,35 @@ def cmd_init_run(args):
     print(f"[eval-state] init-run: {path}")
 
 
+def record_review(target, reds, checked_by, passed, evidence=None):
+    """Append the current result without replacing earlier review rounds."""
+    if not target.get("review_rounds"):
+        first = target.get("first_review_reds")
+        if first is not None or target.get("review_reds") is not None:
+            target["review_rounds"] = [
+                {
+                    "round": 1,
+                    "review_reds": first,
+                    "checked_by": None,
+                    "passed": None,
+                    "legacy": True,
+                }
+            ]
+        else:
+            target["first_review_reds"] = reds
+    rounds = target.setdefault("review_rounds", [])
+    rounds.append(
+        {
+            "round": len(rounds) + 1,
+            "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "review_reds": reds,
+            "checked_by": checked_by,
+            "passed": passed,
+            "evidence": evidence,
+        }
+    )
+
+
 def cmd_review_run(args):
     path = checked_manifest_path(args.run_id)
     if args.reds < 0 or (args.passed and args.reds != 0):
@@ -180,14 +243,21 @@ def cmd_review_run(args):
     if not args.evidence.strip():
         fail("--evidence 不可為空字串")
     manifest = run_evidence.load_json(path)
-    if (manifest.get("run_id") != args.run_id or manifest.get("tier") != 1
-            or manifest.get("status") != "in_progress"
-            or flow_rules.manifest_phase(manifest) != "decomposed"):
+    if (
+        manifest.get("run_id") != args.run_id
+        or manifest.get("tier") != 1
+        or manifest.get("status") != "in_progress"
+        or flow_rules.manifest_phase(manifest) != "decomposed"
+    ):
         fail("review-run 只接受 decomposed 的進行中 Tier 1 run")
+    record_review(manifest, args.reds, args.checked_by, args.passed, args.evidence)
     if manifest.get("review_reds") is None:
         manifest["review_reds"] = args.reds
-    manifest.update(checked_by=args.checked_by, review_evidence=args.evidence,
-                    verify_passed=args.passed)
+    manifest.update(
+        checked_by=args.checked_by,
+        review_evidence=args.evidence,
+        verify_passed=args.passed,
+    )
     save(manifest, path)
     append_event(args.run_id, "reviewed", args)
     print(f"[eval-state] review-run: {path}")
@@ -202,14 +272,23 @@ def cmd_add_subtask(args):
     state = load()
     if any(st.get("id") == args.id for st in state["sub_tasks"]):
         fail(f"id={args.id} 已存在")
-    state["sub_tasks"].append({
-        "id": args.id, "name": args.name, "status": "in_progress", "step": None,
-        "files": [], "warning": False,
-        "local_test_passed": False, "local_test_evidence": None,
-        "verification_commands": [],
-        "review_reds": None, "verify_passed": False,
-        "review_dimensions": None, "checked_by": None,
-    })
+    state["sub_tasks"].append(
+        {
+            "id": args.id,
+            "name": args.name,
+            "status": "in_progress",
+            "step": None,
+            "files": [],
+            "warning": False,
+            "local_test_passed": False,
+            "local_test_evidence": None,
+            "verification_commands": [],
+            "review_reds": None,
+            "verify_passed": False,
+            "review_dimensions": None,
+            "checked_by": None,
+        }
+    )
     save(state)
     append_event(state.get("run_id"), "add-subtask", args)
     print(f"[eval-state] add-subtask: {args.id}「{args.name}」")
@@ -245,7 +324,9 @@ def cmd_set_test(args):
             st["local_test_evidence"] = args.evidence
     save(state)
     append_event(state.get("run_id"), "set-test", args)
-    print(f"[eval-state] sub_task {args.id} local_test_passed -> {st['local_test_passed']}")
+    print(
+        f"[eval-state] sub_task {args.id} local_test_passed -> {st['local_test_passed']}"
+    )
 
 
 def cmd_set_status(args):
@@ -259,11 +340,25 @@ def cmd_set_status(args):
     print(f"[eval-state] sub_task {args.id} status -> {args.status}")
 
 
-VALID_DIMENSIONS = {"Clarity", "Completeness", "Testability", "Non-functional", "Technical_constraints"}
+VALID_DIMENSIONS = {
+    "Clarity",
+    "Completeness",
+    "Testability",
+    "Non-functional",
+    "Technical_constraints",
+}
 # 審定者留痕（checker 化，2026-09-06）：checker＝checker 輪直過；reviewer:①-⑤＝升級輪（碼見 eval-flow step 3）；
 # reviewer:manual＝手動觸發；reviewer:boundary＝理由碼含邊界類的 run 直派 reviewer（2026-09-21，不計升級率）
-VALID_CHECKED_BY = {"checker", "reviewer:①", "reviewer:②", "reviewer:③", "reviewer:④", "reviewer:⑤",
-                    "reviewer:manual", "reviewer:boundary"}
+VALID_CHECKED_BY = {
+    "checker",
+    "reviewer:①",
+    "reviewer:②",
+    "reviewer:③",
+    "reviewer:④",
+    "reviewer:⑤",
+    "reviewer:manual",
+    "reviewer:boundary",
+}
 
 
 def cmd_set_review(args):
@@ -285,7 +380,9 @@ def cmd_set_review(args):
                     code=2,
                 )
             if not isinstance(v, int) or isinstance(v, bool) or v < 0:
-                fail(f"--dimensions 維度「{k}」的值必須為非負整數（收到 {v!r}）", code=2)
+                fail(
+                    f"--dimensions 維度「{k}」的值必須為非負整數（收到 {v!r}）", code=2
+                )
     if args.checked_by is not None and args.checked_by not in VALID_CHECKED_BY:
         fail(
             f"--checked-by 含非法值「{args.checked_by}」；"
@@ -294,7 +391,9 @@ def cmd_set_review(args):
         )
     state = load()
     st = find_subtask(state, args.id)
-    st["review_reds"] = args.reds
+    record_review(st, args.reds, args.checked_by, args.reds == 0)
+    if st.get("review_reds") is None:
+        st["review_reds"] = args.reds
     if dims is not None:
         st["review_dimensions"] = dims
     if args.checked_by is not None:
@@ -331,10 +430,17 @@ def cmd_add_verification(args):
     save(state)
     # 事件鍵用 verify_command：append_event 會過濾 `command` 鍵（與子命令 dest 同名），
     # 直接傳 args 會讓事件只剩 exit_code（2026-09-21 修正；消費端 stats.py 全套次數）
-    append_event(state.get("run_id"), "add-verification",
-                 argparse.Namespace(id=args.id, verify_command=args.command, exit_code=args.exit_code))
-    print(f"[eval-state] sub_task {args.id} verification_commands "
-          f"+1（共 {len(st['verification_commands'])} 筆）exit={args.exit_code}")
+    append_event(
+        state.get("run_id"),
+        "add-verification",
+        argparse.Namespace(
+            id=args.id, verify_command=args.command, exit_code=args.exit_code
+        ),
+    )
+    print(
+        f"[eval-state] sub_task {args.id} verification_commands "
+        f"+1（共 {len(st['verification_commands'])} 筆）exit={args.exit_code}"
+    )
 
 
 def cmd_list_files(args):
@@ -399,32 +505,46 @@ def cmd_hitl_confirm(args):
     if not isinstance(m, dict):
         fail(f"{path} 內容不是 JSON 物件")
     if m.get("status") != "in_progress":
-        fail(f"{path} status 為 {m.get('status')!r}，非 in_progress：只有進行中的 run 需要 HITL 確認")
+        fail(
+            f"{path} status 為 {m.get('status')!r}，非 in_progress：只有進行中的 run 需要 HITL 確認"
+        )
     if not (m.get("spec_path") or m.get("spec_inline")):
         fail(f"{path} intent gate 未過：spec_path 與 spec_inline 皆空，不可確認計畫")
     if not m.get("task_file"):
         fail(f"{path} task_file 為空：HITL 掛在分拆之後，先建 task 檔再確認")
     if m.get("hitl_confirmed_at"):
-        fail(f"{path} 已有 hitl_confirmed_at（{str(m['hitl_confirmed_at'])[:60]}…）："
-             f"不覆蓋既有確認時間；計畫若有變更，請人工在 manifest 追記並說明")
+        fail(
+            f"{path} 已有 hitl_confirmed_at（{str(m['hitl_confirmed_at'])[:60]}…）："
+            f"不覆蓋既有確認時間；計畫若有變更，請人工在 manifest 追記並說明"
+        )
     current = flow_rules.manifest_phase(m)
     if flow_rules.PHASES.index(current) >= flow_rules.PHASES.index("decomposed"):
-        fail(f"{path} phase 已是 {current}（≥ decomposed）：本指令只把 init 推進到 decomposed，"
-             f"不可把已前進的 phase 倒退回去")
+        fail(
+            f"{path} phase 已是 {current}（≥ decomposed）：本指令只把 init 推進到 decomposed，"
+            f"不可把已前進的 phase 倒退回去"
+        )
     attended = _session_attended()
     if attended is False:
         # 訊息不印環境變數名：被擋的一方不需要知道哪個變數決定了判定（名稱留在註解與測試）
-        fail("無人看管的 session 不得自行確認 HITL：沒有人可以確認，確認本身不成立\n"
-             f"→ 正確行為：停在這一步，把「N tasks／M items」計畫與待裁示項回報，結束本次執行；"
-             f"由有人看管的 session 接手（依 eval-flow-resume 讀檔續跑）")
-    m["hitl_confirmed_at"] = f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')} — {note}"
+        fail(
+            "無人看管的 session 不得自行確認 HITL：沒有人可以確認，確認本身不成立\n"
+            f"→ 正確行為：停在這一步，把「N tasks／M items」計畫與待裁示項回報，結束本次執行；"
+            f"由有人看管的 session 接手（依 eval-flow-resume 讀檔續跑）"
+        )
+    m["hitl_confirmed_at"] = (
+        f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')} — {note}"
+    )
     m["hitl_rulings"] = args.rulings
-    m["hitl_attended"] = attended  # True＝互動 session 確認；None＝環境未提供該變數（留痕供稽核）
+    m["hitl_attended"] = (
+        attended  # True＝互動 session 確認；None＝環境未提供該變數（留痕供稽核）
+    )
     m["phase"] = "decomposed"
     with open(path, "w", encoding="utf-8") as f:
         json.dump(m, f, ensure_ascii=False, indent=2)
     append_event(args.run_id, "hitl_confirmed", args)
-    print(f"[eval-state] {args.run_id} HITL 已確認：phase -> decomposed，裁示 {args.rulings} 條")
+    print(
+        f"[eval-state] {args.run_id} HITL 已確認：phase -> decomposed，裁示 {args.rulings} 條"
+    )
 
 
 TIER0_LOG = os.path.join("run", "tier0.jsonl")
@@ -441,17 +561,24 @@ def _git_changed_lines(files):
     `git diff HEAD` 同時涵蓋兩者（與 CLAUDE.md「以 git diff 變更行數計」一致）。
     二進位檔的 numstat 欄位是 `-`，以 0 計並在回報中可見（Tier 0 不該改二進位檔）。
     """
-    r = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True)
+    r = subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True
+    )
     if r.returncode != 0 or r.stdout.strip() != "true":
         fail("不在 git 工作區：Tier 0 留痕的行數須由 git diff 核算，無法核算即不記帳")
     dirs = [f for f in files if os.path.isdir(f)]
     if dirs:
         # 目錄 pathspec 會讓檔數上限失效：len(files) 只數使用者給的清單長度，而 git diff 會
         # 展開目錄下的全部檔案（實測：--files d 底下 5 檔各改 1 行 → 檔數上限 3 被繞過）
-        fail(f"--files 不接受目錄（檔數上限會失效）：{'、'.join(sorted(dirs))}；請逐檔列出")
+        fail(
+            f"--files 不接受目錄（檔數上限會失效）：{'、'.join(sorted(dirs))}；請逐檔列出"
+        )
     out = {}
-    r = subprocess.run(["git", "diff", "HEAD", "--numstat", "--"] + list(files),
-                       capture_output=True, text=True)
+    r = subprocess.run(
+        ["git", "diff", "HEAD", "--numstat", "--"] + list(files),
+        capture_output=True,
+        text=True,
+    )
     if r.returncode != 0:
         fail(f"git diff 失敗：{r.stderr.strip()[-200:]}")
     binary = []
@@ -465,21 +592,33 @@ def _git_changed_lines(files):
             # 且 lines_verified 會變成不誠實的宣稱。Tier 0 不該改二進位檔，直接拒絕。
             binary.append(path)
             continue
-        out[path] = (int(add) if add.isdigit() else 0) + (int(dele) if dele.isdigit() else 0)
+        out[path] = (int(add) if add.isdigit() else 0) + (
+            int(dele) if dele.isdigit() else 0
+        )
     if binary:
-        fail(f"二進位檔的變更行數無法核算，Tier 0 不該改二進位檔：{'、'.join(sorted(binary))}")
+        fail(
+            f"二進位檔的變更行數無法核算，Tier 0 不該改二進位檔：{'、'.join(sorted(binary))}"
+        )
     # 存在性檢查放在 diff 之後：被刪除的檔在工作區不存在，但 git diff HEAD 看得到（合法的
     # Tier 0 刪檔），只有「工作區沒有、diff 也沒有」才是打錯路徑
     missing = [f for f in files if not os.path.exists(f) and f not in out]
     if missing:
-        fail(f"--files 列出的路徑不存在、git diff 也無此變更（可能是打錯路徑）："
-             f"{'、'.join(missing)}")
+        fail(
+            f"--files 列出的路徑不存在、git diff 也無此變更（可能是打錯路徑）："
+            f"{'、'.join(missing)}"
+        )
     for f in files:
         if f in out:
             continue
         # 未追蹤（git diff HEAD 看不到）→ 全檔視為新增行
-        tracked = subprocess.run(["git", "ls-files", "--error-unmatch", "--", f],
-                                 capture_output=True, text=True).returncode == 0
+        tracked = (
+            subprocess.run(
+                ["git", "ls-files", "--error-unmatch", "--", f],
+                capture_output=True,
+                text=True,
+            ).returncode
+            == 0
+        )
         if tracked:
             out[f] = 0  # 已追蹤但無差異
         else:
@@ -507,14 +646,20 @@ def cmd_tier0(args):
     per_file = _git_changed_lines(files)
     total = sum(per_file.values())
     if args.lines != total:
-        fail(f"--lines 與 git diff 實得不符：自報 {args.lines}／實得 {total}"
-             f"（逐檔：{'、'.join(f'{k} {v}' for k, v in sorted(per_file.items()))}）")
+        fail(
+            f"--lines 與 git diff 實得不符：自報 {args.lines}／實得 {total}"
+            f"（逐檔：{'、'.join(f'{k} {v}' for k, v in sorted(per_file.items()))}）"
+        )
     if len(files) > TIER0_MAX_FILES:
-        fail(f"Tier 0 上限為 {TIER0_MAX_FILES} 個檔案，本次 {len(files)} 個："
-             "請依完整需求重新分級，改走 Tier 1／2；沒有跨檔豁免")
+        fail(
+            f"Tier 0 上限為 {TIER0_MAX_FILES} 個檔案，本次 {len(files)} 個："
+            "請依完整需求重新分級，改走 Tier 1／2；沒有跨檔豁免"
+        )
     if total > TIER0_MAX_LINES:
-        fail(f"Tier 0 上限為合計 {TIER0_MAX_LINES} 行，本次 {total} 行："
-             "請依完整需求重新分級，改走 Tier 1／2")
+        fail(
+            f"Tier 0 上限為合計 {TIER0_MAX_LINES} 行，本次 {total} 行："
+            "請依完整需求重新分級，改走 Tier 1／2"
+        )
     entry = {
         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "summary": args.summary,
@@ -526,7 +671,9 @@ def cmd_tier0(args):
     os.makedirs("run", exist_ok=True)
     with open(TIER0_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    print(f"[eval-state] tier0 留痕 +1 -> {TIER0_LOG}（數量檢查通過；分級仍須核對語意條件）")
+    print(
+        f"[eval-state] tier0 留痕 +1 -> {TIER0_LOG}（數量檢查通過；分級仍須核對語意條件）"
+    )
 
 
 def cmd_archive(args):
@@ -542,14 +689,18 @@ def cmd_archive(args):
     save(state, archive_path)
     append_event(run_id, "archive", args)
     os.remove(STATE_PATH)
-    print(f"[eval-state] 已歸檔 {archive_path} 並清除 {STATE_PATH}（記得把 manifest 標 completed）")
+    print(
+        f"[eval-state] 已歸檔 {archive_path} 並清除 {STATE_PATH}（記得把 manifest 標 completed）"
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("init-run", help="建立 Tier 1 manifest 並記錄 init；不覆寫既有 run")
+    p = sub.add_parser(
+        "init-run", help="建立 Tier 1 manifest 並記錄 init；不覆寫既有 run"
+    )
     p.add_argument("--run-id", required=True)
     p.add_argument("--harness", required=True, choices=("codex", "claude"))
     p.add_argument("--spec-inline", required=True)
@@ -602,10 +753,15 @@ def main():
     p = sub.add_parser("set-review")
     p.add_argument("id", type=int)
     p.add_argument("reds", type=int)
-    p.add_argument("--dimensions", default=None,
-                   help="維度→問題數 JSON，如 '{\"Clarity\":1}'")
-    p.add_argument("--checked-by", dest="checked_by", default=None,
-                   help="審定者留痕：checker｜reviewer:①-⑤｜reviewer:manual｜reviewer:boundary")
+    p.add_argument(
+        "--dimensions", default=None, help="維度→問題數 JSON，如 '{\"Clarity\":1}'"
+    )
+    p.add_argument(
+        "--checked-by",
+        dest="checked_by",
+        default=None,
+        help="審定者留痕：checker｜reviewer:①-⑤｜reviewer:manual｜reviewer:boundary",
+    )
     p.set_defaults(func=cmd_set_review)
 
     p = sub.add_parser("set-verify")
@@ -626,15 +782,21 @@ def main():
 
     p = sub.add_parser("hitl-confirm")
     p.add_argument("run_id")
-    p.add_argument("--note", required=True, help="確認範圍一句話（寫入 hitl_confirmed_at）")
+    p.add_argument(
+        "--note", required=True, help="確認範圍一句話（寫入 hitl_confirmed_at）"
+    )
     p.add_argument("--rulings", type=int, default=0, help="使用者裁示條數（預設 0）")
     p.set_defaults(func=cmd_hitl_confirm)
 
     p = sub.add_parser("tier0")
     p.add_argument("--summary", required=True)
     p.add_argument("--files", required=True, help="逗號分隔的檔案清單")
-    p.add_argument("--lines", type=int, required=True,
-                   help="自報的變更行數（增＋刪）；與 git diff 實得不符即拒絕留痕")
+    p.add_argument(
+        "--lines",
+        type=int,
+        required=True,
+        help="自報的變更行數（增＋刪）；與 git diff 實得不符即拒絕留痕",
+    )
     p.set_defaults(func=cmd_tier0)
 
     p = sub.add_parser("list-files")
