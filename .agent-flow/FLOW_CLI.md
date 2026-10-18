@@ -77,6 +77,8 @@ python3 .agent-flow/scripts/flow.py finish --run-id <id> \
 
 `finish` 依序核對範圍與既有憑據、執行 `run_verify.py`、歸檔符合條件的 Tier 2 狀態、執行 `run_commit.py prepare`、Git commit 與 finalize。它不推定審查通過，也不自動 stage 檔案；測試欄位由實際驗證結果產生。驗證命令依 test-strategy「依變更選擇驗證」；純設定使用必要設定／操作檢查，程式部分保留適用回歸範圍，專案另有要求時依專案規則。
 
+已知命令只依本地輸入決定結果時，可加 `--reuse` 沿用同 run、同指令、同輸入與環境的成功證據；外部服務或實際環境檢查應實跑。`finish` 對 schema 2 的本地命令只顯示驗證摘要，完整輸出保存在 `run/<id>.verify-<序號>.log`；失敗時另顯示輸出末 40 行。若舊成功紀錄沒有完整輸出檔，首次使用精簡輸出時會實跑。直接使用 `run_verify.py` 的預設輸出行為不變，可另加 `--quiet-success` 取得相同的精簡輸出。
+
 有額外 staged 檔、範圍內未 stage 修改、其他 run 的熱狀態、未完成審查或驗證失敗時停止。錯誤保留原始輸出，已有現場與證據保留。提交訊息自動加入唯一的 `Run-Id` trailer。
 
 遠端／實際環境證據不得僅以本地快照相同而沿用，依 test-strategy 的目標狀態核對規則。明確加上 `--reuse` 才嘗試沿用本 run 中命令、輸入與環境相同的本地成功驗證；不符合時重跑。若 commit 已成功而 finalize 中斷，重跑同一指令會核對提交後補 finalize，避免重複 commit。
