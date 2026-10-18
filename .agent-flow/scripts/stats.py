@@ -53,7 +53,9 @@ import re
 import sys
 from collections import Counter
 
-MANIFEST_RE = re.compile(r"^(?P<run_id>[^/]+?)(?<!\.eval)(?<!\.test_baseline)\.json$")
+MANIFEST_RE = re.compile(
+    r"^(?![^/]*\.context(?:\.[^/]*)?\.json$)(?P<run_id>[^/]+?)(?<!\.eval)(?<!\.test_baseline)\.json$"
+)
 
 # Q2/Q9（2026-09-22 起）：eval.json 歸檔一筆＝一個 task；此前一筆＝一個 item。
 # rework 率／checker 升級率的分母意義因此在此日期切換，兩期不可直接比較（見 stats.py 模組 docstring）。
@@ -306,6 +308,9 @@ def collect(run_dir="run"):
             "reused_seconds": 0,
             "executed_timed": 0,
             "reused_timed": 0,
+            "context_actions": Counter(),
+            "context_seconds": Counter(),
+            "context_timed": Counter(),
             "packet_actions": Counter(),
             "packet_seconds": Counter(),
             "packet_timed": Counter(),
@@ -507,6 +512,28 @@ def collect(run_dir="run"):
 
         events = _parse_events(os.path.join(run_dir, f"{m['run_id']}.events.jsonl"))
         _packet_efficiency(events, data["efficiency"])
+        for event in events or []:
+            args = event.get("args") if isinstance(event, dict) else None
+            if (
+                not isinstance(event, dict)
+                or event.get("cmd") != "context-index"
+                or not isinstance(args, dict)
+            ):
+                continue
+            action = args.get("action")
+            if action not in ("build", "validate", "reuse"):
+                continue
+            e = data["efficiency"]
+            e["context_actions"][action] += 1
+            value = args.get("elapsed_seconds")
+            if (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+                and value >= 0
+            ):
+                e["context_seconds"][action] += value
+                e["context_timed"][action] += 1
         data["events"].append(
             (m["run_id"], _events_summary(events) if events is not None else None)
         )
@@ -696,6 +723,22 @@ def report(data):
         out.append(f"baseline 欠帳走勢：{trend}")
     append_subagent_usage(out, data)
     append_efficiency(out, data)
+    e = data["efficiency"]
+    out.append(
+        "上下文索引："
+        + "；".join(
+            f"{action} {e['context_actions'][action]} 筆，"
+            + (
+                f"{e['context_seconds'][action]:.3f}s（{e['context_timed'][action]} 筆耗時）"
+                if e["context_timed"][action]
+                else "耗時無記錄"
+            )
+            for action in ("build", "validate", "reuse")
+        )
+    )
+    out.append(
+        "索引統計只使用事件；原生代理未經 dispatch 的讀檔、搜尋與 token 無記錄，不推估。"
+    )
     if data["events"]:
         parts = []
         for run_id, info in data["events"]:

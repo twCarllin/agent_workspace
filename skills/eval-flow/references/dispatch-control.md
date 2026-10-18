@@ -80,3 +80,11 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、hook gate�
 - **一律用 helper script 更新，不手動 Edit**：`python3 .agent-flow/scripts/eval_state.py`——子命令清單、理由與各時機的操作規則住 `SKILL.md「資料格式與操作規則」` 操作規則節（單一枚舉點，R-007），不在此重列
 - **首輪審查結果出來後（step 3）**：執行 `set-review <id> <🔴數> [--dimensions '<json>']`——**checker 輪固定填 0**；升級輪有 🔴／🟡 時 `--dimensions` 必填；commit gate 必填 `<🔴數>`，缺一擋歸檔。參數完整語義與維度詞彙表住 `SKILL.md「資料格式與操作規則」` 操作規則節
 - Run manifest／`eval_state.json`／`events.jsonl` 完整格式、欄位語義與其餘操作規則見 `.agents/skills/eval-flow/SKILL.md「資料格式與操作規則」`——init 填欄、step 3 記審查結果、resume 對賬、欄位語義查詢時讀取
+
+
+## 上下文索引試驗
+
+只觀察後續三個真實 Tier 1／2 run，不宣稱 token 節省。
+可用 `dispatch.py --context-index run/<id>.context.json` 沿用已驗證的定位提示；失效時不啟動代理。
+索引不替代獨立審查；reviewer 仍核對 staged diff。原生代理未經 dispatch 的讀檔、搜尋與 token 不推估。
+建立、驗證、大小限制及紀錄方式見 [上下文索引試驗](../../../.agent-flow/REVIEW_PACKET.md#上下文索引試驗)。

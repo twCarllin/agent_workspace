@@ -820,6 +820,9 @@ class StatsCollectTest(unittest.TestCase):
         self.write_events(
             "cnt", [{"ts": "2026-08-20T10:00:00+00:00", "cmd": "init", "args": {}}]
         )
+        for name in ("cnt.context.json", "cnt.context.writer.json"):
+            write(os.path.join(self.run_dir, name), {"run_id": "cnt"})
+            self.assertIsNone(stats.MANIFEST_RE.match(name))
         data = stats.collect(self.run_dir)
         self.assertEqual(sorted(data["runs"]), ["cnt"])  # events.jsonl 不算一個 run
         self.assertIsNone(stats.MANIFEST_RE.match("cnt.events.jsonl"))

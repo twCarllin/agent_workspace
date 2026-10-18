@@ -36,6 +36,7 @@ run_id 解析沿用 run_evidence 既有基準（R-009）：eval_state.json → �
 皆無（run 外手動觸發）→ 不落檔、stderr 一句、exit code 不變。
 信封判定重用 report_envelope_check.check_envelope（單一出處，不自建第二份規則）。
 """
+
 import argparse
 import datetime
 import json
@@ -125,8 +126,15 @@ def default_permissions(role):
             frontmatter = json.load(f)["claude"][role]["frontmatter"]
     except (OSError, ValueError, KeyError, TypeError):
         return "inherit"
-    tools = next((line for line in str(frontmatter).splitlines() if line.startswith("tools:")), "")
-    return "edits" if {"Write", "Edit"} & {t.strip() for t in tools[6:].split(",")} else "inherit"
+    tools = next(
+        (line for line in str(frontmatter).splitlines() if line.startswith("tools:")),
+        "",
+    )
+    return (
+        "edits"
+        if {"Write", "Edit"} & {t.strip() for t in tools[6:].split(",")}
+        else "inherit"
+    )
 
 
 def read_prompt(path):
@@ -149,33 +157,43 @@ def read_prompt(path):
 
 def _run(argv, stdin_text, timeout):
     try:
-        return subprocess.run(argv, input=stdin_text, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(
+            argv, input=stdin_text, capture_output=True, text=True, timeout=timeout
+        )
     except subprocess.TimeoutExpired:
         # subprocess.run 於超時已 kill 子程序並回收
-        raise ChildError(f"{argv[0]} 超過 timeout {timeout:g} 秒，子程序已終止", kind="timed_out")
+        raise ChildError(
+            f"{argv[0]} 超過 timeout {timeout:g} 秒，子程序已終止", kind="timed_out"
+        )
     except OSError as e:
         raise ChildError(f"無法啟動 {argv[0]}（{e}）")
 
 
 def _child_result(backend, proc):
     data = harness_adapter.parse_result(backend, proc.stdout, proc.returncode)
-    if data['is_error']:
-        detail = (proc.stderr or data['error'] or '').strip()[-500:]
+    if data["is_error"]:
+        detail = (proc.stderr or data["error"] or "").strip()[-500:]
         raise ChildError(f"{backend}: {detail}")
-    usage = data['usage']
-    meta = {'session_id': data['session_id'], 'model': data['model'],
-            'turns': data['num_turns'] or 0, 'cost_usd': data['total_cost_usd'],
-            'permission_denials': data['permission_denials'],
-            **{k: _int(usage.get(k)) for k in TOKEN_FIELDS}}
-    if backend == 'codex':
+    usage = data["usage"]
+    meta = {
+        "session_id": data["session_id"],
+        "model": data["model"],
+        "turns": data["num_turns"] or 0,
+        "cost_usd": data["total_cost_usd"],
+        "permission_denials": data["permission_denials"],
+        **{k: _int(usage.get(k)) for k in TOKEN_FIELDS},
+    }
+    if backend == "codex":
         for src, dst in CODEX_USAGE_MAP.items():
             meta[dst] = _int(usage.get(src))
-    return data['result'], meta
+    return data["result"], meta
 
 
-def run_claude(role, prompt, resume, timeout, permissions='inherit'):
-    argv = harness_adapter.build_argv('claude', role=role, resume=resume, permissions=permissions)
-    return _child_result('claude', _run(argv, prompt, timeout))
+def run_claude(role, prompt, resume, timeout, permissions="inherit"):
+    argv = harness_adapter.build_argv(
+        "claude", role=role, resume=resume, permissions=permissions
+    )
+    return _child_result("claude", _run(argv, prompt, timeout))
 
 
 def load_codex_agent(role):
@@ -186,14 +204,18 @@ def load_codex_agent(role):
         return tomllib.load(f)
 
 
-def run_codex(role, prompt, resume, timeout, permissions='inherit'):
+def run_codex(role, prompt, resume, timeout, permissions="inherit"):
     agent = load_codex_agent(role)
-    argv = harness_adapter.build_argv('codex', model=agent.get('model'),
-                                     reasoning_effort=agent.get('model_reasoning_effort', 'low'),
-                                     resume=resume, permissions=permissions)
+    argv = harness_adapter.build_argv(
+        "codex",
+        model=agent.get("model"),
+        reasoning_effort=agent.get("model_reasoning_effort", "low"),
+        resume=resume,
+        permissions=permissions,
+    )
     stdin_text = f"{agent.get('developer_instructions', '')}\n\n{prompt}"
-    report, meta = _child_result('codex', _run(argv, stdin_text, timeout))
-    meta['model'] = agent.get('model')
+    report, meta = _child_result("codex", _run(argv, stdin_text, timeout))
+    meta["model"] = agent.get("model")
     return report, meta
 
 
@@ -210,8 +232,10 @@ def retro_prefix(files, root="."):
     主 flow 不再讀 RETRO.md 或執行 retro_select：選中條目只進 writer prompt，主 session 只看到計數。
     fail-open：RETRO.md 不存在或 files 推不出片段時仍派工，該節寫原因（知識前置留痕，防跳步）。
     """
+
     def section(lines):
         return "\n\n" + RETRO_SECTION + "\n\n" + "\n".join(lines) + "\n"
+
     try:
         with open(RETRO_PATH, encoding="utf-8") as f:
             text = f.read()
@@ -226,15 +250,20 @@ def retro_prefix(files, root="."):
     excludes = retro_select._anchor_scan_excludes(RETRO_PATH, root)
     chosen, retire = retro_select.select(entries, fragments, root, excludes)
     lines = [e["text"] for e in chosen] or ["知識前置（retro）：無相關條目"]
-    return section(lines), {"selected": [e["id"] for e in chosen], "retire": [e["id"] for e in retire]}, None
+    return (
+        section(lines),
+        {"selected": [e["id"] for e in chosen], "retire": [e["id"] for e in retire]},
+        None,
+    )
 
 
 def git_status_paths():
     """`git status --porcelain -z` 的路徑集合（R-003：NUL 分割，rename／copy 兩段路徑都收；
     不以空白 split）。非 git repo 等失敗回 None（呼叫端 fail-open）。"""
     try:
-        out = subprocess.run(["git", "status", "--porcelain", "-z"],
-                             capture_output=True, check=True).stdout
+        out = subprocess.run(
+            ["git", "status", "--porcelain", "-z"], capture_output=True, check=True
+        ).stdout
     except (OSError, subprocess.CalledProcessError):
         return None
     tokens = out.split(b"\0")
@@ -261,34 +290,60 @@ def out_of_scope_changes(before, after, allowed):
 def append_record(run_id, record):
     """旁路留痕：寫入失敗只 stderr warning、不改 exit code（同 eval_state.append_event 慣例）。"""
     if not run_id:
-        print("[dispatch] 無進行中的 run（eval_state.json／tier 1 in_progress manifest 皆無），不寫派工留痕", file=sys.stderr)
+        print(
+            "[dispatch] 無進行中的 run（eval_state.json／tier 1 in_progress manifest 皆無），不寫派工留痕",
+            file=sys.stderr,
+        )
         return
     try:
         os.makedirs("run", exist_ok=True)
-        with open(os.path.join("run", f"{run_id}.dispatch.jsonl"), "a", encoding="utf-8") as f:
+        with open(
+            os.path.join("run", f"{run_id}.dispatch.jsonl"), "a", encoding="utf-8"
+        ) as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except OSError as e:
-        print(f"[dispatch] 警告：派工留痕寫入失敗（{e}），不影響本次派工", file=sys.stderr)
+        print(
+            f"[dispatch] 警告：派工留痕寫入失敗（{e}），不影響本次派工", file=sys.stderr
+        )
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("role")
     parser.add_argument("--prompt-file", required=True, dest="prompt_file")
     parser.add_argument("--backend", choices=sorted(BACKENDS), default=None)
-    parser.add_argument("--review-packet", help="validated review data for task-verifier only")
+    parser.add_argument(
+        "--context-index", help="validated bounded source location hints"
+    )
+    parser.add_argument(
+        "--review-packet", help="validated review data for task-verifier only"
+    )
     parser.add_argument("--resume", default=None)
-    parser.add_argument("--permissions", choices=harness_adapter.PERMISSIONS, default=None,
-                        help="inherit: keep CLI settings; edits: auto-accept file edits; unrestricted: explicit "
-                             "full access; omitted: edits for roles with write tools, else inherit")
-    parser.add_argument("--files", default=None, help="本 item 允許變更的檔案（逗號分隔，repo 相對路徑）")
+    parser.add_argument(
+        "--permissions",
+        choices=harness_adapter.PERMISSIONS,
+        default=None,
+        help="inherit: keep CLI settings; edits: auto-accept file edits; unrestricted: explicit "
+        "full access; omitted: edits for roles with write tools, else inherit",
+    )
+    parser.add_argument(
+        "--files",
+        default=None,
+        help="本 item 允許變更的檔案（逗號分隔，repo 相對路徑）",
+    )
     parser.add_argument("--timeout", type=float, default=1200)
-    parser.add_argument("--max-output-chars", type=int, default=60000, dest="max_output_chars")
+    parser.add_argument(
+        "--max-output-chars", type=int, default=60000, dest="max_output_chars"
+    )
     args = parser.parse_args()
     permissions = args.permissions or default_permissions(args.role)
 
-    if not any(os.path.isfile(os.path.join(directory, f"{args.role}.md"))
-               for directory in (AGENTS_DIR, LEGACY_AGENTS_DIR)):
+    if not any(
+        os.path.isfile(os.path.join(directory, f"{args.role}.md"))
+        for directory in (AGENTS_DIR, LEGACY_AGENTS_DIR)
+    ):
         fail(f"角色 {args.role} 無對應 {AGENTS_DIR}/{args.role}.md", 1)
     prompt = read_prompt(args.prompt_file)
     run_id = resolve_run_id()
@@ -298,14 +353,35 @@ def main():
         if not run_id:
             fail("--review-packet requires an active run", 1)
         import review_packet
+
         try:
             packet = review_packet.validate(args.review_packet, run_id)
         except (ValueError, OSError, TypeError) as error:
             fail(str(error), 1)
         prompt += "\n\n" + review_packet.render(packet)
+    context_meta = None
+    if args.context_index:
+        context_started = time.monotonic()
+        if not run_id:
+            fail("--context-index requires an active run", 1)
+        import context_index
+
+        try:
+            index = context_index.validate(args.context_index, run_id)
+        except (ValueError, OSError, TypeError) as error:
+            fail(str(error), 1)
+        prompt += "\n\n" + context_index.render(index)
+        context_meta = {
+            "index_id": index["index_id"],
+            "size_bytes": len(context_index.encoded(index)),
+        }
     manifest_backend = default_backend(run_id)
     backend = args.backend or manifest_backend
-    allowed = {p.strip() for p in args.files.split(",") if p.strip()} if args.files is not None else None
+    allowed = (
+        {p.strip() for p in args.files.split(",") if p.strip()}
+        if args.files is not None
+        else None
+    )
     retro = None
     if args.role == "code-writer" and allowed is not None and not args.resume:
         extra, retro, note = retro_prefix(sorted(allowed))
@@ -318,33 +394,61 @@ def main():
 
     record = {
         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "role": args.role, "backend": backend, "permissions": permissions, "session_id": None,
-        "resumed": bool(args.resume), "model": None, "turns": 0,
-        **_zero_tokens(), "cost_usd": None, "duration_ms": 0, "exit_code": 0, "envelope": None,
-        "failure": None, "out_of_scope": None, "retro": retro, "permission_denials": [],
+        "role": args.role,
+        "backend": backend,
+        "permissions": permissions,
+        "session_id": None,
+        "resumed": bool(args.resume),
+        "model": None,
+        "turns": 0,
+        **_zero_tokens(),
+        "cost_usd": None,
+        "duration_ms": 0,
+        "exit_code": 0,
+        "envelope": None,
+        "failure": None,
+        "out_of_scope": None,
+        "retro": retro,
+        "permission_denials": [],
     }
     started = time.monotonic()
+    if context_meta:
+        record["context_index"] = context_meta
+        context_index.record(run_id, "reuse", context_started)
     try:
-        report, meta = BACKENDS[backend](args.role, prompt, args.resume, args.timeout, permissions)
+        report, meta = BACKENDS[backend](
+            args.role, prompt, args.resume, args.timeout, permissions
+        )
     except ChildError as e:
-        record.update(duration_ms=int((time.monotonic() - started) * 1000), exit_code=3, failure=e.kind)
+        record.update(
+            duration_ms=int((time.monotonic() - started) * 1000),
+            exit_code=3,
+            failure=e.kind,
+        )
         append_record(run_id, record)
         fail(str(e), 3)
     record.update(meta, duration_ms=int((time.monotonic() - started) * 1000))
 
     if len(report) > args.max_output_chars:
         record.update(exit_code=3, failure="output_truncated")
-        sys.stdout.write(report[:args.max_output_chars])
-        sys.stdout.write(f"\n[dispatch] 輸出截斷：{len(report)} 字元超過上限 {args.max_output_chars}\n")
+        sys.stdout.write(report[: args.max_output_chars])
+        sys.stdout.write(
+            f"\n[dispatch] 輸出截斷：{len(report)} 字元超過上限 {args.max_output_chars}\n"
+        )
         sys.stdout.flush()
         append_record(run_id, record)
-        fail(f"報告 {len(report)} 字元超過上限 {args.max_output_chars}，已截斷、不做信封判定", 3)
+        fail(
+            f"報告 {len(report)} 字元超過上限 {args.max_output_chars}，已截斷、不做信封判定",
+            3,
+        )
 
     blocking, advisory = report_envelope_check.check_envelope(report, args.role)
     record["envelope"] = "blocking" if blocking else ("advisory" if advisory else "ok")
     if allowed is not None and before is not None:
         after = git_status_paths()
-        record["out_of_scope"] = out_of_scope_changes(before, after, allowed) if after is not None else None
+        record["out_of_scope"] = (
+            out_of_scope_changes(before, after, allowed) if after is not None else None
+        )
     out_of_scope = record["out_of_scope"] or []
     denials = record["permission_denials"]
     record["exit_code"] = 4 if out_of_scope else (2 if blocking or denials else 0)
@@ -352,26 +456,47 @@ def main():
     sys.stdout.write(report if report.endswith("\n") else report + "\n")
     sys.stdout.flush()
     tokens = sum(record[k] for k in TOKEN_FIELDS)
-    cost = f"{record['cost_usd']:.4f}" if isinstance(record["cost_usd"], (int, float)) else "n/a"
-    print(f"[dispatch] role={args.role} backend={backend} session={record['session_id']} "
-          f"turns={record['turns']} tokens={tokens} cost_usd={cost}", file=sys.stderr)
+    cost = (
+        f"{record['cost_usd']:.4f}"
+        if isinstance(record["cost_usd"], (int, float))
+        else "n/a"
+    )
+    print(
+        f"[dispatch] role={args.role} backend={backend} session={record['session_id']} "
+        f"turns={record['turns']} tokens={tokens} cost_usd={cost}",
+        file=sys.stderr,
+    )
     if retro is not None:
-        print(f"[dispatch] retro 選中 {len(retro['selected'])}（{', '.join(retro['selected']) or '無'}）、"
-              f"retire 候選 {len(retro['retire'])}（{', '.join(retro['retire']) or '無'}）", file=sys.stderr)
+        print(
+            f"[dispatch] retro 選中 {len(retro['selected'])}（{', '.join(retro['selected']) or '無'}）、"
+            f"retire 候選 {len(retro['retire'])}（{', '.join(retro['retire']) or '無'}）",
+            file=sys.stderr,
+        )
     if out_of_scope:
-        print(f"[dispatch] 越界變更：{', '.join(out_of_scope)}（不在 --files 清單內，退件）", file=sys.stderr)
+        print(
+            f"[dispatch] 越界變更：{', '.join(out_of_scope)}（不在 --files 清單內，退件）",
+            file=sys.stderr,
+        )
     if denials:
-        print(f"[dispatch] 子 agent 有 {len(denials)} 次工具呼叫被權限拒絕（{', '.join(sorted(set(denials)))}）："
-              f"交付不完整；以 --permissions edits／unrestricted 重派或改用原生 Agent", file=sys.stderr)
+        print(
+            f"[dispatch] 子 agent 有 {len(denials)} 次工具呼叫被權限拒絕（{', '.join(sorted(set(denials)))}）："
+            f"交付不完整；以 --permissions edits／unrestricted 重派或改用原生 Agent",
+            file=sys.stderr,
+        )
     append_record(run_id, record)
 
     if blocking:
-        print(f"[dispatch] 信封缺損（{args.role}）：{'、'.join(blocking + advisory)}。退件重取：以 --resume "
-              f"{record['session_id']} 重新派工補齊信封（首行戳記行、末行恰一個 Self-check:）。"
-              f"重取上限見 eval-flow SKILL.md 憑據紀律。", file=sys.stderr)
+        print(
+            f"[dispatch] 信封缺損（{args.role}）：{'、'.join(blocking + advisory)}。退件重取：以 --resume "
+            f"{record['session_id']} 重新派工補齊信封（首行戳記行、末行恰一個 Self-check:）。"
+            f"重取上限見 eval-flow SKILL.md 憑據紀律。",
+            file=sys.stderr,
+        )
     elif advisory:
-        print(f"[dispatch] 警告（{args.role}）：缺{'、'.join(advisory)}，表現層缺項不退件；主 flow 於回報留痕一句。",
-              file=sys.stderr)
+        print(
+            f"[dispatch] 警告（{args.role}）：缺{'、'.join(advisory)}，表現層缺項不退件；主 flow 於回報留痕一句。",
+            file=sys.stderr,
+        )
     sys.exit(record["exit_code"])
 
 

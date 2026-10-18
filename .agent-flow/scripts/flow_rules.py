@@ -1,4 +1,5 @@
 """Shared Eval Flow decisions. No filesystem or hook side effects."""
+
 import re
 
 
@@ -7,7 +8,7 @@ class RuleViolation(ValueError):
 
 
 MANIFEST_RE = re.compile(
-    r"^run/(?P<run_id>[^/]+?)(?<!\.eval)(?<!\.test_baseline)\.json$"
+    r"^run/(?![^/]*\.context(?:\.[^/]*)?\.json$)(?P<run_id>[^/]+?)(?<!\.eval)(?<!\.test_baseline)\.json$"
 )
 
 PHASES = ["init", "decomposed", "completed"]
@@ -39,19 +40,27 @@ def manifest_phase(manifest):
 def validate_credentials(obj, source):
     """驗四項憑據（per-subtask 與 Tier 1 manifest 共用單一判定點）。"""
     if obj.get("local_test_passed") is not True:
-        raise RuleViolation(f"{source} local_test_passed 非 true：本地測試 gate 未通過，須先完成 step 5 驗證\n"
-              f"→ 補救：用 run_verify.py --run-id <run_id> --cmd '<驗證命令>' 執行驗證；Tier 2 逐 task 加 --sub-task <id>")
+        raise RuleViolation(
+            f"{source} local_test_passed 非 true：本地測試 gate 未通過，須先完成 step 5 驗證\n"
+            f"→ 補救：用 run_verify.py --run-id <run_id> --cmd '<驗證命令>' 執行驗證；Tier 2 逐 task 加 --sub-task <id>"
+        )
     evidence = obj.get("local_test_evidence")
     if not (isinstance(evidence, str) and evidence.strip()):
-        raise RuleViolation(f"{source} local_test_evidence 為空：須記錄驗證證據（跑了什麼指令、看到什麼結果）\n"
-              f"→ 補救：以 run_verify.py 執行並記錄實際驗證，補齊必要仲裁說明")
+        raise RuleViolation(
+            f"{source} local_test_evidence 為空：須記錄驗證證據（跑了什麼指令、看到什麼結果）\n"
+            f"→ 補救：以 run_verify.py 執行並記錄實際驗證，補齊必要仲裁說明"
+        )
     reds = obj.get("review_reds")
     if not (isinstance(reds, int) and not isinstance(reds, bool)) or reds < 0:
-        raise RuleViolation(f"{source} review_reds 未留痕或非合法非負整數：step 3 須記錄 🔴 數（非負整數）\n"
-              f"→ 補救：Tier 2 用 eval_state.py set-review；Tier 1 用 review-run <run_id> <reds> --checked-by <角色> --evidence '<獨立審查憑據>'")
+        raise RuleViolation(
+            f"{source} review_reds 未留痕或非合法非負整數：step 3 須記錄 🔴 數（非負整數）\n"
+            f"→ 補救：Tier 2 用 eval_state.py set-review；Tier 1 用 review-run <run_id> <reds> --checked-by <角色> --evidence '<獨立審查憑據>'"
+        )
     if obj.get("verify_passed") is not True:
-        raise RuleViolation(f"{source} verify_passed 非 true：reviewer 完成度節尚未通過\n"
-              f"→ 補救：獨立審查通過後，Tier 2 用 eval_state.py set-verify；Tier 1 用 review-run 加 --passed 記錄結果")
+        raise RuleViolation(
+            f"{source} verify_passed 非 true：reviewer 完成度節尚未通過\n"
+            f"→ 補救：獨立審查通過後，Tier 2 用 eval_state.py set-verify；Tier 1 用 review-run 加 --passed 記錄結果"
+        )
 
 
 def validate_state(state, source, require_passed=False):
@@ -70,24 +79,35 @@ def validate_state(state, source, require_passed=False):
         if require_passed:
             name = st.get("name") or st.get("id")
             if st.get("status") != "passed":
-                raise RuleViolation(f"{source} sub_task「{name}」status 非 passed（{st.get('status')}）\n"
-                      f"→ 補救：該 sub_task 走完循環後 `python3 .agent-flow/scripts/eval_state.py set-status <id> passed`（status 可選 passed／failed／in_progress）")
+                raise RuleViolation(
+                    f"{source} sub_task「{name}」status 非 passed（{st.get('status')}）\n"
+                    f"→ 補救：該 sub_task 走完循環後 `python3 .agent-flow/scripts/eval_state.py set-status <id> passed`（status 可選 passed／failed／in_progress）"
+                )
             validate_credentials(st, f"{source} sub_task「{name}」")
-
 
 
 def validate_manifest_basic(m, manifest_path, allow_in_progress=False):
     if not (m.get("spec_path") or m.get("spec_inline")):
-        raise RuleViolation(f"{manifest_path} intent gate 未過：spec_path 與 spec_inline 皆空")
-    allowed_statuses = ("in_progress", "ready_to_commit", "completed") if allow_in_progress else ("ready_to_commit", "completed")
+        raise RuleViolation(
+            f"{manifest_path} intent gate 未過：spec_path 與 spec_inline 皆空"
+        )
+    allowed_statuses = (
+        ("in_progress", "ready_to_commit", "completed")
+        if allow_in_progress
+        else ("ready_to_commit", "completed")
+    )
     if m.get("status") not in allowed_statuses:
-        raise RuleViolation(f"{manifest_path} status 非 completed/ready_to_commit（{m.get('status')}），不可 commit")
+        raise RuleViolation(
+            f"{manifest_path} status 非 completed/ready_to_commit（{m.get('status')}），不可 commit"
+        )
 
 
 def validate_manifest_tier(m, manifest_path):
     if m.get("tier") == "hotfix":
         if not isinstance(m.get("debt"), list):
-            raise RuleViolation(f"{manifest_path} 為 hotfix 但缺 debt 欄位（欠帳清單，如 [\"test\", \"retro\"]）")
+            raise RuleViolation(
+                f'{manifest_path} 為 hotfix 但缺 debt 欄位（欠帳清單，如 ["test", "retro"]）'
+            )
         return True  # hotfix 不走循環評分，豁免 eval 歸檔檔要求；欠帳由 debt gate 追討
 
     if m.get("tier") == "B":
@@ -103,12 +123,15 @@ def validate_manifest_tier(m, manifest_path):
 
 def validate_archive(archive, run_id, archive_path):
     if archive.get("run_id") != run_id:
-        raise RuleViolation(f"{archive_path} 的 run_id（{archive.get('run_id')}）與 manifest 不一致")
+        raise RuleViolation(
+            f"{archive_path} 的 run_id（{archive.get('run_id')}）與 manifest 不一致"
+        )
     validate_state(archive, archive_path, require_passed=True)
 
 
 def require_archive(manifest_path, archive_path):
-    raise RuleViolation(f"{manifest_path} 的 {archive_path} 不存在：須先歸檔 eval_state 再 commit\n"
-          f"→ 補救：`python3 .agent-flow/scripts/eval_state.py archive` 產出 {archive_path}"
-          f"（歸檔檔是冷溯源檔，留在工作目錄即可，不需 git add）")
-
+    raise RuleViolation(
+        f"{manifest_path} 的 {archive_path} 不存在：須先歸檔 eval_state 再 commit\n"
+        f"→ 補救：`python3 .agent-flow/scripts/eval_state.py archive` 產出 {archive_path}"
+        f"（歸檔檔是冷溯源檔，留在工作目錄即可，不需 git add）"
+    )
