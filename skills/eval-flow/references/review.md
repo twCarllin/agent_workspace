@@ -42,6 +42,8 @@
      - 與步驟 3 的引文核實並存不互代：引文核實防幻覺發現（引的 code 不存在），本條防真發現擴 scope（發現為真但無人要求）
    - **修正迭代上限（僅數 reviewer 修正輪）**：同一 sub_task 的 reviewer 修正 2 輪後 reviewer 仍有 🔴 → 將該 sub_task 的 `status` 設為 `"failed"`、`warning: true`，回報使用者（不自行繼續修）；checker 輪與升級動作本身不計入此上限
 
+涉及外部答案解析或第二根因時，審查與結果處置依 test-strategy「外部答案解析與第二根因」；主 flow 依該節投放原文，獨立審查核對該節所需證據與裁示。
+
 ## 派工前組裝資料
 
 reviewer 的共用定位內容依 [派工與證據控制「共用程式定位資訊」](dispatch-control.md#共用程式定位資訊)；reviewer 自行讀 staged diff，並按需補查相關原始碼。checker 維持不讀 diff。

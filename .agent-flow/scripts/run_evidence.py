@@ -1,12 +1,20 @@
 """Read run evidence and validate it without hook output or telemetry."""
+
 import glob
 import json
 import os
 import subprocess
 
-from flow_rules import (RuleViolation, MANIFEST_RE, validate_credentials,
-                        validate_state, validate_manifest_basic, validate_manifest_tier,
-                        validate_archive, require_archive)
+from flow_rules import (
+    RuleViolation,
+    MANIFEST_RE,
+    validate_credentials,
+    validate_state,
+    validate_manifest_basic,
+    validate_manifest_tier,
+    validate_archive,
+    require_archive,
+)
 
 
 def load_json(path):
@@ -53,9 +61,12 @@ def validate_evidence_snapshot(manifest, source):
     commands = manifest.get("verification_commands") or []
     latest = commands[-1] if commands else {}
     if latest.get("exit_code") != 0 or not latest.get("snapshot"):
-        raise RuleViolation(f"{source} 缺通過的收尾驗證快照；依 tier 與專案要求用 run_verify.py 重新驗證")
+        raise RuleViolation(
+            f"{source} 缺通過的收尾驗證快照；依 tier 與專案要求用 run_verify.py 重新驗證"
+        )
     try:
         import verification_snapshot
+
         kind = latest.get("snapshot_kind")
         if kind is None:
             current = verification_snapshot.snapshot()
@@ -71,11 +82,51 @@ def validate_evidence_snapshot(manifest, source):
         raise RuleViolation(f"{source} 驗證後程式樹已變更；請重新驗證")
 
 
+def check_item_plan(manifest):
+    """Read the current task and verify its frozen HITL item scope."""
+    import flow_rules
+    import item_accounting
+
+    if not flow_rules.requires_item_accounting(manifest):
+        return
+    task_path = manifest.get("task_file")
+    if not isinstance(task_path, str) or not task_path:
+        raise RuleViolation("缺 task_file：無法核對確認 item")
+    try:
+        with open(task_path, encoding="utf-8") as stream:
+            task_text = stream.read()
+    except OSError as error:
+        raise RuleViolation(f"無法讀取 task_file：{task_path}（{error}）") from error
+    item_accounting.validate_plan(manifest, task_text)
+
+
+def check_items(manifest, files):
+    """Check the frozen scope against task text and actual delivery paths."""
+    import flow_rules
+    import item_accounting
+
+    if not flow_rules.requires_item_accounting(manifest):
+        return
+    check_item_plan(manifest)
+    acceptance = manifest.get("partial_acceptance")
+    unresolved = item_accounting.validate_results(
+        manifest, files=files, allow_pending=acceptance is not None
+    )
+    if acceptance is not None:
+        if not isinstance(acceptance, dict):
+            raise RuleViolation("partial_acceptance 格式錯誤")
+        item_accounting.validate_ruling(acceptance.get("ruling"))
+        if not unresolved or acceptance.get("item_ids") != unresolved:
+            raise RuleViolation("partial 清單須等於全部未交付 item")
+    if manifest.get("status") == "completed" and unresolved:
+        raise RuleViolation("partial 不可標為 completed")
+
 
 def check_manifest(manifest_path, staged, allow_in_progress=False):
     m = load_json(manifest_path)
     run_id = MANIFEST_RE.match(manifest_path).group("run_id")
     validate_manifest_basic(m, manifest_path, allow_in_progress)
+    check_items(m, staged)
     validate_evidence_snapshot(m, manifest_path)
     if validate_manifest_tier(m, manifest_path):
         return

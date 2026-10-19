@@ -4,6 +4,7 @@
 prepare RUN_ID records the current HEAD after evidence and archive are ready.
 finalize RUN_ID verifies the real commit message and records the resulting SHA.
 """
+
 import argparse
 import datetime
 import json
@@ -19,7 +20,9 @@ import eval_state
 
 
 def git(*args):
-    return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout.strip()
+    return subprocess.run(
+        ["git", *args], check=True, capture_output=True, text=True
+    ).stdout.strip()
 
 
 def manifest_path(run_id):
@@ -42,7 +45,10 @@ def prepare(path, manifest):
         raise ValueError("run is not in progress")
     if os.path.exists("eval_state.json"):
         raise ValueError("archive eval_state.json before preparing the commit")
-    run_evidence.check_manifest(path, set(), allow_in_progress=True)
+    staged = set(
+        git("diff", "--cached", "--name-only", "-z", "--no-renames").split("\0")
+    ) - {""}
+    run_evidence.check_manifest(path, staged, allow_in_progress=True)
     manifest["status"] = "ready_to_commit"
     try:
         manifest["pre_commit_head"] = git("rev-parse", "HEAD")
@@ -62,15 +68,43 @@ def finalize(path, manifest):
     trailers = re.findall(r"^Run-Id:[ \t]*(\S+)[ \t]*$", message, re.MULTILINE)
     if trailers != [manifest["run_id"]]:
         raise ValueError("HEAD commit must have exactly one matching Run-Id trailer")
-    manifest["status"] = "completed"
-    manifest["phase"] = "completed"
+    parents = git("show", "-s", "--format=%P", sha).split()
+    expected = manifest.get("pre_commit_head")
+    if parents != ([expected] if expected else []):
+        raise ValueError("HEAD is not the commit prepared by this run")
+    committed = set(
+        git(
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            "-z",
+            "--no-renames",
+            sha,
+        ).split("\0")
+    ) - {""}
+    run_evidence.check_items(manifest, committed)
+    manifest["status"] = (
+        "partial" if manifest.get("partial_acceptance") else "completed"
+    )
+    manifest["phase"] = manifest["status"]
     manifest["commit_sha"] = sha
     manifest["completed_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     save(path, manifest)
-    eval_state.append_event(manifest["run_id"], "completed", argparse.Namespace(
-        run_id=manifest["run_id"], commit_sha=sha, completed_at=manifest["completed_at"]))
-    print(f"[run-commit] {manifest['run_id']} completed at {sha}")
-    print("[run-commit] run 已收尾。建議使用者 /clear 後再接下一個需求：同一 session 連跑多個 run，每次呼叫的 context 會持續累積")
+    eval_state.append_event(
+        manifest["run_id"],
+        manifest["status"],
+        argparse.Namespace(
+            run_id=manifest["run_id"],
+            commit_sha=sha,
+            completed_at=manifest["completed_at"],
+        ),
+    )
+    print(f"[run-commit] {manifest['run_id']} {manifest['status']} at {sha}")
+    print(
+        "[run-commit] run 已收尾。建議使用者 /clear 後再接下一個需求：同一 session 連跑多個 run，每次呼叫的 context 會持續累積"
+    )
 
 
 def main():

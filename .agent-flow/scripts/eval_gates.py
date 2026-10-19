@@ -137,6 +137,7 @@ def _rule_call(operation, *args, **kwargs):
             "validate_evidence_snapshot": "gate.snapshot_invalid",
             "validate_state": "gate.state_invalid",
             "check_manifest": "gate.manifest_invalid",
+            "check_item_plan": "gate.item_plan_invalid",
             "manifest_phase": "gate.phase_invalid",
             "load_json_quiet": "gate.json_invalid",
         }[operation.__name__]
@@ -502,6 +503,7 @@ def check_task_gate(tool_input):
                 gate_id="gate.task_file_missing",
                 run_id=run_id,
             )
+        _rule_call(run_evidence.check_item_plan, manifest)
         # risk_analysis.blocking 遍歷已移除（Q8：前置 1 風險分析連同本刪除，生產者消失、
         # 此 gate 永遠不觸發；`risk_analysis` 欄位寫入路徑同步自 eval_state.py 移除）。
 

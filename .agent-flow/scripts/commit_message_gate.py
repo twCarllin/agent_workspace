@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Git commit-msg hook: validate the message Git will actually commit."""
+
 import glob
 import os
 import re
@@ -7,7 +8,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import eval_gates
-
 
 TRAILER = re.compile(r"^Run-Id:[ \t]*(\S+)[ \t]*$", re.MULTILINE)
 
@@ -20,7 +20,10 @@ def check(message_path):
         if not eval_gates.MANIFEST_RE.fullmatch(path):
             continue
         manifest = eval_gates.load_json_quiet(path)
-        if isinstance(manifest, dict) and manifest.get("status") in eval_gates.PENDING_STATUSES:
+        if (
+            isinstance(manifest, dict)
+            and manifest.get("status") in eval_gates.PENDING_STATUSES
+        ):
             pending.append(path)
     if not pending:
         return
@@ -34,10 +37,10 @@ def check(message_path):
         eval_gates.block(f"工作樹有 {len(pending)} 個未完成的 run，先處理單一 run 原則")
     if os.path.exists("eval_state.json"):
         eval_gates.block("eval_state.json 尚未歸檔")
-    eval_gates.check_manifest(path, set())
     staged = eval_gates._git_diff_cached_paths()
     if staged is None:
         eval_gates.block("無法讀取 Git staging area")
+    eval_gates.check_manifest(path, set(staged))
     eval_gates.check_staged_test_lint(set(staged))
 
 

@@ -33,6 +33,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import flow_rules
+import item_accounting
 import run_evidence  # noqa: E402
 
 STATE_PATH = "eval_state.json"
@@ -180,6 +181,7 @@ def cmd_init_run(args):
         "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "harness": args.harness,
         "evidence_schema": 2,
+        "item_accounting_required": True,
         "tier": 1,
         "tier_rationale": args.tier_rationale,
         "spec_inline": args.spec_inline,
@@ -538,6 +540,12 @@ def cmd_hitl_confirm(args):
     m["hitl_attended"] = (
         attended  # True＝互動 session 確認；None＝環境未提供該變數（留痕供稽核）
     )
+    if flow_rules.requires_item_accounting(m):
+        try:
+            with open(m["task_file"], encoding="utf-8") as task_stream:
+                item_accounting.confirm_plan(m, task_stream.read())
+        except (OSError, flow_rules.RuleViolation) as error:
+            fail(str(error))
     m["phase"] = "decomposed"
     with open(path, "w", encoding="utf-8") as f:
         json.dump(m, f, ensure_ascii=False, indent=2)

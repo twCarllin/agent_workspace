@@ -1942,9 +1942,8 @@ class LegacyPhaseCompatibilityTest(unittest.TestCase):
 
     # --- DoD ②：新值 ⊂ 舊值域（雙向相容，H-err2）---
 
-    def test_new_phases_are_subset_of_legacy_domain(self):
-        """新 PHASES（3 值）皆存在於舊 5 值域內——新 hook 讀舊 manifest（上方 e2e 案例）、
-        舊 hook 讀新 manifest（新值本就是舊值域子集，語義未變）皆相容。"""
+    def test_existing_phases_keep_legacy_domain_with_partial_extension(self):
+        """既有 phase 保持相容；partial 明確擴充終態，不冒用 completed。"""
         legacy_domain = {
             "init",
             "risk_done",
@@ -1952,8 +1951,10 @@ class LegacyPhaseCompatibilityTest(unittest.TestCase):
             "decomposed",
             "completed",
         }
-        self.assertTrue(set(eval_gates.PHASES).issubset(legacy_domain))
-        self.assertEqual(set(eval_gates.PHASES), {"init", "decomposed", "completed"})
+        self.assertTrue((set(eval_gates.PHASES) - {"partial"}).issubset(legacy_domain))
+        self.assertEqual(
+            set(eval_gates.PHASES), {"init", "decomposed", "completed", "partial"}
+        )
 
 
 class RunIdTrailerRegexTest(unittest.TestCase):

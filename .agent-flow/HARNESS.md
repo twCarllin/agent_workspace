@@ -32,3 +32,9 @@ CLI 與事件適配由 `.agent-flow/scripts/harness_adapter.py` 提供 build_arg
 本地操作入口為 `python3 .agent-flow/scripts/flow.py`：`preflight` 檢查環境，`status/watch` 讀取進度，`finish` 串接既有驗證與提交。用法與能力邊界見 [FLOW_CLI.md](FLOW_CLI.md)。
 
 Tier 2 直接派 reviewer 審完整 task diff、需求與證據。Tier 1 標準 checker 派工先用 `flow.py review-packet build` 組裝資料，再以 `dispatch.py --review-packet` 核對來源。資料齊全不代表審查通過；用法見 [REVIEW_PACKET.md](REVIEW_PACKET.md)。
+
+2026.10.19.1 起的新 Tier 1／2 run 加入 item 對帳。HITL 固定 `item_plan`，
+逐 item 記 `item_results`；prepare／commit gate 核對 staged 路徑，finalize 核對
+實際 commit SHA 與檔案。未結清 item 須暫停；使用者接受部分交付時終態為
+`partial`，不得標為 `completed`。舊 manifest 沿用原版本契約。
+欄位與命令見 [FLOW_CLI.md](FLOW_CLI.md#item-交付對帳)。

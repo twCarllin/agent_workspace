@@ -11,8 +11,24 @@ MANIFEST_RE = re.compile(
     r"^run/(?![^/]*\.context(?:\.[^/]*)?\.json$)(?P<run_id>[^/]+?)(?<!\.eval)(?<!\.test_baseline)\.json$"
 )
 
-PHASES = ["init", "decomposed", "completed"]
-PENDING_STATUSES = {"in_progress", "ready_to_commit"}
+PHASES = ["init", "decomposed", "completed", "partial"]
+PENDING_STATUSES = {"in_progress", "ready_to_commit", "paused"}
+ITEM_ACCOUNTING_VERSION = "2026.10.19.1"
+
+
+def requires_item_accounting(manifest):
+    """Older manifests retain the contract of their recorded framework version."""
+    version = str(manifest.get("framework_version", ""))
+    parts = (
+        tuple(int(part) for part in version.split("."))
+        if re.fullmatch(r"\d+(?:\.\d+)+", version)
+        else ()
+    )
+    return manifest.get("tier") in (1, "1", 2, "2") and (
+        manifest.get("item_accounting_required") is True
+        or parts >= tuple(int(part) for part in ITEM_ACCOUNTING_VERSION.split("."))
+        or "item_plan" in manifest
+    )
 
 
 def manifest_phase(manifest):
@@ -92,9 +108,9 @@ def validate_manifest_basic(m, manifest_path, allow_in_progress=False):
             f"{manifest_path} intent gate 未過：spec_path 與 spec_inline 皆空"
         )
     allowed_statuses = (
-        ("in_progress", "ready_to_commit", "completed")
+        ("in_progress", "ready_to_commit", "completed", "partial")
         if allow_in_progress
-        else ("ready_to_commit", "completed")
+        else ("ready_to_commit", "completed", "partial")
     )
     if m.get("status") not in allowed_statuses:
         raise RuleViolation(

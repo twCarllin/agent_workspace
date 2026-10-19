@@ -18,7 +18,7 @@ import run_commit
 import run_verify
 
 SCRIPTS = Path(__file__).resolve().parent
-TERMINAL = {"completed", "aborted", "failed"}
+TERMINAL = {"completed", "partial", "aborted", "failed"}
 
 
 def read(path):
@@ -139,15 +139,20 @@ def status(run_id=None):
     latest_verification = commands[-1] if commands else None
     recorded = manifest.get("status")
     next_action = (
-        "done; push only when requested"
-        if recorded == "completed"
+        "partial delivery accepted; undelivered items: "
+        + ", ".join(manifest.get("partial_acceptance", {}).get("item_ids", []))
+        if recorded == "partial"
         else (
-            "resume finish or finalize the existing commit"
-            if recorded == "ready_to_commit"
+            "done; push only when requested"
+            if recorded == "completed"
             else (
-                "resolve recorded error"
-                if error
-                else "resume the recorded task; complete review and verification evidence"
+                "resume finish or finalize the existing commit"
+                if recorded == "ready_to_commit"
+                else (
+                    "resolve recorded error"
+                    if error
+                    else "resume the recorded task; complete review and verification evidence"
+                )
             )
         )
     )
@@ -158,7 +163,9 @@ def status(run_id=None):
         tasks=current,
         error_reason=error,
         recorded_elapsed_seconds=elapsed,
-        elapsed_seconds=elapsed if recorded == "completed" else elapsed_now,
+        elapsed_seconds=(
+            elapsed if recorded in ("completed", "partial") else elapsed_now
+        ),
         last_event=events[-1] if events else None,
         last_dispatch=dispatch[-1] if dispatch else None,
         latest_verification=latest_verification,
@@ -287,7 +294,7 @@ def finish(args):
     os.write(descriptor, f"{os.getpid()} {args.run_id}\n".encode())
     os.close(descriptor)
     try:
-        if manifest.get("status") == "completed":
+        if manifest.get("status") in ("completed", "partial"):
             if not matching_commit(manifest, completed=True):
                 raise ValueError(
                     "completed run does not match current HEAD and trailer"

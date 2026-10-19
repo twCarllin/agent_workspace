@@ -96,3 +96,30 @@ git rm --cached -- run/gate_hits.log run/tier0.jsonl
 ```
 
 此操作只取消追蹤，保留本地內容；提交前核對檔案仍存在，且 `git check-ignore` 確認忽略規則生效。本模板已有 `run/` 忽略規則，安裝到目標專案時由安裝器設定。其他已追蹤的歷史 manifest 與報告保留，不能整批刪除 `run/`。新 checkout 的執行日誌由工具按需建立。
+
+## Item 交付對帳
+
+2026.10.19.1 起的新 Tier 1／2 run 必須記 `item_accounting_required: true`。
+HITL 時固定 `item_plan.confirmed_at` 與 `items`（`id`、`task_id`、`summary`）。
+Tier 1 由 `hitl-confirm` 建立；Tier 2 在 HITL 後執行：
+
+```sh
+python3 .agent-flow/scripts/item_accounting.py --run-id <id> confirm-plan
+python3 .agent-flow/scripts/item_accounting.py --run-id <id> deliver 1.1 --files src/file.py
+python3 .agent-flow/scripts/item_accounting.py --run-id <id> pending 1.2 --reason '待使用者裁示'
+python3 .agent-flow/scripts/item_accounting.py --run-id <id> remove 1.2 --ruling-file ruling.json
+python3 .agent-flow/scripts/item_accounting.py --run-id <id> partial --items 1.2 --ruling-file ruling.json
+```
+
+裁示 JSON 須有 `actor: "user"`、原文 `text`、含時區的 ISO 時間 `at`、來源 `source`。
+`pending` 使 run 暫停；只有使用者裁示可移除 item 或接受部分交付。
+`partial_acceptance.item_ids` 須列出全部未交付 item，`ruling` 保存裁示。
+`partial` 是終態，不表示全部完成。不得刪除 task item 來消除未完成範圍。
+
+`run_commit.py prepare` 與 commit gate 先核對 staged 檔案；`finalize` 再核對
+真實 commit 的父 SHA、Run-Id 與檔案。交付檔案缺失時，補齊本次提交內容再重試。
+新 run 缺計畫時，先依已確認的 task 建立計畫。舊版 manifest 沿用原契約，
+不補造確認時間或交付結果。
+
+部分交付仍須通過 task 審查與四項測試／審查憑據。reviewer 須明列未交付 item
+及使用者裁示，才可對已接受的部分範圍記 task `passed`；未獲裁示仍阻擋。

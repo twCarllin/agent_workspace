@@ -179,3 +179,17 @@
 - **有任一 failed**：manifest 的 `status` 設為 `"failed"`，並在 manifest 的 `failed_reason` 寫一句話死因（哪個 sub_task、卡在哪步、為什麼），回報使用者
   - **失敗收尾**：staging area 保持原狀（已通過 sub_task 的變更留在 staged），**不自行 unstage、不部分 commit、不清除 `eval_state.json`**，由使用者裁決後續（續跑、部分 commit 或放棄）
   - 失敗收尾時工具 hook 會擋下 agent 的 `git commit`（`eval_state.json` 尚存在）；使用者若決定部分 commit，需先依裁決處置現場狀態
+
+## Item 對帳欄位
+
+新 Tier 1／2 manifest 記 `framework_version: "2026.10.19.1"`（或更新版本）
+與 `item_accounting_required: true`。`item_plan` 保存 HITL 確認清單；
+`item_results` 以 item ID 為 key。結果為 `delivered` 時記 `files`，為 `pending`
+時記 `reason` 並暫停 run，為 `removed` 時記 `ruling`。
+裁示須含 `actor: "user"`、`text`、含時區的 `at` 與 `source`。
+`partial_acceptance` 保存 `item_ids`（全部未交付 ID）及 `ruling`。
+`completed` 表示全部 item 已交付或經裁示移除；`partial` 表示使用者接受部分交付。
+命令與修復步驟見 `.agent-flow/FLOW_CLI.md`「Item 交付對帳」。
+
+部分交付仍須通過 task 審查與四項測試／審查憑據。reviewer 須明列未交付 item
+及使用者裁示，才可對已接受的部分範圍記 task `passed`；未獲裁示仍阻擋。
