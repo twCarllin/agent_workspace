@@ -18,6 +18,15 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 
 若 manifest 為 `ready_to_commit`：先讀 `pre_commit_head`，查目前 HEAD 的 commit message。若 HEAD 已變且有唯一匹配的 `Run-Id`，執行 `python3 .agent-flow/scripts/run_commit.py finalize <run_id>`；若 HEAD 未變，檢查 staging 和驗證快照後提交，再 finalize。HEAD 已變但 trailer 不匹配時停止並回報，不推測歸屬。
 
+## adaptive Tier 1 的恢復
+
+`tier1_policy: "adaptive-v1"` 不建 eval_state；先依 manifest 的已授權計畫、
+`review_reasons`、完成度與實際驗證核對剩餘項目。`init` 尚未開始時依 eval-flow
+的 Tier 1 路徑判斷是否有待裁示問題；已記授權且無問題時可用 `start-run`。
+`decomposed` 不等於 HITL 曾確認，不補造確認時間。已有獨立審查原因不可降回自查；
+沒有有效自查來源快照、驗證失敗或來源變動時，先重做適用驗證再核對。以下共用循環
+恢復表適用 Tier 2 與舊 Tier 1，不因中斷而替 adaptive 預設加派 checker。
+
 ## Step 2：依 manifest `phase` 定位前置進度
 
 `phase` 值域為 `init` → `decomposed` → `completed`。前置進度依 **`task_file`**（已建＝分拆完成）與 **`hitl_confirmed_at`**（已記＝HITL 已過）兩個欄位定位：
@@ -30,7 +39,7 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 
 - **舊 manifest 的 `phase` 為 `risk_done`／`usage_confirmed`** → hook 的 `manifest_phase()` 已將其映射為 `"init"`，本表按 `init` 列的恢復動作處置——`risk/<run_id>.md`、`usage/<run_id>.md` 即使存在也不用於判斷卡點，只看 `task_file`／`hitl_confirmed_at`
 - 舊 manifest 無 `phase` 欄 → 依 `task_file` 是否非空推導（與 hook 的向後相容邏輯一致）
-- Tier 1 的 run（`tier: 1`）：`phase` 只會是 `init` 或 `decomposed`；`init` 代表卡在輕量 HITL 確認前，重新回報「N tasks／M items」計畫請使用者確認（**≤2 tasks 且 ≤8 items 含界**為主 flow 直建門檻，與 Tier 2 前置 1 條件派工一致）
+- 舊 Tier 1 的 run（`tier: 1` 且缺 `tier1_policy`）：`phase` 只會是 `init` 或 `decomposed`；`init` 代表卡在輕量 HITL 確認前，重新回報「N tasks／M items」計畫請使用者確認（**≤2 tasks 且 ≤8 items 含界**為主 flow 直建門檻，與 Tier 2 前置 1 條件派工一致）
 
 ## Step 3：循環內恢復（phase = decomposed）
 

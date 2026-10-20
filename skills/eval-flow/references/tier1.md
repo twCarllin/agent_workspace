@@ -2,34 +2,46 @@
 
 ## Tier 1 精簡路徑
 
-理由碼（complexity_reasons）空集合、或僅剩具名重大問題可由點名 advisor 回答的工作（判準住 .agent-flow/ROUTER.md Router，不重列——R-007）。**跳過 Spec 檔與全套 usage 分析，但仍留溯源**。風險由 Router 的理由碼把關（信任邊界／公開契約本體變更根本進不到 Tier 1），故不另跑風險分析。
+新 `init-run` 的 `tier1_policy: "adaptive-v1"` 走本節。主 flow 自選實作與驗證方法，
+不預設派 writer 或 checker。沒有此欄的舊 run 走末節；Tier 2 仍走完整路徑。
 
-1. **精簡初始化**：同守上方「共用：進場檢查」（dirty tree 先裁決歸屬，不重列——R-007）。
-   - 用 `eval_state.py init-run` 建立 manifest `run/<run_id>.json`；參數與操作範例見 `.agent-flow/FLOW_CLI.md`「Tier 1 初始化與審查」。**`spec_inline`** 記需求原文一句話，取代 `spec_path`。工具設定 `tier: 1`、`phase: "init"` 與憑據初值，不自動判級或確認 HITL。
-   - **不建 `eval_state.json`**——Tier 1 的四項憑據（`local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`）直接記在 manifest 自身欄位（commit gate 憑此四欄放行，豁免的是歸檔檔載體，不是證據本身）
-   - **intent gate（不可鬆）**：`spec_path` 與 `spec_inline` 至少一個非空，皆空不可往下
-   - **事件留痕**：生命週期事件由對應操作自動記錄，不另呼叫 `event` 補記；時機與語義見 `SKILL.md「資料格式與操作規則」`。
-2. **直接建 task 檔**：免呼叫 `task-decomposer` subagent，但上限不變——**≤2 tasks、合計 ≤8 items（硬）、各 item 目標 ≤300 行（軟）；每 task 仍 ≤5 items**（單 task 審查可讀性上限不因放寬而破）。
-   - 超過 2 tasks／合計超 8 items（task 檔可讀性上限，非判級軸）、或觸發 .agent-flow/ROUTER.md 升級逃生門任一條件（實際規模遠超判級認知、冒出新理由碼、🔴）→ 升級 Tier 2
-   - **功能移除類需求**：既有測試的分流依 task-decomposition skill 的「功能移除的測試三分法」（主題＝被刪行為→隨功能刪；主題是存活行為→只拔斷言行；無關→不動），主 flow 建 task 檔時完成分類
-   - **DoD 措辭**：主 flow 直建 task 檔的 DoD 與契約 row 同守 task-decomposition 的可驗斷言與「禁不可驗評價詞」規則（清單住該 skill，此處不重列）——Tier 1 不載入該 skill，此指向句即投放路徑
-   - **計畫單一來源**：已有 Spec／spec_inline 的決策與行為不在 task 重述；task 保留執行範圍、DoD／契約及來源引用，供派工與驗收使用。
-   - **合併審查（省審查稅）**：同一連貫變更（同 `spec_inline` 一句涵蓋、同一個設計決策）的多 items，合計 staged diff 一輪可讀（≤約 400 行）→ **合併為一輪 checker 審**——輸入集為各 item 的 DoD／契約表**聯集**，其餘輸入照循環 step 3 不變。
-     - 約束：合併後單輪仍須一次讀完可審（總量失控就拆回）；**all-in 時本捷徑關閉**（逐 item 審）
-3. **輕量 HITL**：寫 code 前，把「N tasks／M items」的計畫回報使用者確認一次（防 tier 誤判就悶頭寫）。
-   - **事實句**：計畫與 `spec_inline` 中描述既有程式或資料的句子，同守 `tier2-prep.md` 前置 0「事實句附來源」規則（不重列——R-007）；`［假設］` 句一律列入本次提報，由使用者逐條裁示
-   - **點名 advisor（有具名重大問題時）**：Router 判 Tier 1 時若理由碼非空（靠具名問題收斂），HITL 一併提報「**問題原文**＋點名的 advisor（`usage-analyzer` 或 `impact-analyzer` 擇需）」——只點 advisor 不說問題＝不合格（agentflow ag.md 原則）
-     - 確認後（phase 已 `decomposed`，既有 AGENT_MIN_PHASE 放行）先跑該 advisor（答案寫入 Spec 或 task 計畫備註，不產獨立報告檔、不回寫 report path 欄，同 Tier 2 具名問題觸發語義），拿到答案再進循環
-   - 確認後執行下列 `hitl-confirm` 指令，由工具寫入確認範圍、裁示條數、`phase: "decomposed"` 及事件，才進循環。
-4. **主 flow 直寫捷徑（可選，全 tier 適用；all-in 時關閉）**：主 flow 判斷「交接是否划算」（行數與檔案類型不是委派依據）——考量 task／相依 items 的交接成本、是否需要獨立乾淨 context、主 flow 目前 context 負載、item 邏輯是否簡單機械；划算則直接寫 code、不 spawn `code-writer`（省一次全新 agent 重建 context 的稅）。**留痕（硬性）**：每 item 在 manifest 選填欄 `executor_notes` 記一句 `item <id>: 直寫｜派工 — <理由>`（欄位語義見 `SKILL.md「資料格式與操作規則」`），供事後審計選擇是否合理。守則：
-   - 「寫的人 ≠ 審的人」防線不變（審的人預設為 `task-verifier`（checker），照常獨立審；升級走循環 step 3 四類觸發同一套規則，改派 `code-reviewer`）
-   - 知識前置（三源，見循環 step 1）改由主 flow 自查並在回報留痕
-   - 需要獨立 context 的 item（多檔複雜邏輯、主 flow context 已重）仍派 `code-writer`；相依 items 與拆批續作方式依 writing.md，避免每個 item 重建 context
-   - **直寫路徑同受 hook 攔截**：PreToolUse 的 Write／Edit gate 在 manifest `phase` 未達 `decomposed` 時擋下對實作檔的寫入（溯源與規格檔例外：`run/`／`task/`／`spec/`／`retro/`／`eval_state.json`）。確認只認檔不認對話——以 `python3 .agent-flow/scripts/eval_state.py hitl-confirm <run_id> --note "<一句>" [--rulings N]` 留痕並推進 phase；**無人看管的 session（headless）不得自行確認**，該指令會拒絕，正確行為是停在此步、回報計畫與待裁示項後結束，由有人看管的 session 接手。**此 gate 只攔 harness 已接入的檔案寫入工具，不防以命令工具寫檔**（同其他 gate 的防護層級：防照規則推進的誤用，不防刻意繞道）
-5. **共用循環**：進入下方循環的步驟 1–7（code-writer → review（per-task，含完成度節）→ 本地測試 → commit）。收尾**不歸檔**（無 `eval_state.json`）：
-   - **收尾檢查只跑累積聯集**（step 6 ⓪ 的 Tier 1 範圍：`--strike-key wrapup_related`，不跑全套；指令與空集合處置住 test-strategy skill「Commit 前收尾檢查與重開路徑」節）
-   - 獨立審查結論用 `eval_state.py review-run` 記錄；只有本 run 全部 task 已通過獨立審查時才加 `--passed`。測試欄位由 `run_verify.py` 依實際結果寫入。收尾依 step 6 執行 prepare、commit、finalize。
-   - 直接 commit **依 step 6 子項② 的處置**（Tier 1 無 eval 歸檔檔與 usage 報告；溯源檔同樣留在工作目錄不 `git add`），message 附 `Run-Id: <run_id>` trailer——**trailer 是 commit gate 的定位依據，不可省**
-   - **收尾對溯源檔怎麼處置，以 step 6 子項②為單一枚舉點**，本處與 `SKILL.md「其他路徑」` 內的 fan-out 節皆指向它、不各自重列（R-007——各自重列必漂移）
-   - 不執行 eval_state.py 的 archive 操作、不清除任何 scratchpad（本就沒建）
-   - step 5 可用實際運行功能驗證取代自動化測試（不強制建測試）；驗證指令以 `run_verify.py` 執行，補充仲裁或豁免說明仍記在 `local_test_evidence`（見循環 step 5）。
+### 適用判斷（單一枚舉點）
+
+- **HITL**：只有業務事實或使用者偏好未明、授權不足、不可還原操作、需求有多種解讀等
+  需要使用者決定的問題才提問。已有清楚需求與授權就開始，不把計畫回報當成第二次授權。
+  權限、公開契約與其他 Router 邊界變更仍走 Tier 2；部署或對外操作仍須原有授權。
+- **獨立審查**：驗證不能涵蓋主要行為、影響面不明、存在具名疑點，或使用者要求時，
+  先用 `require-review --reason` 記錄原因，直接派 reviewer 核對完整 staged diff、DoD
+  與實際證據。不先派 checker；原因只增不減，不因後續測試綠燈改回自查。
+- **主 flow 自查**：需求明確、變更可還原、驗證涵蓋主要行為，且無獨立審查原因時使用。
+  自查是執行者檢查，不宣稱獨立審查；不以欄位齊全代表需求已滿足。
+
+1. **精簡初始化**：完成共用進場檢查與 Router 分級，執行 `init-run`；保存使用者需求、
+   分級理由、驗證命令與 task 路徑。不建 `eval_state.json`。
+   **intent gate（不可鬆）**：`spec_path` 與 `spec_inline` 至少一個非空。
+2. **直接建 task 檔**：主 flow 記錄執行範圍與可驗 DoD；單一來源引用需求，不重述規格。
+   維持 ≤2 tasks、合計 ≤8 items、每 task ≤5 items；超出或風險上升時依 Router 處理。
+   既有測試足夠就沿用，不按 DoD 條數新增測試。功能移除的測試分流依 task-decomposition。
+3. **依授權開始**：無待裁示問題時執行 `start-run <id> --authorization '<已授權需求>'`，
+   記錄 `plan_recorded_at` 與 `plan_authorization`、凍結 item 清單並推進 decomposed。
+   不填 `hitl_confirmed_at`，不宣稱使用者逐項確認過計畫。需要 HITL 時先取得裁示，
+   再用 `hitl-confirm` 記錄；**無人看管的 session（headless）不得自行確認** HITL。
+4. **主 flow 直寫捷徑**：主 flow 判斷直接實作或委派何者合適；需要乾淨 context 或明確
+   模組分工時才派 writer。委派時完整投放適用契約與知識前置（R-011），檔案與權限範圍明列。
+   主 flow 直寫同守 `.agent-flow/CODE_QUALITY.md`。`executor_notes` 可記有用的選擇理由，
+   不為每個 item 產生固定格式的空白說明。
+5. **驗證與交付**：只 stage 本次檔案，選足以覆蓋需求的測試或實際運行驗證，以
+   `run_verify.py` 記實際結果。依適用判斷記自查或獨立結論，完成 item 對帳，再用
+   `flow.py finish` 驗證及提交；用法與欄位依 `.agent-flow/FLOW_CLI.md`。
+   自查由 `review-run --checked-by self --evidence '<完成度與驗證範圍>' --passed` 記錄；
+   須已有目前來源的有效成功驗證且無審查原因。來源變更或測試失敗後不可沿用。
+   自查不代表可以跳過測試、偽造結果、覆蓋他人變更或擴張外部授權。
+
+### 舊 run 相容路徑
+
+缺 `tier1_policy` 的舊 Tier 1 沿用原有開始與審查契約：建立 task 後取得輕量 HITL，
+使用 `hitl-confirm` 推進 phase；四項憑據直接記 manifest，不建 `eval_state.json`。
+實作／staging、checker 四類升級、測試與收尾依共用循環 step 1–7。信任邊界或公開契約
+理由仍直派 reviewer；獨立審查結論由 `review-run` 記錄，不得用 `self`。
+同一連貫變更的一輪可讀 diff 可合併審查；相依 items 沿用同一 writer。
+不以新政策為既有確認、審查或 item 交付結果補造紀錄。

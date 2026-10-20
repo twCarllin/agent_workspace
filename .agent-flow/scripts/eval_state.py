@@ -183,6 +183,7 @@ def cmd_init_run(args):
         "evidence_schema": 2,
         "item_accounting_required": True,
         "tier": 1,
+        "tier1_policy": "adaptive-v1",
         "tier_rationale": args.tier_rationale,
         "spec_inline": args.spec_inline,
         "test_command": args.test_command,
@@ -207,6 +208,61 @@ def cmd_init_run(args):
     append_event(args.run_id, "init", args)
     record_session(args.run_id)
     print(f"[eval-state] init-run: {path}")
+
+
+def cmd_start_run(args):
+    path = checked_manifest_path(args.run_id)
+    manifest = run_evidence.load_json(path)
+    if not flow_rules.adaptive_tier1(manifest) or manifest.get("all_in"):
+        fail("start-run 僅適用 adaptive Tier 1")
+    if (
+        manifest.get("status") != "in_progress"
+        or flow_rules.manifest_phase(manifest) != "init"
+    ):
+        fail("start-run 只接受 init 的進行中 run")
+    if not args.authorization.strip():
+        fail("--authorization 不可為空")
+    if not (manifest.get("spec_path") or manifest.get("spec_inline")):
+        fail("intent gate 未過")
+    if any(not reason.strip() for reason in args.review_reason):
+        fail("--review-reason 不可為空")
+    manifest["plan_recorded_at"] = datetime.datetime.now(
+        datetime.timezone.utc
+    ).isoformat()
+    manifest["plan_authorization"] = args.authorization
+    try:
+        with open(manifest["task_file"], encoding="utf-8") as stream:
+            item_accounting.confirm_plan(manifest, stream.read())
+    except (OSError, KeyError, TypeError, flow_rules.RuleViolation) as error:
+        fail(str(error))
+    manifest["review_reasons"] = list(
+        dict.fromkeys([*manifest.get("review_reasons", []), *args.review_reason])
+    )
+    manifest["phase"] = "decomposed"
+    save(manifest, path)
+    append_event(args.run_id, "started", args)
+    print(f"[eval-state] start-run: {path}")
+
+
+def cmd_require_review(args):
+    path = checked_manifest_path(args.run_id)
+    manifest = run_evidence.load_json(path)
+    if (
+        not flow_rules.adaptive_tier1(manifest)
+        or manifest.get("status") != "in_progress"
+    ):
+        fail("require-review 僅適用進行中的 adaptive Tier 1")
+    reason = args.reason.strip()
+    if not reason:
+        fail("--reason 不可為空")
+    reasons = manifest.setdefault("review_reasons", [])
+    if reason not in reasons:
+        reasons.append(reason)
+    manifest.update(verify_passed=False, checked_by=None, review_evidence=None)
+    manifest.pop("self_review_snapshot", None)
+    save(manifest, path)
+    append_event(args.run_id, "review_required", args)
+    print(f"[eval-state] require-review: {path}")
 
 
 def record_review(target, reds, checked_by, passed, evidence=None):
@@ -252,6 +308,45 @@ def cmd_review_run(args):
         or flow_rules.manifest_phase(manifest) != "decomposed"
     ):
         fail("review-run 只接受 decomposed 的進行中 Tier 1 run")
+    if args.checked_by == "self":
+        try:
+            flow_rules.validate_self_review(manifest)
+            run_evidence.validate_evidence_snapshot(manifest, path)
+            run_evidence.check_item_plan(manifest)
+        except flow_rules.RuleViolation as error:
+            fail(str(error))
+        if not args.passed:
+            fail("self 必須記錄通過結果")
+        latest = manifest["verification_commands"][-1]
+        manifest["self_review_snapshot"] = {
+            "snapshot": latest["snapshot"],
+            "snapshot_kind": latest.get("snapshot_kind"),
+            "plan_recorded_at": flow_rules.plan_timestamp(manifest),
+            "verification_count": len(manifest["verification_commands"]),
+        }
+        try:
+            manifest["self_review_snapshot"].update(
+                run_evidence.review_source_snapshot(manifest)
+            )
+        except (
+            OSError,
+            subprocess.CalledProcessError,
+            flow_rules.RuleViolation,
+        ) as error:
+            fail(str(error))
+    elif manifest.get("review_reasons") and not args.checked_by.startswith("reviewer:"):
+        fail("具名原因需要獨立 code-reviewer")
+    else:
+        manifest.pop("self_review_snapshot", None)
+    if (
+        flow_rules.adaptive_tier1(manifest)
+        and args.checked_by.startswith("reviewer:")
+        and not args.passed
+    ):
+        reason = f"獨立審查未通過：{args.evidence.strip()}"
+        reasons = manifest.setdefault("review_reasons", [])
+        if reason not in reasons:
+            reasons.append(reason)
     record_review(manifest, args.reds, args.checked_by, args.passed, args.evidence)
     if manifest.get("review_reds") is None:
         manifest["review_reds"] = args.reds
@@ -717,10 +812,23 @@ def main():
     p.add_argument("--task-file")
     p.set_defaults(func=cmd_init_run)
 
+    p = sub.add_parser("start-run", help="記錄 adaptive Tier 1 已授權計畫")
+    p.add_argument("run_id")
+    p.add_argument("--authorization", required=True)
+    p.add_argument("--review-reason", action="append", default=[])
+    p.set_defaults(func=cmd_start_run)
+
+    p = sub.add_parser("require-review", help="累加獨立審查原因並清除通過")
+    p.add_argument("run_id")
+    p.add_argument("--reason", required=True)
+    p.set_defaults(func=cmd_require_review)
+
     p = sub.add_parser("review-run", help="記錄 Tier 1 獨立審查結果；首輪紅數保留")
     p.add_argument("run_id")
     p.add_argument("reds", type=int)
-    p.add_argument("--checked-by", required=True, choices=sorted(VALID_CHECKED_BY))
+    p.add_argument(
+        "--checked-by", required=True, choices=sorted(VALID_CHECKED_BY | {"self"})
+    )
     p.add_argument("--evidence", required=True)
     p.add_argument("--passed", action="store_true", help="當輪獨立審查已確認通過")
     p.set_defaults(func=cmd_review_run)

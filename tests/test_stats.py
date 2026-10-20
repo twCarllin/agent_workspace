@@ -31,6 +31,45 @@ class StatsCollectTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_self_is_separate_from_checker_escalation(self):
+        write(
+            os.path.join(self.run_dir, "2026-10-20-self.json"),
+            {"run_id": "2026-10-20-self", "checked_by": "self", "first_review_reds": 0},
+        )
+        write(
+            os.path.join(self.run_dir, "2026-10-20-archive.json"),
+            {"run_id": "2026-10-20-archive"},
+        )
+        write(
+            os.path.join(self.run_dir, "2026-10-20-archive.eval.json"),
+            {"sub_tasks": [{"checked_by": "self"}]},
+        )
+        data = stats.collect(self.run_dir)
+        self.assertEqual(data["checked_by_self_new"], 2)
+        self.assertEqual(data["checked_by_escalated_new"], 0)
+        self.assertEqual(data["checked_by_direct_new"], 0)
+        self.assertEqual(data["rework_recorded_new"], 0)
+        self.assertEqual(data["rework_missing_new"], 0)
+        self.assertIsNone(
+            stats.first_review_reds(
+                {"review_rounds": [{"checked_by": "self", "review_reds": 0}]}
+            )
+        )
+        self.assertEqual(
+            stats.first_review_reds(
+                {
+                    "review_rounds": [
+                        {"checked_by": "self", "review_reds": 0},
+                        {"checked_by": "reviewer:manual", "review_reds": 2},
+                    ]
+                }
+            ),
+            2,
+        )
+        output = []
+        stats.append_checker_escalation(output, data)
+        self.assertIn("新期 2", output[-1])
+
     def test_reused_result_is_not_a_rerun(self):
         write(
             os.path.join(self.run_dir, "r.json"),

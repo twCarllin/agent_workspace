@@ -1,6 +1,8 @@
 # 循環 step 1–2：實作與 staging
 
-1. 程式測試需扣除既有失敗時，第一次產品修改前先依 test-strategy「Baseline」建立可信基準；已有修改且缺可信基準的處置同該節。純設定依「依變更選擇驗證」。再依「派工機制」節派工 `code-writer` subagent 產出程式碼
+1. 實作與 code-writer 派工方法由適用路徑決定；adaptive Tier 1 依 `tier1.md`，不預設委派。下列派工前置只在實際派 writer 時使用，主 flow 直寫仍守適用的品質、契約與實際驗證要求。
+
+   程式測試需扣除既有失敗時，第一次產品修改前先依 test-strategy「Baseline」建立可信基準；已有修改且缺可信基準的處置同該節。純設定依「依變更選擇驗證」。再依「派工機制」節派工 `code-writer` subagent 產出程式碼
    - **解析與範圍契約前置**：派工前核對 test-strategy「外部答案解析與第二根因」，依該節將適用原文投放到硬性約束區並規劃證據；收到相關發現時依該節處置。
    - **產碼品質前置**：先讀 `.agent-flow/CODE_QUALITY.md`，將適用的格式、可閱讀性與 log 條文原文貼進 writer prompt 硬性約束區，並註明專案設定、檔案範圍與不適用原因。涉及 log 的情境與憑據列入 DoD／契約表；reviewer prompt 同附適用原文。主 flow 直寫自行核對並留下相同交付證據。
    - writer 的共用定位內容依 [派工與證據控制「共用程式定位資訊」](dispatch-control.md#共用程式定位資訊) 組裝及核對。

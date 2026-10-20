@@ -170,6 +170,13 @@ def status(run_id=None):
         last_dispatch=dispatch[-1] if dispatch else None,
         latest_verification=latest_verification,
         review_evidence=dict(
+            checked_by=manifest.get("checked_by"),
+            review_kind=(
+                "self"
+                if manifest.get("checked_by") == "self"
+                else "independent" if manifest.get("checked_by") else None
+            ),
+            review_reasons=manifest.get("review_reasons", []),
             review_reds=manifest.get("review_reds"),
             verify_passed=manifest.get("verify_passed"),
         ),
@@ -294,6 +301,9 @@ def finish(args):
     os.write(descriptor, f"{os.getpid()} {args.run_id}\n".encode())
     os.close(descriptor)
     try:
+        if manifest.get("checked_by") == "self":
+            run_evidence.validate_review(manifest, path)
+            run_evidence.check_item_plan(manifest)
         if manifest.get("status") in ("completed", "partial"):
             if not matching_commit(manifest, completed=True):
                 raise ValueError(

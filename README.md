@@ -23,7 +23,7 @@
 | Tier | 什麼樣的需求 | 走什麼路 |
 |---|---|---|
 | **0** | 純樣式／文案／小 bugfix，不碰高風險面 | 直接改；收尾 append 一行 tier0 留痕（`eval_state.py tier0`） |
-| **1** | 明確的小功能：一句話講得清驗收標準、單一使用路徑 | 精簡流程（跳過規格與情境盤點） |
+| **1** | 明確的小功能：一句話講得清驗收標準、單一使用路徑 | 依授權開始；自選實作與驗證，有具體問題才審查或 HITL |
 | **2** | 理由碼含**信任邊界／公開契約的本體變更**、重大不確定或未決決策無法收斂、或預估 active time >120 分 | 完整流程 |
 | **B** | 空專案骨架（目錄、CI、工具鏈），無業務邏輯 | Bootstrap 路徑 |
 
@@ -38,7 +38,11 @@
 3. **分拆 task**：拆成可驗收的小單位；小範圍由主 flow 直接建立，較大範圍派 task-decomposer
 4. **確認計畫**：提報 Spec 的開放問題與 task 計畫，留存使用者裁示
 
-之後進入實作循環：**寫 → 獨立審查 → 本地驗證 → commit**。Tier 1 由 checker 核對憑據，必要時升級 reviewer；Tier 2 直接由 reviewer 一次審完整 task diff、需求與證據。邊界類變更直接派 reviewer，優先記 `reviewer:boundary`。writer 跑相關自驗，已有足夠測試時沿用；主 flow 補齊證據缺口，有效 run_verify 紀錄可依條件重用。測試 gate 的標準是「無新增穩定失敗」；新 run 的最後驗證另綁定程式樹快照，提交前若程式碼改變就重驗。
+新 Tier 1 的一般路徑是：**依授權開始 → 實作與驗證 → 主 flow 自查 → commit**。
+HITL 與獨立審查依具體問題觸發，判準集中在
+[版控中的 Tier 1 路徑](skills/eval-flow/references/tier1.md)。自查不冒稱獨立審查，
+提交仍須目前來源的有效成功驗證、完成度及 item 對帳。Tier 2 與舊 run 保留獨立審查循環。
+報告接受等價表達，資料齊全不代表實作通過；來源變更就重新核對適用證據。
 
 Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改哪、多大、碰不碰高風險）在找到根因之前都不知道。
 
@@ -55,7 +59,7 @@ Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改
 
 ## 日常操作
 
-在專案根目錄執行 `python3 .agent-flow/scripts/flow.py status --run-id <id>` 查看紀錄進度。`preflight` 提早檢查環境；`watch` 顯示狀態變更；`finish` 串接驗證與提交。完整用法見 [.agent-flow/FLOW_CLI.md](.agent-flow/FLOW_CLI.md)。Tier 1 派 checker 前用 `flow.py review-packet build` 自動整理資料；缺漏先補齊，資料包不代替獨立審查。用法見 [.agent-flow/REVIEW_PACKET.md](.agent-flow/REVIEW_PACKET.md)。
+在專案根目錄執行 `python3 .agent-flow/scripts/flow.py status --run-id <id>` 查看紀錄進度。`preflight` 提早檢查環境；`watch` 顯示狀態變更；`finish` 串接驗證與提交。完整用法見 [.agent-flow/FLOW_CLI.md](.agent-flow/FLOW_CLI.md)。需要資料包時用 `flow.py review-packet build` 整理來源與證據；固定報告章節不再是硬性退件條件。用法見 [.agent-flow/REVIEW_PACKET.md](.agent-flow/REVIEW_PACKET.md)。
 
 ## 安裝與更新
 
@@ -105,7 +109,7 @@ python3 .agent-flow/scripts/harness_smoke.py --live --trust-local-hooks --output
 
 ## 最佳做法
 
-入口保持短小；流程按需載入。派工包含目標、背景、限制與完成條件。複雜工作先規劃，交付附驗證與獨立審查證據。這些做法已寫入兩種入口共用的 `.agent-flow/PRACTICES.md`，依 [OpenAI 指南](https://learn.chatgpt.com/guides/best-practices) 調整。外部整合與排程依實際需求建立。
+入口保持短小；流程按需載入。派工包含目標、背景、限制與完成條件。複雜工作先規劃，交付附驗證與適用的自查或獨立審查證據。這些做法已寫入兩種入口共用的 `.agent-flow/PRACTICES.md`，依 [OpenAI 指南](https://learn.chatgpt.com/guides/best-practices) 調整。外部整合與排程依實際需求建立。
 
 ## 想看細節
 

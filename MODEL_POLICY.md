@@ -6,7 +6,7 @@
 
 | agent | model | 指派理由 |
 |---|---|---|
-| code-reviewer | claude-sonnet-5-5 | Tier 2 預設直接審完整 task diff、需求與證據；Tier 1 checker 升級、邊界直派或手動派審；2026-09-29 由 opus-4-8 改（使用者裁決全部 sonnet-5-5），與 writer 的去相關化改由 session 層承擔（見約束節） |
+| code-reviewer | claude-sonnet-5-5 | Tier 2 預設直接審完整 task diff、需求與證據；新 Tier 1 有具名原因時直接派審；舊 Tier 1 checker 升級、邊界直派或手動派審；2026-09-29 由 opus-4-8 改（使用者裁決全部 sonnet-5-5），與 writer 的去相關化改由 session 層承擔（見約束節） |
 | code-writer | claude-sonnet-5-5 | 近 Opus 級 coding（2026-09-29 由 sonnet-5 升級） |
 | impact-analyzer | claude-sonnet-5-5 | 影響面盤點＝跨模組推理密集；2026-09-29 由 opus-4-8 改（使用者裁決） |
 | retro | claude-sonnet-5-5 | 歸因提煉為中等推理量，不需最強檔（2026-09-29 由 sonnet-4-6 升級，與 writer 同檔） |

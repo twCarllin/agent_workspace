@@ -16,6 +16,37 @@ PENDING_STATUSES = {"in_progress", "ready_to_commit", "paused"}
 ITEM_ACCOUNTING_VERSION = "2026.10.19.1"
 
 
+def adaptive_tier1(manifest):
+    return (
+        manifest.get("tier") in (1, "1")
+        and manifest.get("tier1_policy") == "adaptive-v1"
+    )
+
+
+def plan_timestamp(manifest):
+    """Keep authorization records separate from actual human confirmation."""
+    if adaptive_tier1(manifest) and manifest.get("plan_recorded_at"):
+        return manifest["plan_recorded_at"]
+    return manifest.get("hitl_confirmed_at")
+
+
+def validate_self_review(manifest):
+    if (
+        not adaptive_tier1(manifest)
+        or manifest.get("review_reasons")
+        or manifest.get("all_in")
+    ):
+        raise RuleViolation("self 僅適用無獨立審查原因的 adaptive Tier 1")
+    if (
+        manifest.get("local_test_passed") is not True
+        or not str(manifest.get("local_test_evidence") or "").strip()
+    ):
+        raise RuleViolation("self 需要成功驗證與非空證據")
+    latest = (manifest.get("verification_commands") or [{}])[-1]
+    if latest.get("exit_code") != 0 or not latest.get("snapshot"):
+        raise RuleViolation("self 需要成功驗證快照")
+
+
 def requires_item_accounting(manifest):
     """Older manifests retain the contract of their recorded framework version."""
     version = str(manifest.get("framework_version", ""))
@@ -55,6 +86,8 @@ def manifest_phase(manifest):
 
 def validate_credentials(obj, source):
     """驗四項憑據（per-subtask 與 Tier 1 manifest 共用單一判定點）。"""
+    if obj.get("checked_by") == "self" and not adaptive_tier1(obj):
+        raise RuleViolation(f"{source} 舊 run 與 Tier 2 不可使用 self")
     if obj.get("local_test_passed") is not True:
         raise RuleViolation(
             f"{source} local_test_passed 非 true：本地測試 gate 未通過，須先完成 step 5 驗證\n"

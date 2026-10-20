@@ -58,10 +58,10 @@
 
 - **code-reviewer**（升級輪呼叫）需要讀取程式碼變更時，**必須在 prompt 中指示使用 `git diff --cached -- <files>`**（命令工具，`<files>`＝當前 sub_task 的 `files` 欄），不要逐檔讀取完整檔案。
   - `git diff` 只回傳變更部分，token 消耗遠低於讀整檔；file-scoped 指令另可避免跨 sub_task staging 累積污染（見循環 step 2）
-  - **task-verifier（checker，預設輪呼叫）不讀 diff、不適用本條**——輸入集見循環 step 3，只附 `--stat` 輸出
+  - **task-verifier（checker，舊 Tier 1 預設輪呼叫）不讀 diff、不適用本條**——輸入集見循環 step 3，只附 `--stat` 輸出
 - **auto-mode 定義**：指使用者在本次 session 中**明確表示**開啟（例如「開 auto-mode」「全自動跑」）。未明示一律視為關閉，不可自行推斷。
 - **背景執行與權限**：依 `.agent-flow/HARNESS.md` 與目前 harness 適配層執行。主 flow 等待交付與必要的 HITL gate 後才可續跑；流程不授予額外權限。
-- **usage-analyzer / task-decomposer**：可依 harness 能力背景產出。usage 答案併入 Spec；task-decomposer 自檢完成後才進計畫確認 gate。Tier 1 仍由主 flow 做輕量計畫確認。
+- **usage-analyzer / task-decomposer**：可依 harness 能力背景產出。usage 答案併入 Spec；task-decomposer 自檢完成後才進計畫確認 gate。Tier 1 的開始與 HITL 時機依 `tier1.md`。
 
 ## 主 flow 憑據紀律（回報必附證據）
 

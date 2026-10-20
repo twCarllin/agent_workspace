@@ -1,6 +1,6 @@
 ---
 name: eval-flow
-description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具名問題觸發、分拆 task、HITL gate）、共用循環步驟 1–7（code-writer → checker／reviewer → 本地測試 → commit）、Tier 1 精簡路徑、headless 派工機制。觸發語：Router 判定需求為 Tier 1 或 Tier 2 時（執行前必須載入本 skill）、「跑 Eval Flow」、「照流程實作這個需求」。不適用於：Tier 0 微調（直接改，收尾 append 一行 tier0 留痕）、非實作類的問答。
+description: Tier 1／2 實作流程。新 Tier 1 依授權開始、自選方法與驗證，有具體問題才獨立審查或 HITL；Tier 2 與舊 run 走完整循環。Router 判為 Tier 1／2、「跑 Eval Flow」或「照流程實作」時載入；Tier 0 與非實作問答不適用。
 ---
 
 # Eval Flow（Tier 1／2 執行細節）
@@ -13,7 +13,7 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
 
 | Router 判定 | 必讀文件與時機 |
 |---|---|
-| Tier 1 | 初始化前必讀 [Tier 1 路徑](references/tier1.md)，完成計畫確認後進循環 |
+| Tier 1 | 初始化前必讀 [Tier 1 路徑](references/tier1.md)，依政策開始與交付 |
 | Tier 2 | 初始化前必讀 [Tier 2 前置](references/tier2-prep.md)，依原順序完成前置與 HITL gate 後進循環 |
 | Tier B／Hotfix／併發／[P] fan-out | 進入適用特殊路徑前必讀 [特殊路徑](references/rare-paths.md) |
 
@@ -25,7 +25,7 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
 
 ## Tier 1 精簡路徑
 
-完整規則住 [Tier 1 路徑](references/tier1.md)。**初始化與寫 code 前必讀**，依既有輕量 HITL 確認計畫；不建 eval_state 仍須保留四欄憑據，不能以省歸檔推導省證據。
+完整規則住 [Tier 1 路徑](references/tier1.md)。**初始化與寫 code 前必讀**。新 run 採 `adaptive-v1`，一般路徑只需本節與該文件；主 flow 依具體問題選擇 HITL、委派或獨立審查，不預設進入完整循環。不建 eval_state 仍須保存完成度及實際驗證證據。舊 run 的相容路徑同見該文件。
 
 ## Tier 2 完整路徑
 
@@ -33,7 +33,9 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
 
 前置四步住 `references/tier2-prep.md`（步驟清單見「路徑選擇」表），依序完成、**HITL gate 未過不可進入循環**；前置完成後回本檔「循環」節，與 Tier 1 共用步驟 1–7。
 
-## 循環（每輪結果寫入 `eval_state.json`）
+## 循環（Tier 2 與舊 Tier 1）
+
+以下步驟適用 Tier 2 與舊 Tier 1；adaptive Tier 1 只在採用對應操作時讀該階段規則，不把完整 checklist 當成必跑流程。
 
 循環發現第二根因時，先依 test-strategy「外部答案解析與第二根因」處置，再判斷下方升級逃生門是否適用。
 
@@ -44,7 +46,7 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
 ```
 - [ ] step 1: 派工 code-writer（gate: 知識前置＋契約前置）
 - [ ] step 2: git add 進 staging（gate: file-scoped）
-- [ ] step 3: Tier 1 派 checker；Tier 2 直接派 reviewer 審查（gate: 兩節缺一退件）
+- [ ] step 3: 舊 Tier 1 派 checker；Tier 2 直接派 reviewer 審查（gate: 兩節缺一退件）
 - [ ] step 4: 審查結果處置（gate: 引文核實）
 - [ ] step 5: 本地測試驗證（gate: 依 test-strategy 選適用驗證；程式測試無新增穩定失敗）
 - [ ] step 6: 收尾順序（gate: hook 強制）
@@ -57,7 +59,7 @@ description: Tier 1／2 需求的實作流程：Tier 2 前置（初始化、具�
 | step 3–4 | [獨立檢核與處置](references/review.md)；step 3 派獨立審查前再讀 `.agent-flow/REVIEW_PACKET.md` |
 | step 5–7 | [測試、收尾與回顧](references/testing-finish.md)；step 5 載入 test-strategy，step 6 讀 `.agent-flow/FLOW_CLI.md`「收尾」節 |
 
-以上文件保留實際步驟 1–7 的單一規則枚舉。不可因根入口僅有導覽而跳過知識／契約前置、獨立審查、引文核實、四類升級、修正上限、step 5 與 commit gate。**寫的人 ≠ 審的人**，資料包 ready 與快取命中均不代表審查通過。
+以上文件保留實際步驟 1–7 的單一規則枚舉。在本循環中不可因根入口僅有導覽而跳過適用的知識／契約前置、獨立審查、引文核實、四類升級、修正上限、step 5 與 commit gate。需要獨立審查時，**寫的人 ≠ 審的人**，資料包 ready 與快取命中均不代表審查通過。
 
 ## 派工機制（headless CLI；規則為單一枚舉點）
 

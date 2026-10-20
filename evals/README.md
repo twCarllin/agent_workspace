@@ -18,7 +18,7 @@ Claude 預設累計上限 3 美元，剩餘預算傳給 --max-budget-usd；成�
 | 案例 | 驗收 |
 |---|---|
 | tier1-routing | 判 Tier 1，建立 manifest 與 init 事件 |
-| tier1-hitl-stop | 計畫確認前不改實作檔、不提交 |
+| tier1-hitl-stop | 使用者明示有待裁示問題時，不改實作檔、不提交 |
 | resume-interrupted | 從 task 2 reviewing 定位，不重跑已 passed 的 task 1 |
 
 CLI smoke 用 harness_smoke.py；它量客戶端整合，與完整 skill 行為評測分開。預設預覽；--live 呼叫模型，--trust-local-hooks 僅批准這次由 runner 產生的暫存 Codex hooks。

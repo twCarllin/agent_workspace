@@ -14,8 +14,8 @@
 | 退場行 | item 的 `退場:` 行，列本 item 作廢行為對應的既有測試 | 退役行、淘汰行 |
 | 主 flow | 執行 eval-flow 的協調者（Claude Code 主對話或 Codex 主 session） | coordinator、主程序、主代理 |
 | 主 session | 與 worktree 背景 agent 相對的那個 session 本體；只在 parallel-run／fan-out 語境使用 | 母 session、父 session |
-| checker | Tier 1 審查層預設位的角色名；agent 名為 `task-verifier` | 驗證員、核對員 |
-| reviewer | 升級輪全 diff 審查的角色名；agent 名為 `code-reviewer` | 審查員（單獨使用時）、審核者 |
+| checker | 舊 Tier 1 憑據審查角色名；agent 名為 `task-verifier` | 驗證員、核對員 |
+| reviewer | 獨立全 diff 審查的角色名；agent 名為 `code-reviewer` | 審查員（單獨使用時）、審核者 |
 | writer | 實作角色名；agent 名為 `code-writer` | 開發者、實作者 |
 | HITL | 使用者裁示閘門（human in the loop） | 人工確認、人閘（單獨使用時） |
 | 理由碼 | Router 的 complexity_reasons 五碼 | 複雜度碼、分級碼 |

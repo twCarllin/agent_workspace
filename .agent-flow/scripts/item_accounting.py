@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 import re
 import sys
 
-from flow_rules import RuleViolation, requires_item_accounting
+from flow_rules import RuleViolation, plan_timestamp, requires_item_accounting
 
 
 def require(condition, message):
@@ -44,10 +44,10 @@ def parse_items(task_text):
 
 def confirm_plan(manifest, task_text):
     require(requires_item_accounting(manifest), "舊 run 不補造 item 清單")
-    require(nonempty(manifest.get("hitl_confirmed_at")), "先完成 HITL 確認")
+    require(nonempty(plan_timestamp(manifest)), "先完成 HITL 確認")
     require("item_plan" not in manifest, "item 計畫已確認，不可覆寫")
     manifest["item_plan"] = {
-        "confirmed_at": manifest["hitl_confirmed_at"],
+        "confirmed_at": plan_timestamp(manifest),
         "items": parse_items(task_text),
     }
     manifest["item_results"] = {}
@@ -56,10 +56,8 @@ def confirm_plan(manifest, task_text):
 def validate_plan(manifest, task_text):
     plan = manifest.get("item_plan")
     require(isinstance(plan, dict), "缺 item_plan：先執行 confirm-plan")
-    require(nonempty(manifest.get("hitl_confirmed_at")), "先完成 HITL 確認")
-    require(
-        plan.get("confirmed_at") == manifest["hitl_confirmed_at"], "item 確認時間不符"
-    )
+    require(nonempty(plan_timestamp(manifest)), "先完成 HITL 確認")
+    require(plan.get("confirmed_at") == plan_timestamp(manifest), "item 確認時間不符")
     require(plan.get("items") == parse_items(task_text), "task item 與確認清單不符")
     return plan["items"]
 
@@ -121,8 +119,8 @@ def validate_results(manifest, files=None, allow_pending=False):
     results = manifest.get("item_results")
     require(isinstance(results, dict), "缺 item_results")
     require(
-        nonempty(manifest.get("hitl_confirmed_at"))
-        and plan.get("confirmed_at") == manifest["hitl_confirmed_at"],
+        nonempty(plan_timestamp(manifest))
+        and plan.get("confirmed_at") == plan_timestamp(manifest),
         "item 確認資料不符",
     )
     for item in plan["items"]:

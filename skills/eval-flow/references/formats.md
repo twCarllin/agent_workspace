@@ -43,22 +43,22 @@
 
 - `framework_version`：前置 0 從 `.agent-flow/scripts/VERSION` 讀入——事後鑑識「這個 run 是在哪一版流程規則下跑的」（部署健檢用 `python3 .agent-flow/scripts/doctor.py`）
 - `hitl_rejections`：HITL gate 被使用者**打回**的累計次數（usage 報告退回重寫、計畫被否決都算）。打回當下 +1。餵 `stats.py` 的打回率——**歷史指標**：人閘門的價值信號是裁示數不是打回率（見 `hitl_rulings`）
-- `hitl_rulings`：HITL 確認當下的**裁示條數**（int，選填；無裁示填 0）。Tier 2 的 HITL gate（Spec 開放問題裁示＋task 計畫確認）與 Tier 1 輕量 HITL 同名同義（寫入時機見 eval-flow SKILL.md 對應節）；消費端 `stats.py` 裁示數分佈
+- `hitl_rulings`：HITL 確認當下的**裁示條數**（int，選填；無裁示填 0）。Tier 2 的 HITL gate（Spec 開放問題裁示＋task 計畫確認）與 需要實際裁示的 Tier 1 HITL 同名同義（寫入時機見 eval-flow SKILL.md 對應節）；消費端 `stats.py` 裁示數分佈
 - `tier` / `tier_rationale`：Router 判定後寫入（供審計；Tier 1 若升級 Tier 2 須更新）
 - `phase`：流程狀態機欄位，值域 `init` → `decomposed` → `completed`，hook 憑此攔亂序的 subagent 呼叫（見「Gate 的硬性執行」gate 7）
-  - 轉移時機：前置 0 建立 `"init"` → 前置 1 分拆完成 `"decomposed"` → step 6 收尾 `"completed"`。Tier 1 於輕量 HITL 確認後直接設 `"decomposed"`
+  - 轉移時機：前置 0 建立 `"init"` → 前置 1 分拆完成 `"decomposed"` → step 6 收尾 `"completed"`。adaptive Tier 1 由 `start-run` 記已授權計畫後設 `"decomposed"`；舊 Tier 1 於 HITL 確認後設定
   - **舊值相容（硬性）**：既有 run 的 manifest 可能仍是 `"risk_done"`／`"usage_confirmed"`——`manifest_phase()` 在與值域比對前**必須先**把這兩值映射為 `"init"`，不得對舊值拋例外（既有 run 的 resume 依賴此映射；不可用 try/except 吞例外兜底，映射須發生在 `PHASES.index()` 之前）
   - 舊 manifest 無此欄時 hook 以 `task_file` 推導（向後相容）；`usage_report_path` 不參與推導
 - `spec_path` / `spec_inline`：Tier 2 用 `spec_path`（Spec 檔）；Tier 1 用 `spec_inline`（需求原文一句話）。**兩者至少一個非空**，皆空不可往下（intent gate）。`spec_path` 指向的 `spec/<run_id>.md` **進版控**（與本文件開頭「run manifest」等冷溯源檔不同類；分類的單一枚舉點住 eval-flow SKILL.md step 6 子項②）
 - `test_command`：程式測試部分的本專案**全套測試指令**（test-strategy script 省略 `--cmd` 時的預設來源，single source of truth——保證 baseline 與 check 範圍一致）。前置 0 可先 `null`，**使用 baseline 時，第一次產品修改前必須寫入；mine／check 在執行前寫入**；純設定的實際命令由 `run_verify.py --cmd` 記錄，不以測試預設值替代；同專案的後續 run 沿用前一個 manifest 的值；Tier B 於 DoD 驗證時寫入
-- `hitl_confirmed_at`：HITL gate 的留痕——使用者確認當下寫入「時間 ＋ 確認範圍一句話」（例：`"2026-07-15 14:30 — 確認 usage 報告 v1（3 情境、2 開放問題已裁示）"`；Tier 1 記輕量計畫確認：`"… — 確認 1 task／3 items 計畫"`）
+- `hitl_confirmed_at`：HITL gate 的留痕——使用者確認當下寫入「時間 ＋ 確認範圍一句話」（例：`"2026-07-15 14:30 — 確認 usage 報告 v1（3 情境、2 開放問題已裁示）"`；舊 Tier 1 或有決策的新 run 記實際計畫確認：`"… — 確認 1 task／3 items 計畫"`）
   - resume／換手時，接手者憑此驗證確認 gate 真的過過，不只信 `phase` 欄位。Tier B 記選型確認
 - `estimated_active_minutes`／`actual_active_minutes`：**選填**。Router 判級時的預估主動工時與收尾補記的實際值（估實分記，agentflow 慣例；消費端為判級校準，缺欄＝無記錄）
-- `subagent_usage`：**選填**。step 6 子項②收尾時由 `python3 .agent-flow/scripts/token_usage.py <run_id> --write` **實測回寫**的 tokens 彙總 `{"prep": int, "loop": int, "main": int}`——三鍵皆為 transcript 四欄（`input_tokens`／`cache_creation_input_tokens`／`cache_read_input_tokens`／`output_tokens`）加總；`prep`＝usage-analyzer／task-decomposer／impact-analyzer 的 subagent 合計、`loop`＝其餘 subagent 合計、`main`＝主 flow 自身。不以 Agent 工具回執自報、不憑印象估 `main`（估計法系統性低估流程稅）。消費端 `stats.py`：prep／loop 缺一或非 int → 整筆計無記錄；`main` 非 int → 只跳過 main、prep/loop 照收
-- `token_usage`：**選填**。與 `subagent_usage` 同時由 `token_usage.py --write` 寫入的明細：`{"session_id", "window": [lo, hi]|null, "main": {四欄＋turns}, "subagents": [{"agent_type", "description", 四欄＋turns}]}`；`window` 取自 `events.jsonl` 首尾 `ts`（init 之前的判級／載 skill 用量不在窗內，屬已知低估面）；`subagents` 為 transcript `subagents/` 目錄 ∪ `run/<run_id>.dispatch.jsonl` 派工留痕（後者 `description` 為 `dispatch:<backend>`、不切窗）。純記錄，無 gate 消費
+- `subagent_usage`／`token_usage`：選填的實測用量與來源明細，由 `token_usage.py --write` 記錄；未知不填零。欄位、時間窗與統計限制見 `.agent-flow/FLOW_CLI.md`「用量紀錄」。
+
 - `harness`：新 run 依目前 harness 設為 `"codex"` 或 `"claude"`；舊 run 缺欄時使用 Claude 相容行為。`token_usage.py --write` 遇 Codex 時只寫 `token_usage_status: "unknown_codex"`，不把 Claude transcript 當作 Codex 用量
 - `session_id`／`config_dir`：**選填**。init 事件（Tier 2 `init --run-id`、Tier 1 `init-run --run-id`）由 `eval_state.py` 自 `CLAUDE_CODE_SESSION_ID`／`CLAUDE_CONFIG_DIR` 環境變數自動寫入，已有值不覆寫（resume 換 session 保留首次）；`token_usage.py` 憑此開 `<config_dir>/projects/<cwd 編碼>/<session_id>.jsonl`。舊 run 缺欄＝該腳本走 fallback 掃描 `~/.claude*/projects/*/` 含 run_id 的 transcript
-- `executor_notes`：**選填**。list[str]，每 item 一句 `item <id>: 直寫｜派工 — <理由>`——主 flow 直寫捷徑（eval-flow SKILL.md Tier 1 第 4 點）的執行者選擇留痕；判斷依據是「交接是否划算」，本欄供事後審計。純記錄欄位，無 gate 消費
+- `executor_notes`：選填 list[str]，記有用的委派／直寫選擇理由；無 gate 消費。adaptive 不逐 item 強制產生格式說明。
 - `auto_decisions`：**選填**。list[str]，每筆一句 `<問題>｜<選項>｜<採用>｜<理由>`——預設採納模式（ROUTER.md 同名條）下 agent 代替提問所做的決定留痕，收尾回報逐筆列出供使用者檢查。純記錄欄位，無 gate 消費
 - `dirty_tree_ruling`：**選填**。前置 0 進場檢查（見 eval-flow SKILL.md）發現 dirty tree 時，使用者對孤兒變更歸屬的裁決一句（納入本 run／擱置不動）；乾淨樹免記（欄位缺席＝進場乾淨或舊 run 無此制）
 - `scout_report_path`：**廢止欄位**。無任何步驟寫入、hook 無任何依賴；舊 manifest 仍有此欄者不需回填移除
@@ -72,9 +72,16 @@
 - `failed_reason`：`status` 設為 `"failed"` 或 `"aborted"` 時必填，一句話寫死因（哪個 sub_task、卡在哪一步、為什麼；`aborted` 則寫放棄理由），讓接手者不用翻對話記錄
 - **`aborted`／`failed` 的 manifest 永不清除**：與本節開頭「冷溯源檔……永不清除」同一條規則，不因狀態放棄／失敗而被刪除或清空——防刪除 gate（見「Gate 的硬性執行」）機械強制此點
 - **已知限制**：上述防線只攔 `git` 的刪除與 commit 面；Claude 用 Write／Edit 工具直接覆寫 manifest 內容（含把 `status`／`failed_reason` 改寫或清空）的路徑不在 hook matcher（`Bash|Task|Agent`）內，不攔（已知限制，不修）
-- `local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`：**Tier 1 專用憑據欄（豁免歸檔檔）**——Tier 1 不建 `eval_state.json`，這四欄直接寫在 manifest、commit gate 憑此四欄驗放行（語義與 `eval_state.json` 各 sub_task 同欄一致）。Tier 2 的逐 task 憑據仍走歸檔檔路徑；Tier 2 收尾寫入 manifest 的測試摘要不取代各 task 的憑據
+- `local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`：**Tier 1 專用憑據欄（豁免歸檔檔）**；adaptive 的 `verify_passed` 可由有實際驗證的主 flow 自查產生，獨立審查原因存在時必須有 reviewer 憑據。Tier 1 不建 `eval_state.json`，這四欄直接寫在 manifest、commit gate 憑此四欄驗放行（語義與 `eval_state.json` 各 sub_task 同欄一致）。Tier 2 的逐 task 憑據仍走歸檔檔路徑；Tier 2 收尾寫入 manifest 的測試摘要不取代各 task 的憑據
 - `verification_commands`：Tier 1 與兩個 tier 的收尾驗證記在 manifest；Tier 2 指定 `--sub-task` 的驗證記在對應 task。語義見下方同名欄位。
 - `debt`：僅 hotfix 通道使用（見「Hotfix 通道」），記錄欠下的流程債，如 `["test", "retro"]`；還清一項移除一項，清空後才可啟動新 run（hook 強制）
+
+## adaptive Tier 1 欄位與命令
+
+`init-run` 記 `tier1_policy: "adaptive-v1"`；`start-run` 記 `plan_recorded_at`、
+`plan_authorization` 與 item 清單，不偽填 HITL。`require-review` 累加 `review_reasons`；
+主 flow 自查用 `checked_by: "self"` 與 `self_review_snapshot` 綁來源，不能當成獨立審查。
+適用判斷依 `tier1.md`，欄位、事件及命令細節見 `.agent-flow/FLOW_CLI.md`。
 
 ## eval_state.json 格式
 
@@ -158,13 +165,13 @@
 
 - **一律用 helper script 更新，不手動 Edit**：`python3 .agent-flow/scripts/eval_state.py`（`init`／`add-subtask`／`set-step`／`set-files`／`set-test`／`set-status`／`set-review`／`set-verify`／`add-verification`／`list-files`／`archive`）
   - 理由：手動 Edit 是高錯誤面；helper 在寫入前驗證不變量（archive 驗全數 passed），錯誤在落盤前就擋下
-- **前置 0（初始化）**：Tier 1 使用 `init-run`；Tier 2 建立 manifest `run/<run_id>.json`（填 `run_id`、`created_at`、`spec_path`，其餘 `null`，`status: "in_progress"`）與 `eval_state.json`（填 `run_id` ＋ 空 `sub_tasks`）。manifest 的 `spec_path` 未填不可往下
+- **前置 0（初始化）**：Tier 1 使用 `init-run`，開始依 `tier1.md`；Tier 2 建立 manifest `run/<run_id>.json`（填 `run_id`、`created_at`、`spec_path`，其餘 `null`，`status: "in_progress"`）與 `eval_state.json`（填 `run_id` ＋ 空 `sub_tasks`）。manifest 的 `spec_path` 未填不可往下
 - **分拆 task 完成後**：`task_file` 由主 flow（直建，≤2 tasks 且 ≤8 items 含界）或 `task-decomposer`（超門檻條件派工）回寫（時機與條件見 eval-flow SKILL.md 的「Tier 2 完整路徑」節（Tier 2）與「Tier 1 精簡路徑」第 2 點（Tier 1））；`phase` 隨之更新為 `"decomposed"`
 - **具名問題觸發 usage-analyzer／impact-analyzer 時**：答案寫進 Spec，**不**回寫 `usage_report_path`／`impact_report_path`（兩欄維持 `null` 屬正常），無 gate 依賴此二欄
 - **循環進度記錄（write-ahead，中斷恢復的關鍵）**：每個循環步驟**開始前**先把該 sub_task 的 `step` 寫入 `eval_state.json`，步驟完成後再更新為下一步
   - `step` 值序：`writing`→`reviewing`（並發 review＋verify 階段）→`fixing`（有 🔴 時）→`testing`→`done`；`verifying`／`scoring` 為舊版 run 的相容值，新路徑不寫入
   - code-writer 交付後立刻把本 sub_task 涉及的檔案清單寫入 `files`（修正時同步增補）——staged 變更與 sub_task 的對應關係只准活在這裡，不准只活在對話裡
-- **Tier 1 審查記錄**：用 `review-run <run_id> <reds> --checked-by <角色> --evidence "<獨立審查憑據>" [--passed]`；首輪紅數保留，當輪未通過會清除 `verify_passed`。只有全部 task 通過且當輪零紅問題才加 `--passed`。工具只記錄已取得的獨立結論。
+- **Tier 1 審查記錄**：用 `review-run <run_id> <reds> --checked-by <角色> --evidence "<獨立審查憑據>" [--passed]`；首輪紅數保留，當輪未通過會清除 `verify_passed`。只有全部 task 通過且當輪零紅問題才加 `--passed`。工具記錄適用的主 flow 自查或獨立結論；adaptive 的差異依上方欄位節。
 - **首輪審查結果出來後（step 3，Tier 1 checker 或 reviewer；Tier 2 直接 reviewer；下列 set-* 為 Tier 2 入口）**：執行 `python3 .agent-flow/scripts/eval_state.py set-review <id> <🔴數> [--dimensions '<json>']`
   - `<🔴數>` 記首輪的 🔴 原始數（修正前，有無 🔴 皆須執行；**checker 輪固定填 0**）
   - `--dimensions` 為reviewer 輪 報告末尾的維度統計（維度→問題數，五維詞彙：Clarity／Completeness／Testability／Non-functional／Technical_constraints），有 🔴／🟡 時必填，供 stats.py 維度分佈遙測（checker 輪無此節、免填）
@@ -183,7 +190,7 @@
 ## Item 對帳欄位
 
 新 Tier 1／2 manifest 記 `framework_version: "2026.10.19.1"`（或更新版本）
-與 `item_accounting_required: true`。`item_plan` 保存 HITL 確認清單；
+與 `item_accounting_required: true`。`item_plan` 保存凍結的交付清單；
 `item_results` 以 item ID 為 key。結果為 `delivered` 時記 `files`，為 `pending`
 時記 `reason` 並暫停 run，為 `removed` 時記 `ruling`。
 裁示須含 `actor: "user"`、`text`、含時區的 `at` 與 `source`。

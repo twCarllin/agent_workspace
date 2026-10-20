@@ -1,7 +1,7 @@
 <!-- agent-workspace managed -->
 # Flow 本地操作
 
-在專案根目錄執行 `python3 .agent-flow/scripts/flow.py`。這個入口使用現有 manifest、事件與驗證腳本；agent 仍負責需求判斷、實作和獨立審查。
+在專案根目錄執行 `python3 .agent-flow/scripts/flow.py`。這個入口使用現有 manifest、事件與驗證腳本；agent 仍負責需求判斷、實作及適用的自查或獨立審查。
 
 ## 開始前檢查
 
@@ -34,20 +34,36 @@ python3 .agent-flow/scripts/flow.py watch --run-id <id> --timeout 30 --interval 
 
 ## Tier 1 初始化與審查
 
-先依 Router 判級，再建立 run；以下命令只適用 Tier 1。Tier 2 沿用既有初始化與逐 task 記錄。
+新 `init-run` 記 `tier1_policy: "adaptive-v1"`。適用判斷與問題觸發條件見
+`skills/eval-flow/references/tier1.md`；Tier 2 沿用逐 task 的獨立審查。
 
 ```sh
 python3 .agent-flow/scripts/eval_state.py init-run --run-id <id> \
-  --harness codex --spec-inline '<需求>' --tier-rationale '<理由碼與判級理由>' \
+  --harness codex --spec-inline '<需求>' --tier-rationale '<理由>' \
   --test-command 'python3 -m unittest discover -s tests' --task-file task/<計畫>.md
-python3 .agent-flow/scripts/eval_state.py hitl-confirm <id> --note '<使用者確認範圍>'
+python3 .agent-flow/scripts/eval_state.py start-run <id> --authorization '<使用者已授權的需求>'
+# 實作、stage並選擇需求所需的驗證範圍
+python3 .agent-flow/scripts/run_verify.py --run-id <id> --cmd '<實際驗證命令>'
 python3 .agent-flow/scripts/eval_state.py review-run <id> 0 \
-  --checked-by reviewer:manual --evidence '<實際獨立審查結果與來源>' --passed
+  --checked-by self --evidence '<逐項完成度、驗證範圍與剩餘限制>' --passed
 ```
 
-`init-run` 拒絕覆寫既有 manifest。`hitl-confirm` 仍須先取得使用者確認。`review-run` 只記錄已取得的獨立結論；紅數非零時不得加 `--passed`，全部 task 通過後才記整個 run 通過。未通過的審查會清除通過狀態，首輪紅數保留供稽核。
+`start-run` 凍結 item 清單並推進 decomposed；記已授權需求而不填 HITL 確認。
+有待使用者決定的問題時先提問，用 `hitl-confirm <id> --note '<實際裁示範圍>'`
+記錄真實確認。headless 不能自行確認 HITL；沒有問題的已授權新 Tier 1 可直接開始。
 
-驗證仍使用 `run_verify.py`；工具同步測試欄位，不能代替獨立審查。生命週期事件由對應操作產生，格式與成功條件見 Eval Flow「資料格式與操作規則」，不另呼叫 `event` 重複記帳。
+有獨立審查原因時，先執行 `require-review <id> --reason '<具名原因>'`；原因只增不減，
+清除舊通過，直接派 code-reviewer。拿到實際結果後以 `review-run --checked-by reviewer:manual`
+記錄；自查不能代替必要的獨立審查。`review-run` 不執行測試；`self` 要求目前來源的成功
+驗證及非空完成度證據，來源變更或測試失敗後須重新驗證與核對。
+
+`start-run` 記 `started` 事件，`require-review` 記 `review_required`；兩者都只記已發生的操作。
+`plan_timestamp()` 對 adaptive 優先使用 `plan_recorded_at`，否則採真實 HITL 時間。
+`self_review_snapshot` 保存驗證來源快照、快照格式及計畫時間；提交時仍核對目前狀態。
+
+缺 `tier1_policy` 的舊 run 保留 `hitl-confirm` 與獨立 checker／reviewer 路徑，不能用
+`start-run` 或 `self`。`init-run` 拒絕覆寫 manifest；紅數非零不可宣告通過。事件只記已發生
+的操作，缺資料不推定成功。未結清 item、未授權移除或部分交付仍由既有 gate 阻擋。
 
 ## worktree 連結
 
@@ -62,11 +78,11 @@ python3 .agent-flow/scripts/flow.py worktree-link --root <worktree 路徑>
 
 ## 獨立檢核資料
 
-Tier 2 直接派 reviewer 審完整 task diff、需求與證據。Tier 1 派 checker 前依 [REVIEW_PACKET.md](REVIEW_PACKET.md) 組裝資料包，標準派工使用 `dispatch.py task-verifier --review-packet <檔案>`。必要資料缺漏時先補齊，ready 只表示資料與來源有效，不代表審查通過；checker 保留四類升級判斷。
+Tier 2 與有具名審查原因的新 Tier 1 直接派 reviewer 審完整 task diff、需求與證據。舊 Tier 1 派 checker 前依 [REVIEW_PACKET.md](REVIEW_PACKET.md) 組裝資料包，標準派工使用 `dispatch.py task-verifier --review-packet <檔案>`。必要資料缺漏時先補齊，ready 只表示資料與來源有效，不代表審查通過；checker 保留四類升級判斷。
 
 ## 收尾
 
-先完成獨立審查並記錄憑據，再只 stage 本次工作的檔案。
+先只 stage 本次檔案，完成適用的自查或獨立審查並記錄憑據，再收尾。
 
 ```sh
 git add -- src/example.py tests/test_example.py
@@ -100,8 +116,8 @@ git rm --cached -- run/gate_hits.log run/tier0.jsonl
 ## Item 交付對帳
 
 2026.10.19.1 起的新 Tier 1／2 run 必須記 `item_accounting_required: true`。
-HITL 時固定 `item_plan.confirmed_at` 與 `items`（`id`、`task_id`、`summary`）。
-Tier 1 由 `hitl-confirm` 建立；Tier 2 在 HITL 後執行：
+開始時固定 `item_plan.confirmed_at` 與 `items`（`id`、`task_id`、`summary`）。
+adaptive Tier 1 由 `start-run` 依已授權需求建立，或有決策時用真實 `hitl-confirm`；舊 Tier 1 保留 HITL。計畫時間由共用 `plan_timestamp()` 定位；Tier 2 在 HITL 後執行：
 
 ```sh
 python3 .agent-flow/scripts/item_accounting.py --run-id <id> confirm-plan
@@ -123,3 +139,9 @@ python3 .agent-flow/scripts/item_accounting.py --run-id <id> partial --items 1.2
 
 部分交付仍須通過 task 審查與四項測試／審查憑據。reviewer 須明列未交付 item
 及使用者裁示，才可對已接受的部分範圍記 task `passed`；未獲裁示仍阻擋。
+
+## 用量紀錄
+
+- `subagent_usage`：**選填**。step 6 子項②收尾時由 `python3 .agent-flow/scripts/token_usage.py <run_id> --write` **實測回寫**的 tokens 彙總 `{"prep": int, "loop": int, "main": int}`——三鍵皆為 transcript 四欄（`input_tokens`／`cache_creation_input_tokens`／`cache_read_input_tokens`／`output_tokens`）加總；`prep`＝usage-analyzer／task-decomposer／impact-analyzer 的 subagent 合計、`loop`＝其餘 subagent 合計、`main`＝主 flow 自身。不以 Agent 工具回執自報、不憑印象估 `main`（估計法系統性低估流程稅）。消費端 `stats.py`：prep／loop 缺一或非 int → 整筆計無記錄；`main` 非 int → 只跳過 main、prep/loop 照收
+
+- `token_usage`：**選填**。與 `subagent_usage` 同時由 `token_usage.py --write` 寫入的明細：`{"session_id", "window": [lo, hi]|null, "main": {四欄＋turns}, "subagents": [{"agent_type", "description", 四欄＋turns}]}`；`window` 取自 `events.jsonl` 首尾 `ts`（init 之前的判級／載 skill 用量不在窗內，屬已知低估面）；`subagents` 為 transcript `subagents/` 目錄 ∪ `run/<run_id>.dispatch.jsonl` 派工留痕（後者 `description` 為 `dispatch:<backend>`、不切窗）。純記錄，無 gate 消費

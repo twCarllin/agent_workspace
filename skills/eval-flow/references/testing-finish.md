@@ -29,6 +29,6 @@
 
 ## 標準收尾入口
 
-執行 step 6 前，必讀 `.agent-flow/FLOW_CLI.md`「收尾」節。標準路徑使用 `flow.py finish --run-id <id> --message <訊息> --files <本次檔案> --verify-command <依變更選定的實際驗證命令>`；只有明確要求才用 `--reuse`，只有已授權推送且明確加 `--push` 才推送。工具不推定審查通過、不自動 stage、不使用全樹 git add；測試欄位由驗證結果產生。先完成獨立審查與 step 5，再只 stage 本 run 的檔案。
+執行 step 6 前，必讀 `.agent-flow/FLOW_CLI.md`「收尾」節。標準路徑使用 `flow.py finish --run-id <id> --message <訊息> --files <本次檔案> --verify-command <依變更選定的實際驗證命令>`；只有明確要求才用 `--reuse`，只有已授權推送且明確加 `--push` 才推送。工具不推定審查通過、不自動 stage、不使用全樹 git add；測試欄位由驗證結果產生。先完成適用的獨立審查或主 flow 自查與 step 5，再只 stage 本 run 的檔案。
 
 此入口執行本文件 step 6 的順序與 gate，不改冷溯源檔範圍。舊 run 或入口不可用時，依上方原手動 prepare → commit（Run-Id）→ finalize 路徑執行；中斷恢復依根入口「中斷恢復」節核對現場，不重複提交。

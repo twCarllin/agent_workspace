@@ -280,7 +280,17 @@ def count_reruns(rows, data):
 
 
 def first_review_reds(target):
+    if target.get("checked_by") == "self":
+        return None
     rounds = target.get("review_rounds", target.get("rounds"))
+    if isinstance(rounds, list):
+        rounds = [
+            row
+            for row in rounds
+            if not isinstance(row, dict) or row.get("checked_by") != "self"
+        ]
+        if not rounds:
+            return None
     if isinstance(rounds, list) and rounds:
         first = rounds[0]
         value = first.get("review_reds") if isinstance(first, dict) else None
@@ -347,6 +357,8 @@ def collect(run_dir="run"):
         "events": [],  # (run_id, summary dict | None)
         "hitl_rulings": [],
         "hitl_rulings_missing": 0,
+        "checked_by_self": 0,
+        "checked_by_self_new": 0,
         "checked_by_direct": 0,
         "checked_by_escalated": 0,
         "checked_by_dist": Counter(),
@@ -412,10 +424,13 @@ def collect(run_dir="run"):
         count_reruns(m.get("verification_commands"), data)
         if not os.path.exists(os.path.join(run_dir, f"{m['run_id']}.eval.json")):
             suffix = "_new" if _period(m["run_id"]) == "new" else ""
-            reds = first_review_reds(m)
-            data["rework_missing" + suffix] += int(reds is None)
-            data["rework_recorded" + suffix] += int(reds is not None)
-            data["rework" + suffix] += int(reds is not None and reds >= 1)
+            if m.get("checked_by") == "self":
+                data["checked_by_self" + suffix] += 1
+            else:
+                reds = first_review_reds(m)
+                data["rework_missing" + suffix] += int(reds is None)
+                data["rework_recorded" + suffix] += int(reds is not None)
+                data["rework" + suffix] += int(reds is not None and reds >= 1)
         _verification_efficiency(
             m.get("verification_commands"), data["efficiency"], commands
         )
@@ -443,7 +458,9 @@ def collect(run_dir="run"):
                     data["sub_tasks"] += 1
                 suffix = "_new" if period == "new" else ""
                 reds = first_review_reds(st)
-                if reds is None:
+                if st.get("checked_by") == "self":
+                    pass  # Recorded self-checks are not missing independent reviews.
+                elif reds is None:
                     data["rework_missing" + suffix] += 1
                 else:
                     data["rework_recorded" + suffix] += 1
@@ -464,7 +481,9 @@ def collect(run_dir="run"):
                 # "reviewer:boundary"＝邊界直派（非升級，不入分母）；
                 # 其餘任何值（reviewer:碼 或未知值，不驗證）＝升級，計入分佈
                 checked_by = st.get("checked_by")
-                if checked_by == "checker":
+                if checked_by == "self":
+                    data["checked_by_self" + suffix] += 1
+                elif checked_by == "checker":
                     if period == "new":
                         data["checked_by_direct_new"] += 1
                     else:
@@ -639,6 +658,9 @@ def append_checker_escalation(out, data):
     )
     line += _BREAKPOINT_LABEL + new_seg
     out.append(line)
+    out.append(
+        f"主 flow 自查：舊期 {data['checked_by_self']}／新期 {data['checked_by_self_new']}（不入 checker 升級率）"
+    )
 
 
 def append_subagent_usage(out, data):

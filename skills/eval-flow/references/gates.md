@@ -20,8 +20,8 @@
    - 窄例外**不豁免**本 gate
 3. **intent gate**：**定位到的** `run/<run_id>.json` 中 `spec_path` 與 `spec_inline` 皆空、或 `status` 非 `"ready_to_commit"`／舊版 `"completed"` → 擋
    - **窄例外**（aborted／failed 留痕）：staged 檔案集合恰等於該一個 manifest、且 `status` 為 `"aborted"` 或 `"failed"`、且 `failed_reason` 非空 → 放行（同時豁免 gate 1，**不豁免 gate 2**）；任一條件不成立 → 原判定不變
-4. **測試 gate**：定位到的 manifest 對應的 `run/<run_id>.eval.json` **不存在**（staged 與工作目錄皆無）、或其中任一 sub_task 非 `passed`／`local_test_passed` 非 `true`、或 `review_reds` 未留痕（非 int 或負數）／`verify_passed` 非 `true` → 擋（`verify_passed` 語義＝reviewer 完成度節通過，見操作規則）
-   - **Tier 1 分支**：若 `run/<run_id>.eval.json` 不存在，改驗 manifest 自身四欄（`local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`），全過放行、豁免歸檔檔；歸檔檔存在時走原路徑（Tier 2 現行，Tier 1 向後相容）
+4. **測試 gate**：定位到的 manifest 對應的 `run/<run_id>.eval.json` **不存在**（staged 與工作目錄皆無）、或其中任一 sub_task 非 `passed`／`local_test_passed` 非 `true`、或 `review_reds` 未留痕（非 int 或負數）／`verify_passed` 非 `true` → 擋（`verify_passed` 語義依適用的自查或獨立審查，見操作規則）
+   - **Tier 1 分支**：若 `run/<run_id>.eval.json` 不存在，改驗 manifest 自身四欄（`local_test_passed`／`local_test_evidence`／`review_reds`／`verify_passed`），全過且適用審查有效才放行、豁免歸檔檔；歸檔檔存在時走原路徑（Tier 2 現行，Tier 1 向後相容）
 5. **假測試 lint gate**：**定位到 manifest**（flow 收尾 commit）時，staged 的 Python 測試檔跑 `test_lint.py`——啟動條件同上方定位（不只認 staged manifest，否則溯源檔不進版控時本 gate 會整條失效），檢出 if-guard 藏斷言／無斷言／恆真斷言 → 擋（誤報以行尾 `# testlint: allow` 豁免並留痕，見 test-strategy skill）
 6. **不變量驗證**：歸檔檔 `run_id` 與 manifest 不一致 → 擋
    - `evidence_schema: 2` 的新 run 另核對最後一次適用收尾驗證的程式樹快照；任何改動使快照失效，須重跑驗證
@@ -50,3 +50,10 @@
 - **headless 派工路徑**：`.agent-flow/scripts/dispatch.py` 在 script 內以同一 `check_envelope` 判定（單一出處，不自建第二份規則），blocking → exit 2、advisory → stderr 警告；本 hook 只覆蓋仍走 `Agent` 工具的呼叫
 - **性質**：品質 lint、**fail-open**（stdin 非 JSON、欄位缺席、背景啟動回執、非信封名單 agent 一律放行）——**不是安全 gate**，不承擔攔截惡意內容的職責；與上方 PreToolUse gate 1–7 的攔截性質不同
 - 信封名單與載荷依據住 script 檔頭，改名單時只改 script
+
+## adaptive Tier 1 的適用範圍
+
+開始與審查判斷依 `tier1.md`。`start-run` 記已授權計畫後可通過 phase 寫入門檻，
+不偽造 HITL；有決策才用真實 `hitl-confirm`。主 flow 自查的來源快照、成功驗證
+與無審查原因由共用 evidence 路徑核對，prepare、finish 與 Git commit gate 保持一致。
+自查後改來源、失敗驗證、缺憑據或未結清 item 仍擋；舊 run 與 Tier 2 不接受 `self`。
