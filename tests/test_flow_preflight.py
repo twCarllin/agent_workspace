@@ -115,6 +115,12 @@ class PreflightTests(unittest.TestCase):
         (self.root / '.codex/agents/code-writer.toml').write_text('model="wrong"')
         self.assertEqual(self.check(flow_preflight.preflight(), 'models')['status'], 'failed')
 
+    def test_role_model_override_keeps_default_model_valid(self):
+        config = (self.root / '.codex/config.toml').read_text()
+        self.assertIn('default_subagent_model = "gpt-6.1-sol"', config)
+        self.assertIn('model = "gpt-6-luna"', (self.root / '.codex/agents/task-verifier.toml').read_text())
+        self.assertEqual(self.check(flow_preflight.preflight(), 'models')['status'], 'ok')
+
     def test_invalid_hooks_are_reported_separately_from_trust(self):
         hook_path = self.root / '.codex/hooks.json'
         for value in ([], None, {'hooks': []}, {'hooks': {'PreToolUse': []}}):

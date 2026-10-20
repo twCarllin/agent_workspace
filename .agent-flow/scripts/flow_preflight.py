@@ -63,8 +63,8 @@ def _models(harness):
             actual = tomllib.loads(path.read_text())
             if actual.get('model') != expected['model'] or actual.get('model_reasoning_effort') != expected.get('reasoning_effort'):
                 raise ModelConfigurationError(f'Role {role} model does not match .agent-flow/harnesses/models.json.')
-            if default is not None and default != expected['model']:
-                raise ModelConfigurationError('.codex/config.toml default model does not match model profiles.')
+        if default is not None and default != profiles['code-writer']['model']:
+            raise ModelConfigurationError('.codex/config.toml default model does not match code-writer profile.')
         return profiles['code-writer']['model']
     model = None
     for role, expected in profiles.items():
