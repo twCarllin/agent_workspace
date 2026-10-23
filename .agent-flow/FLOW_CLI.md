@@ -3,6 +3,15 @@
 
 在專案根目錄執行 `python3 .agent-flow/scripts/flow.py`。這個入口使用現有 manifest、事件與驗證腳本；agent 仍負責需求判斷、實作及適用的自查或獨立審查。
 
+## 查看啟動狀態
+
+```sh
+python3 .agent-flow/scripts/flow.py activation --json
+python3 .agent-flow/scripts/flow.py activation --run-id <id> --json
+```
+
+結果分列入口設定、已記錄的 Router 判級、run 狀態與 hook 設定。入口是否被客戶端讀取、hook 是否在目前 session 執行，沒有原生事件證據時一律顯示 `unknown`；不能以設定檔存在推定生效。要驗證原生 hook，可在隔離 fixture 執行 `harness_smoke.py --live --harness codex --case normal --permissions edits --trust-local-hooks`；其結果只證明該次隔離執行，不證明目前 session 的信任狀態。
+
 ## 開始前檢查
 
 ```sh
@@ -101,7 +110,7 @@ python3 .agent-flow/scripts/flow.py finish --run-id <id> \
 
 明確加上 `--push` 才推送至目前分支的 `origin` 遠端；不使用 force。完成後 push 失敗，可重跑帶 `--push` 的指令。同一 Git repository（含 worktree）同時只允許一個 finish；程序中斷留下的鎖須先核對程序已停止再處理。
 
-本版提供 `preflight/status/watch/review-packet/worktree-link/finish`；初始化與審查記錄使用上述 `eval_state.py` 入口。需求分級沿用 Router，工作暫停與恢復沿用 eval-flow-resume。
+本版提供 `activation/preflight/status/watch/review-packet/worktree-link/finish`；初始化與審查記錄使用上述 `eval_state.py` 入口。需求分級沿用 Router，工作暫停與恢復沿用 eval-flow-resume。
 
 ## 已追蹤的活動日誌
 

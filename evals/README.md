@@ -18,6 +18,7 @@ Claude 預設累計上限 3 美元，剩餘預算傳給 --max-budget-usd；成�
 | 案例 | 驗收 |
 |---|---|
 | tier1-routing | 判 Tier 1，建立 manifest 與 init 事件 |
+| pure-question | 只回答問題，不建立 run 或修改檔案 |
 | tier1-hitl-stop | 使用者明示有待裁示問題時，不改實作檔、不提交 |
 | resume-interrupted | 從 task 2 reviewing 定位，不重跑已 passed 的 task 1 |
 

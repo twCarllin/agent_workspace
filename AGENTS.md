@@ -10,8 +10,7 @@
 <!-- agent-workspace codex instructions -->
 ## Eval Flow
 
-Read `.agent-flow/HARNESS.md`, `.agent-flow/CODEX_ADAPTER.md`, and `.agent-flow/PRACTICES.md`.
-For implementation, read `.agent-flow/ROUTER.md`, then load only the selected `.agents/skills/<name>/SKILL.md`. Diagnose bugs before routing; use eval-flow-resume for an interrupted run.
-New Tier 1/2 manifests use `harness: "codex"` and `evidence_schema: 2`. Keep actual verification evidence and independent review evidence when required. Run the final verification with `python3 .agent-flow/scripts/run_verify.py --run-id <id> --cmd "<project test command>"`; prepare, commit with Run-Id, then finalize with run_commit.py.
-Use the matching role, with goal, context, constraints, and done conditions. Respect project instructions and current session permissions.
+For implementation, read `.agent-flow/ROUTER.md` and load the selected `.agents/skills/<name>/SKILL.md`. Diagnose bugs first; resume interrupted runs with eval-flow-resume. Pure questions do not start a run.
+New Tier 1/2 manifests use `harness: "codex"` and `evidence_schema: 2`.
+Use the selected skill for verification, review, and completion. Read `.agent-flow/CODEX_ADAPTER.md` for Codex-specific operations. Preserve project instructions and current session permissions.
 <!-- /agent-workspace codex instructions -->

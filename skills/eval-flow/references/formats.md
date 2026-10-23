@@ -60,7 +60,7 @@
 - `session_id`／`config_dir`：**選填**。init 事件（Tier 2 `init --run-id`、Tier 1 `init-run --run-id`）由 `eval_state.py` 自 `CLAUDE_CODE_SESSION_ID`／`CLAUDE_CONFIG_DIR` 環境變數自動寫入，已有值不覆寫（resume 換 session 保留首次）；`token_usage.py` 憑此開 `<config_dir>/projects/<cwd 編碼>/<session_id>.jsonl`。舊 run 缺欄＝該腳本走 fallback 掃描 `~/.claude*/projects/*/` 含 run_id 的 transcript
 - `executor_notes`：選填 list[str]，記有用的委派／直寫選擇理由；無 gate 消費。adaptive 不逐 item 強制產生格式說明。
 - `auto_decisions`：**選填**。list[str]，每筆一句 `<問題>｜<選項>｜<採用>｜<理由>`——預設採納模式（ROUTER.md 同名條）下 agent 代替提問所做的決定留痕，收尾回報逐筆列出供使用者檢查。純記錄欄位，無 gate 消費
-- `dirty_tree_ruling`：**選填**。前置 0 進場檢查（見 eval-flow SKILL.md）發現 dirty tree 時，使用者對孤兒變更歸屬的裁決一句（納入本 run／擱置不動）；乾淨樹免記（欄位缺席＝進場乾淨或舊 run 無此制）
+- `dirty_tree_ruling`：**選填**。進場發現既有變更時，記本次範圍與隔離方式；有歸屬衝突或必須覆寫時，記使用者裁決。乾淨樹免記；舊 run 缺欄仍相容。
 - `scout_report_path`：**廢止欄位**。無任何步驟寫入、hook 無任何依賴；舊 manifest 仍有此欄者不需回填移除
 - `risk_report_path`：**停用欄位**。無任何步驟寫入，新 run 長期維持 `null`；欄位保留於 schema 只為讀舊 manifest（既有 `risk/*.md` 報告為冷溯源，保留不刪）
 - `usage_report_path`：**維持 `null` 屬正常**——`usage-analyzer` 由具名問題觸發，答案寫進 Spec、不產獨立報告檔、不回寫此欄；無任何 gate 依賴此欄非空

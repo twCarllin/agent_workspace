@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import time
+import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flow_rules
@@ -29,13 +30,7 @@ def read(path):
     return value
 
 
-def select_run(run_id=None):
-    if run_id:
-        path = run_commit.manifest_path(run_id)
-        manifest = read(path)
-        if manifest.get("run_id") != run_id:
-            raise ValueError("manifest run_id does not match filename")
-        return path, manifest
+def active_run_candidates():
     candidates = []
     for path in sorted(Path("run").glob("*.json")):
         if not flow_rules.MANIFEST_RE.fullmatch(str(path)):
@@ -46,6 +41,76 @@ def select_run(run_id=None):
             "ready_to_commit",
         ):
             candidates.append((str(path), manifest))
+    return candidates
+
+
+def activation(run_id=None):
+    """Report recorded activation stages without inferring client hook execution."""
+    marker = "<!-- agent-workspace codex instructions -->"
+    agents = Path("AGENTS.md")
+    config = Path(".codex/config.toml")
+    entry_sources = []
+    if agents.is_file() and marker in agents.read_text(encoding="utf-8"):
+        entry_sources.append("AGENTS.md")
+    if config.is_file():
+        notes = tomllib.loads(config.read_text(encoding="utf-8")).get(
+            "developer_instructions"
+        )
+        if isinstance(notes, str) and marker in notes:
+            entry_sources.append(".codex/config.toml")
+    manifest = None
+    run_selection = "missing"
+    if run_id:
+        _, manifest = select_run(run_id)
+    else:
+        candidates = active_run_candidates()
+        if len(candidates) == 1:
+            _, manifest = candidates[0]
+        elif len(candidates) > 1:
+            run_selection = "ambiguous"
+    if manifest is not None:
+        run_selection = manifest.get("status", "unknown")
+    hook_file = Path(".codex/hooks.json")
+    hooks = (
+        json.loads(hook_file.read_text(encoding="utf-8")) if hook_file.is_file() else {}
+    )
+    configured = any(
+        "eval_gates.py" in hook.get("command", "")
+        for entry in hooks.get("hooks", {}).get("PreToolUse", [])
+        for hook in entry.get("hooks", [])
+        if isinstance(hook, dict)
+    )
+    return {
+        "entry": {
+            "status": "configured" if entry_sources else "missing",
+            "sources": entry_sources,
+            "loaded_by_client": "unknown",
+        },
+        "route": {
+            "status": (
+                "recorded" if manifest and manifest.get("tier_rationale") else "unknown"
+            ),
+            "tier": manifest.get("tier") if manifest else None,
+        },
+        "run": {
+            "status": run_selection,
+            "run_id": manifest.get("run_id") if manifest else None,
+        },
+        "hook": {
+            "status": "configured" if configured else "missing",
+            "execution": "unknown",
+        },
+    }
+
+
+def select_run(run_id=None):
+    if run_id:
+        path = run_commit.manifest_path(run_id)
+        manifest = read(path)
+        if manifest.get("run_id") != run_id:
+            raise ValueError("manifest run_id does not match filename")
+        return path, manifest
+    candidates = active_run_candidates()
     if len(candidates) != 1:
         raise ValueError(
             f"expected one active run, found {len(candidates)}; use --run-id"
@@ -407,6 +472,9 @@ def main(argv=None):
     pre.add_argument("--live", action="store_true")
     pre.add_argument("--timeout", type=float, default=30)
     pre.add_argument("--json", action="store_true")
+    active = commands.add_parser("activation")
+    active.add_argument("--run-id")
+    active.add_argument("--json", action="store_true")
     for name in ("status", "watch"):
         sub = commands.add_parser(name)
         sub.add_argument("--run-id")
@@ -427,6 +495,14 @@ def main(argv=None):
     try:
         if args.command == "review-packet":
             return review_packet.execute(args)
+        if args.command == "activation":
+            result = activation(args.run_id)
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            else:
+                for name, value in result.items():
+                    print(f"{name}: {json.dumps(value, ensure_ascii=False)}")
+            return 0
         if args.command == "preflight":
             import flow_preflight
 

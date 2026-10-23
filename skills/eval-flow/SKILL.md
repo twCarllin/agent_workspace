@@ -9,7 +9,7 @@ description: Tier 1／2 實作流程。新 Tier 1 依授權開始、自選方法
 
 ## 路徑選擇
 
-先讀 `.agent-flow/HARNESS.md` 與 `.agent-flow/PRACTICES.md`。新 Tier 1／2 manifest 記目前 `harness` 與 `evidence_schema: 2`。派工輸入含目標、背景、限制與完成條件。
+新 Tier 1／2 manifest 記目前 `harness` 與 `evidence_schema: 2`。新 adaptive Tier 1 直接讀 `references/tier1.md`；Tier 2、舊 run、跨 harness 操作才讀 `.agent-flow/HARNESS.md`。實際產碼、派工或品質爭議才讀 `.agent-flow/PRACTICES.md` 的適用節。派工輸入含目標、背景、限制與完成條件。
 
 | Router 判定 | 必讀文件與時機 |
 |---|---|
@@ -19,13 +19,13 @@ description: Tier 1／2 實作流程。新 Tier 1 依授權開始、自選方法
 
 ## 共用：進場檢查（全 tier，執行任何步驟之前）
 
-- **進場檢查（建 manifest 之前）**：跑 `git status --porcelain`。非空 → 列出檔案清單問使用者歸屬（納入本 run／擱置不動），裁決一句寫入 manifest `dirty_tree_ruling`（選填欄；乾淨樹免記）。孤兒變更不先裁決，staging 與 commit 範圍會在收尾才爆
+- **進場檢查（建 manifest 之前）**：跑 `git status --porcelain`。非空時先判定本次修改範圍；能保留既有變更且歸屬明確時直接繼續，將隔離方式記在 manifest `dirty_tree_ruling`。只有歸屬衝突或必須覆寫既有變更時才問使用者。乾淨樹免記。
 
-初次先執行 `flow.py preflight --harness <目前 harness>` 檢查環境；manifest 已存在時才加 `--run-id <id>`；未知項目不能當成已通過。建立 manifest 或變更狀態前必讀本檔「資料格式與操作規則」所指文件。
+初次先執行 `flow.py preflight --harness <目前 harness>` 檢查環境；manifest 已存在時才加 `--run-id <id>`；未知項目不能當成已通過。新 adaptive Tier 1 初始化與收尾依 `references/tier1.md` 的命令路徑；Tier 2、舊 run 或需手動操作狀態欄位時才讀「資料格式與操作規則」。
 
 ## Tier 1 精簡路徑
 
-完整規則住 [Tier 1 路徑](references/tier1.md)。**初始化與寫 code 前必讀**。新 run 採 `adaptive-v1`，一般路徑只需本節與該文件；主 flow 依具體問題選擇 HITL、委派或獨立審查，不預設進入完整循環。不建 eval_state 仍須保存完成度及實際驗證證據。舊 run 的相容路徑同見該文件。
+完整規則住 [Tier 1 路徑](references/tier1.md)。**初始化與寫 code 前必讀**。新 run 採 `adaptive-v1`，一般路徑只需本節與該文件；主 flow 依具體問題選擇 HITL、委派或獨立審查，不預設進入完整循環。不建 eval_state 仍須保存完成度及實際驗證證據。派工、手動欄位操作或 gate 擋下時才讀對應專門文件。舊 run 的相容路徑同見該文件。
 
 ## Tier 2 完整路徑
 
@@ -75,11 +75,11 @@ description: Tier 1／2 實作流程。新 Tier 1 依授權開始、自選方法
 
 ## 主 flow 憑據紀律（回報必附證據）
 
-首次回報前必讀 [派工與證據控制](references/dispatch-control.md) 同名節。主 flow 的每句進度宣稱須同句附可驗證憑據；沒有憑據視為未發生。step 記意圖，憑據證明動作。sabotage／mutation／重現實驗先實跑取得輸出，再寫結果並同句附命令與輸出尾行；未跑只能寫待跑（R-013）。
+主 flow 的每句進度宣稱須同句附可驗證憑據；沒有憑據視為未發生。step 記意圖，憑據證明動作。sabotage／mutation／重現實驗先實跑取得輸出，再寫結果並同句附命令與輸出尾行；未跑只能寫待跑（R-013）。派工或爭議處置時才讀 [派工與證據控制](references/dispatch-control.md) 的完整紀律。
 
 ## 資料格式與操作規則
 
-初始化、更新狀態、記審查或查欄位前，必讀 [資料格式](references/formats.md) 及 [派工與證據控制](references/dispatch-control.md) 的同名節。一律用 `eval_state.py` helper，不手動 Edit 狀態；首輪 set-review 與 checked-by 按原規則記錄，不由資料包自填通過。
+Tier 2、舊 run 或新 Tier 1 須手動操作狀態欄位時，讀 [資料格式](references/formats.md) 的適用節；派工時再讀 [派工與證據控制](references/dispatch-control.md)。一律用 `eval_state.py` helper，不手動 Edit 狀態；首輪 set-review 與 checked-by 按原規則記錄，不由資料包自填通過。新 Tier 1 的標準命令與順序在 `references/tier1.md`。
 
 ## Gate 的硬性執行（hook）
 

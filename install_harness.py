@@ -155,7 +155,16 @@ def instructions(target, harness, repo_mode=False):
     path = target / ("AGENTS.md" if harness == "codex" else "CLAUDE.md")
     marker = f"<!-- agent-workspace {harness} instructions -->"
     end_marker = f"<!-- /agent-workspace {harness} instructions -->"
-    block = f"""{marker}
+    if harness == "codex":
+        block = f"""{marker}
+## Eval Flow
+
+For implementation, read `.agent-flow/ROUTER.md` and load the selected `.agents/skills/<name>/SKILL.md`. Diagnose bugs first; resume interrupted runs with eval-flow-resume. Pure questions do not start a run.
+New Tier 1/2 manifests use `harness: "codex"` and `evidence_schema: 2`.
+Use the selected skill for verification, review, and completion. Read `.agent-flow/CODEX_ADAPTER.md` for Codex-specific operations. Preserve project instructions and current session permissions.
+{end_marker}"""
+    else:
+        block = f"""{marker}
 ## Eval Flow
 
 Read `.agent-flow/HARNESS.md`, `.agent-flow/{harness.upper()}_ADAPTER.md`, and `.agent-flow/PRACTICES.md`.
@@ -165,10 +174,10 @@ Use the matching role, with goal, context, constraints, and done conditions. Res
 {end_marker}"""
     existing = path.read_text() if path.exists() else ""
     if harness == "codex" and not repo_mode:
-        # AGENTS.md stays the project's; the section lives in the untracked .codex/config.toml.
-        stripped = _without_section(existing, marker, end_marker)
-        if stripped != existing:
-            path.write_text(stripped)
+        # AGENTS.md is the small, always visible router. Project config can be
+        # skipped until the client trusts the project, so it cannot be the only entry.
+        entry = block
+        path.write_text(_with_section(existing, marker, end_marker, entry))
         codex_developer_instructions(target, block, marker, end_marker)
         return
     if harness == "claude":

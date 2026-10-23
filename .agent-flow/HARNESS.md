@@ -11,7 +11,7 @@
 | .agent-flow/scripts/ | gate、狀態、驗證與派工核心 |
 | .agent-flow/harnesses/models.json | 各 harness 的模型與角色設定 |
 
-Codex 的 `.codex/config.toml` developer_instructions 與 Claude 的 CLAUDE.local.md 是簡短入口（本 repo 自身為 AGENTS.md 與 CLAUDE.md）。安裝器由共用角色產生 .codex/agents/ 與 .claude/agents/，不以其中一方產生另一方。生成設定的修改應回到共用來源；自訂角色檔由安裝器保留並回報。
+Codex 的 AGENTS.md 管理區段與 `.codex/config.toml` developer_instructions、Claude 的 CLAUDE.local.md 是簡短入口（本 repo 自身為 AGENTS.md 與 CLAUDE.md）。安裝器保留專案 AGENTS.md 的其餘文字；Codex 專案設定未載入時，AGENTS.md 仍提供 Router 入口。安裝器由共用角色產生 .codex/agents/ 與 .claude/agents/，不以其中一方產生另一方。生成設定的修改應回到共用來源；自訂角色檔由安裝器保留並回報。
 
 新 Tier 1／2 manifest 記 harness: claude 或 codex 與 evidence_schema: 2。舊 manifest 缺 harness 時沿用 Claude 相容行為。兩者都以 run_verify.py 記錄最後驗證，以 run_commit.py prepare、commit、finalize 收尾。
 

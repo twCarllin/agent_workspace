@@ -13,6 +13,67 @@ CLI = ROOT / ".agent-flow/scripts/flow.py"
 
 
 class FlowCliTest(unittest.TestCase):
+    def test_activation_separates_configured_entry_from_client_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "AGENTS.md").write_text(
+                "<!-- agent-workspace codex instructions -->\n"
+            )
+            (root / ".codex").mkdir()
+            (root / ".codex/hooks.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "PreToolUse": [
+                                {
+                                    "matcher": "Bash",
+                                    "hooks": [
+                                        {"command": "python3 eval_gates.py --hook"}
+                                    ],
+                                }
+                            ]
+                        }
+                    }
+                )
+            )
+            (root / "run").mkdir()
+            (root / "run/r1.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "r1",
+                        "tier": 1,
+                        "tier_rationale": "empty reasons",
+                        "status": "in_progress",
+                    }
+                )
+            )
+            process = subprocess.run(
+                [sys.executable, str(CLI), "activation", "--run-id", "r1", "--json"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(process.returncode, 0, process.stderr)
+            result = json.loads(process.stdout)
+            self.assertEqual(result["entry"]["status"], "configured")
+            self.assertEqual(result["entry"]["loaded_by_client"], "unknown")
+            self.assertEqual(result["route"], {"status": "recorded", "tier": 1})
+            self.assertEqual(result["run"]["status"], "in_progress")
+            self.assertEqual(
+                result["hook"], {"status": "configured", "execution": "unknown"}
+            )
+            (root / "run/r2.json").write_text(
+                json.dumps({"run_id": "r2", "status": "in_progress"})
+            )
+            ambiguous = subprocess.run(
+                [sys.executable, str(CLI), "activation", "--json"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(ambiguous.returncode, 0, ambiguous.stderr)
+            self.assertEqual(json.loads(ambiguous.stdout)["run"]["status"], "ambiguous")
+
     def test_validate_tasks_keeps_hot_and_archive_shape_requirements(self):
         sys.path.insert(0, str(ROOT / ".agent-flow/scripts"))
         import flow

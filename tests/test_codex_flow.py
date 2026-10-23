@@ -1,4 +1,5 @@
 """Exercise the installed Codex flow through real Git commits in an isolated repo."""
+
 import json
 import subprocess
 import sys
@@ -6,7 +7,6 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,21 +19,41 @@ class CodexFlowTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.project = Path(self.tmp.name)
-        for args in (("git", "init", "-q"), ("git", "config", "user.email", "test@example.invalid"),
-                     ("git", "config", "user.name", "Flow Test")):
+        for args in (
+            ("git", "init", "-q"),
+            ("git", "config", "user.email", "test@example.invalid"),
+            ("git", "config", "user.name", "Flow Test"),
+        ):
             self.assertEqual(run(self.project, *args).returncode, 0)
-        self.assertEqual(run(self.project, sys.executable, str(ROOT / "install_codex.py"), "--target", str(self.project)).returncode, 0)
+        self.assertEqual(
+            run(
+                self.project,
+                sys.executable,
+                str(ROOT / "install_codex.py"),
+                "--target",
+                str(self.project),
+            ).returncode,
+            0,
+        )
         (self.project / ".gitignore").write_text("run/\n", encoding="utf-8")
         (self.project / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
         self.assertEqual(run(self.project, "git", "add", ".").returncode, 0)
-        self.assertEqual(run(self.project, "git", "commit", "-qm", "initial").returncode, 0)
+        self.assertEqual(
+            run(self.project, "git", "commit", "-qm", "initial").returncode, 0
+        )
         self.run_id = "2026-09-23-codex-flow"
         (self.project / "run").mkdir()
         self.manifest_path = self.project / "run" / f"{self.run_id}.json"
         self.manifest = {
-            "run_id": self.run_id, "tier": 1, "status": "in_progress", "phase": "decomposed",
-            "spec_inline": "Change the value", "local_test_passed": True,
-            "local_test_evidence": "verified locally", "review_reds": 0, "verify_passed": True,
+            "run_id": self.run_id,
+            "tier": 1,
+            "status": "in_progress",
+            "phase": "decomposed",
+            "spec_inline": "Change the value",
+            "local_test_passed": True,
+            "local_test_evidence": "verified locally",
+            "review_reds": 0,
+            "verify_passed": True,
             "evidence_schema": 2,
         }
         self.save_manifest()
@@ -47,10 +67,21 @@ class CodexFlowTest(unittest.TestCase):
         self.manifest_path.write_text(json.dumps(self.manifest), encoding="utf-8")
 
     def helper(self, name, *args):
-        return run(self.project, sys.executable, str(self.project / ".claude" / "hooks" / name), *args)
+        return run(
+            self.project,
+            sys.executable,
+            str(self.project / ".claude" / "hooks" / name),
+            *args,
+        )
 
     def verify(self):
-        return self.helper("run_verify.py", "--run-id", self.run_id, "--cmd", "python3 -c 'print(\"ok\")'")
+        return self.helper(
+            "run_verify.py",
+            "--run-id",
+            self.run_id,
+            "--cmd",
+            "python3 -c 'print(\"ok\")'",
+        )
 
     def test_code_change_after_verification_blocks_prepare(self):
         self.assertEqual(self.verify().returncode, 0)
@@ -59,66 +90,135 @@ class CodexFlowTest(unittest.TestCase):
         prepare = self.helper("run_commit.py", "prepare", self.run_id)
         self.assertEqual(prepare.returncode, 2)
         self.assertIn("驗證後程式樹已變更", prepare.stderr)
-        self.assertEqual(json.loads(self.manifest_path.read_text())["status"], "in_progress")
+        self.assertEqual(
+            json.loads(self.manifest_path.read_text())["status"], "in_progress"
+        )
 
     def test_actual_message_and_finalize(self):
         self.assertEqual(self.verify().returncode, 0)
-        self.assertEqual(self.helper("run_commit.py", "prepare", self.run_id).returncode, 0)
+        self.assertEqual(
+            self.helper("run_commit.py", "prepare", self.run_id).returncode, 0
+        )
         message_file = self.project / ".git" / "flow-message.txt"
         message_file.write_text("change value\n", encoding="utf-8")
         rejected = run(self.project, "git", "commit", "-F", str(message_file))
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("Run-Id", rejected.stderr)
-        self.assertEqual(json.loads(self.manifest_path.read_text())["status"], "ready_to_commit")
-        message_file.write_text(f"change value\n\nRun-Id: {self.run_id}\n", encoding="utf-8")
-        self.assertEqual(run(self.project, "git", "commit", "-F", str(message_file)).returncode, 0)
-        self.assertEqual(json.loads(self.manifest_path.read_text())["status"], "ready_to_commit")
+        self.assertEqual(
+            json.loads(self.manifest_path.read_text())["status"], "ready_to_commit"
+        )
+        message_file.write_text(
+            f"change value\n\nRun-Id: {self.run_id}\n", encoding="utf-8"
+        )
+        self.assertEqual(
+            run(self.project, "git", "commit", "-F", str(message_file)).returncode, 0
+        )
+        self.assertEqual(
+            json.loads(self.manifest_path.read_text())["status"], "ready_to_commit"
+        )
         session = subprocess.run(
-            [sys.executable, str(self.project / ".claude" / "hooks" / "session_start.py")],
-            cwd=self.project, input=json.dumps({"cwd": str(self.project), "model": "gpt-6-sol"}),
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                str(self.project / ".claude" / "hooks" / "session_start.py"),
+            ],
+            cwd=self.project,
+            input=json.dumps({"cwd": str(self.project), "model": "gpt-6-sol"}),
+            capture_output=True,
+            text=True,
         )
         self.assertEqual(session.returncode, 0)
         self.assertIn(self.run_id, session.stdout)
-        self.assertEqual(self.helper("run_commit.py", "finalize", self.run_id).returncode, 0)
+        self.assertEqual(
+            self.helper("run_commit.py", "finalize", self.run_id).returncode, 0
+        )
         finished = json.loads(self.manifest_path.read_text())
         self.assertEqual(finished["status"], "completed")
-        self.assertEqual(finished["commit_sha"], run(self.project, "git", "rev-parse", "HEAD").stdout.strip())
+        self.assertEqual(
+            finished["commit_sha"],
+            run(self.project, "git", "rev-parse", "HEAD").stdout.strip(),
+        )
 
     def test_install_is_idempotent_and_preserves_project_instructions(self):
         instructions = self.project / "AGENTS.md"
-        instructions.write_text("Project rule\n", encoding="utf-8")
-        again = run(self.project, "bash", str(ROOT / "init.sh"), "--platform", "codex", "--target", str(self.project))
+        original = instructions.read_text(encoding="utf-8")
+        again = run(
+            self.project,
+            "bash",
+            str(ROOT / "init.sh"),
+            "--platform",
+            "codex",
+            "--target",
+            str(self.project),
+        )
         self.assertEqual(again.returncode, 0, again.stderr)
-        self.assertEqual(instructions.read_text(encoding="utf-8"), "Project rule\n")
-        notes = tomllib.loads((self.project / ".codex" / "config.toml").read_text(encoding="utf-8"))["developer_instructions"]
+        self.assertEqual(instructions.read_text(encoding="utf-8"), original)
+        notes = tomllib.loads(
+            (self.project / ".codex" / "config.toml").read_text(encoding="utf-8")
+        )["developer_instructions"]
         self.assertEqual(notes.count("<!-- agent-workspace codex instructions -->"), 1)
-        config = json.loads((self.project / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+        config = json.loads(
+            (self.project / ".codex" / "hooks.json").read_text(encoding="utf-8")
+        )
         self.assertEqual(len(config["hooks"]["PreToolUse"]), 1)
-        writer = tomllib.loads((self.project / ".codex" / "agents" / "code-writer.toml").read_text(encoding="utf-8"))
-        reviewer = tomllib.loads((self.project / ".codex" / "agents" / "code-reviewer.toml").read_text(encoding="utf-8"))
+        writer = tomllib.loads(
+            (self.project / ".codex" / "agents" / "code-writer.toml").read_text(
+                encoding="utf-8"
+            )
+        )
+        reviewer = tomllib.loads(
+            (self.project / ".codex" / "agents" / "code-reviewer.toml").read_text(
+                encoding="utf-8"
+            )
+        )
         for agent in (writer, reviewer):
-            self.assertEqual((agent["model"], agent["model_reasoning_effort"]), ("gpt-6.1-sol", "low"))
+            self.assertEqual(
+                (agent["model"], agent["model_reasoning_effort"]),
+                ("gpt-6.1-sol", "low"),
+            )
 
     def test_install_seeds_support_files_without_overwriting_project_history(self):
         version = self.project / ".claude" / "hooks" / "VERSION"
         retro = self.project / "retro" / "RETRO.md"
         buglog = self.project / "retro" / "BUGLOG.md"
-        self.assertEqual(version.read_text(encoding="utf-8"), (ROOT / ".claude" / "hooks" / "VERSION").read_text(encoding="utf-8"))
-        self.assertEqual(retro.read_text(encoding="utf-8"), (ROOT / "seed" / "RETRO.seed.md").read_text(encoding="utf-8"))
+        self.assertEqual(
+            version.read_text(encoding="utf-8"),
+            (ROOT / ".claude" / "hooks" / "VERSION").read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            retro.read_text(encoding="utf-8"),
+            (ROOT / "seed" / "RETRO.seed.md").read_text(encoding="utf-8"),
+        )
         self.assertTrue(buglog.read_text(encoding="utf-8").startswith("# BUGLOG"))
         self.assertNotIn("2026-07-22", buglog.read_text(encoding="utf-8"))
 
         retro.write_text("project retro\n", encoding="utf-8")
         buglog.write_text("project buglog\n", encoding="utf-8")
         version.write_text("old version\n", encoding="utf-8")
-        again = run(self.project, "bash", str(ROOT / "init.sh"), "--p", "codex", "--target", str(self.project))
+        again = run(
+            self.project,
+            "bash",
+            str(ROOT / "init.sh"),
+            "--p",
+            "codex",
+            "--target",
+            str(self.project),
+        )
         self.assertEqual(again.returncode, 1, again.stderr)
         self.assertIn("conflict", again.stdout)
         self.assertEqual(version.read_text(encoding="utf-8"), "old version\n")
         # Spec portability §作廢舊行為: user edits require an explicit resolution.
-        version.write_text((ROOT / '.agent-flow/scripts/VERSION').read_text(), encoding='utf-8')
-        again = run(self.project, 'bash', str(ROOT / 'init.sh'), '--p', 'codex', '--target', str(self.project))
+        version.write_text(
+            (ROOT / ".agent-flow/scripts/VERSION").read_text(), encoding="utf-8"
+        )
+        again = run(
+            self.project,
+            "bash",
+            str(ROOT / "init.sh"),
+            "--p",
+            "codex",
+            "--target",
+            str(self.project),
+        )
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertEqual(retro.read_text(encoding="utf-8"), "project retro\n")
         self.assertEqual(buglog.read_text(encoding="utf-8"), "project buglog\n")
