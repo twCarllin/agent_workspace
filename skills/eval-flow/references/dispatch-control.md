@@ -2,6 +2,8 @@
 
 ## 派工機制（headless CLI；本節為單一枚舉點）
 
+writer 派工前，先依 [實作與 staging 的批次規則](writing.md) 決定本次 items；item 是驗收單位，不直接決定派工次數。
+
 流程角色（`code-writer`／`task-verifier`／`code-reviewer`／`retro`／`task-decomposer`／`usage-analyzer`／`impact-analyzer`）可由目前 harness 的角色工具或 headless CLI 派工。兩路都遵守共用角色契約、獨立審查與 gate；工具與權限差異住 `.agent-flow/HARNESS.md` 及適配層：
 
 - **指令**：`python3 .agent-flow/scripts/dispatch.py <role> --prompt-file <path> [--backend claude|codex] [--resume <session>] [--files <逗號清單>] [--timeout <秒>] [--max-output-chars <n>]`。後端依 manifest `harness` 選取；明示 `--backend` 可覆寫，舊 manifest 缺 harness 時使用 Claude 相容路徑。角色職責讀共用 `.agent-flow/roles/`，模型與工具設定由各 harness 載體提供
