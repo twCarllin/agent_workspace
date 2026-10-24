@@ -21,6 +21,16 @@ Claude 預設累計上限 3 美元，剩餘預算傳給 --max-budget-usd；成�
 | pure-question | 只回答問題，不建立 run 或修改檔案 |
 | tier1-hitl-stop | 使用者明示有待裁示問題時，不改實作檔、不提交 |
 | resume-interrupted | 從 task 2 reviewing 定位，不重跑已 passed 的 task 1 |
+| reuse-existing | 新增收據金額顯示時，正確重用既有美元格式規則，不修改該規則 |
+
+比較實作指引時，`compare_practices.py` 對同一案例、同一 harness、同一模型交替執行兩版指引。它只替換暫存 fixture 的 `.agent-flow/PRACTICES.md`；結果檔記錄兩版指引的雜湊值、案例結果、追蹤檔案的修改行數與執行時間。先從 Git 取出舊版指引。比較通過率、修改行數與耗時前，先確認執行都完成且沒有預算切斷或工具錯誤。單次結果只供檢查流程，不能證明效益。
+
+```sh
+git show HEAD:.agent-flow/PRACTICES.md > /tmp/practices-before.md
+python3 evals/compare_practices.py --baseline /tmp/practices-before.md --runs 3 --dry-run
+python3 evals/compare_practices.py --baseline /tmp/practices-before.md --runs 3
+python3 evals/compare_practices.py --baseline /tmp/practices-before.md --case tier1-routing --runs 3
+```
 
 CLI smoke 用 harness_smoke.py；它量客戶端整合，與完整 skill 行為評測分開。預設預覽；--live 呼叫模型，--trust-local-hooks 僅批准這次由 runner 產生的暫存 Codex hooks。
 
