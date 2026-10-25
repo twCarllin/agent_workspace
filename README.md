@@ -72,7 +72,7 @@ Bugfix 是例外：**先診斷、後判級**。因為判級需要的資訊（改
 
 省略 harness 時預設 both；省略 target 時安裝到本 repo 的上一層。舊 `--platform`、`--p` 與 `install_codex.py` 入口保留。
 
-兩種 harness 都部署 `.agent-flow/` 共用核心與 `.agents/skills/` 專案 skills。Claude 的專案 skills 連結至同一份內容。安裝不寫入個人 skills。Claude 入口寫入 `CLAUDE.local.md`，Codex 入口寫入 `.codex/config.toml` 的 `developer_instructions`；兩者與其他工具鏈路徑都列入 `.git/info/exclude`，專案的 `CLAUDE.md`、`AGENTS.md` 不被改寫。管理區段可更新，區段外的專案指令保留。自訂角色、skill、hook 與既有 RETRO 保留並回報。
+兩種 harness 都部署 `.agent-flow/` 共用核心與 `.agents/skills/` 專案 skills。Claude 的專案 skills 連結至同一份內容。安裝不寫入個人 skills。Claude 入口寫入 `CLAUDE.local.md`，不改動專案的 `CLAUDE.md`。Codex 入口同時寫入專案 `AGENTS.md` 的管理區段，以及 `.codex/config.toml` 的 `developer_instructions`；原有的專案指令保留。`CLAUDE.local.md`、`.codex/config.toml` 與其他工具鏈路徑會列入 `.git/info/exclude`，`AGENTS.md` 不在排除清單內。自訂角色、skill、hook 與既有 RETRO 保留並回報。
 
 安裝後重新載入 session，依客戶端要求檢查與信任 hooks。執行 `python3 .agent-flow/scripts/doctor.py --harness both` 檢查檔案與設定。doctor 不證明客戶端已啟用 hooks。既有 Git hook 或 core.hooksPath 由安裝器保留，依輸出的指令接入提交 gate。
 
@@ -97,7 +97,7 @@ python3 .agent-flow/scripts/skill_eval.py --dry-run --harness codex
 python3 .agent-flow/scripts/harness_smoke.py
 ```
 
-派工預設 `--permissions inherit`，保留 CLI 自身權限設定；只有明確指定 `--permissions unrestricted` 才附完整權限旗標。父程序未保存的權限不一定傳給子 CLI。
+省略 `--permissions` 時，有寫入工具的角色使用 `edits`，其他角色使用 `inherit`。`inherit` 保留子 CLI 自身的權限設定；只有明確指定 `--permissions unrestricted` 才附完整權限旗標。父程序未保存的權限不一定傳給子 CLI。
 
 Smoke 預設只列計畫。以下指令會呼叫模型，最多每種工具四個案例，逐次 timeout 90 秒；Claude 每次預算上限 1 美元，Codex 成本未知。`--trust-local-hooks` 只批准此次暫存環境中由本 runner 產生的 Codex hook，不修改全域 trust，也不略過流程 gate。
 
@@ -125,6 +125,6 @@ python3 .agent-flow/scripts/harness_smoke.py --live --trust-local-hooks --output
 | 遙測與健檢 | `.agent-flow/scripts/stats.py`、`doctor.py` |
 | gate script 的測試 | `tests/`（`python3 -m unittest discover -s tests`） |
 
-本次驗證（2026-10-04）：Codex 使用 `gpt-6.1-sol`，在暫存專案明確選擇 `--permissions unrestricted --trust-local-hooks`，正常案例已修正完整性檢查並重跑通過；其餘三個原生 CLI smoke 案例沿用先前通過證據。預設派工仍為 `inherit`。Claude Code CLI 於 2026-10-05 以 Claude Code 2.1.285 跑 `harness_smoke.py --harness claude --live --permissions unrestricted`，四個案例全部通過；`flow.py preflight --harness claude` 已執行版本與登入檢查。
+歷史驗證紀錄：2026-10-04，Codex 使用 `gpt-6.1-sol`，在暫存專案明確選擇 `--permissions unrestricted --trust-local-hooks`；正常案例修正完整性檢查後重跑通過，其餘三個原生 CLI smoke 案例沿用先前通過證據。2026-10-05，Claude Code CLI 以 Claude Code 2.1.285 跑 `harness_smoke.py --harness claude --live --permissions unrestricted`，四個案例全部通過；`flow.py preflight --harness claude` 已執行版本與登入檢查。這些結果只代表當時的測試環境。
 
 流程效率：首輪獨立審完整 task，修正用 `review_delta.py` 產生有效增量；本地指令可用 `run_verify.py --reuse` 重用相同輸入的成功證據。Tier 2 實作期間跑相關測試，提交前一次完整回歸。詳細條件見 `skills/eval-flow/references/efficiency.md`。
