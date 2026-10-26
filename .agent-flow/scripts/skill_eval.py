@@ -29,6 +29,7 @@ HOOKS_DIR = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HOOKS_DIR))
 EVALS_DIR = os.path.join(ROOT, "evals")
 RESULTS_DIR = os.path.join(EVALS_DIR, "results")
+from eval_provenance import collect, digest
 
 # 預算預設值（使用者裁示，Spec §4）：單輪快速取訊號；上限是「跑爆就停」的硬防線，不是目標。
 DEFAULT_RUNS = 1
@@ -228,6 +229,16 @@ def main():
     if args.harness == 'codex':
         print('[skill-eval] Codex CLI 不提供美元預算限制；成本記 unknown，以 runs/timeout 限制執行。', file=sys.stderr)
 
+    provenance = collect(cases[0], __file__, args.harness, args.permissions, args.timeout)
+    provenance["case_files_sha256"] = {
+        os.path.basename(case): {
+            name: digest(os.path.join(case, name))
+            for name in ("prompt.md", "setup.py", "check.py")
+            if os.path.isfile(os.path.join(case, name))
+        }
+        for case in cases
+    }
+
     os.makedirs(RESULTS_DIR, exist_ok=True)
     stamp = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     results_path = os.path.join(RESULTS_DIR, f"{stamp}.json")
@@ -310,6 +321,7 @@ def main():
     with open(results_path, "w", encoding="utf-8") as f:
         json.dump({"stamp": stamp, "runs": args.runs, "max_cost_usd": args.max_cost_usd,
                    "harness": args.harness, "model": args.model, "permissions": args.permissions,
+                   "provenance": provenance,
                    "total_cost_usd": round(total_cost, 4) if args.harness == "claude" else None, "ceiling_hit": ceiling_hit,
                    "records": records}, f, ensure_ascii=False, indent=2)
     done = len(records)

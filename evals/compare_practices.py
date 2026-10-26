@@ -16,6 +16,8 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS = ROOT / "evals/results"
 RUNNER = ROOT / ".agent-flow/scripts/skill_eval.py"
+sys.path.insert(0, str(ROOT / ".agent-flow/scripts"))
+from eval_provenance import collect
 
 
 def load_runner():
@@ -169,6 +171,8 @@ def main():
         return 0
     if shutil.which(args.harness) is None:
         parser.error(f"找不到 {args.harness} CLI")
+    provenance = collect(case, RUNNER, args.harness, args.permissions, args.timeout)
+    provenance["comparison_runner_sha256"] = sha256(__file__)
     records = []
     for number in range(1, args.runs + 1):
         variants = (("baseline", args.baseline), ("candidate", candidate))
@@ -191,6 +195,7 @@ def main():
                 "case": args.case,
                 "harness": args.harness,
                 "model": args.model,
+                "provenance": provenance,
                 "records": records,
             },
             ensure_ascii=False,

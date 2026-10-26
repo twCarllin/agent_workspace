@@ -25,6 +25,16 @@ Claude 預設累計上限 3 美元，剩餘預算傳給 --max-budget-usd；成�
 
 比較實作指引時，`compare_practices.py` 對同一案例、同一 harness、同一模型交替執行兩版指引。它只替換暫存 fixture 的 `.agent-flow/PRACTICES.md`；結果檔記錄兩版指引的雜湊值、案例結果、追蹤檔案的修改行數與執行時間。先從 Git 取出舊版指引。比較通過率、修改行數與耗時前，先確認執行都完成且沒有預算切斷或工具錯誤。單次結果只供檢查流程，不能證明效益。
 
+評估單一步驟是否值得保留時，先固定案例、驗收、模型與權限，只變動該步驟。至少同時計數驗收通過、被攔下的實際錯誤、執行時間與可取得的成本。`evidence_audit.py` 逐對列出品質及時間差；品質相同只表示該案例未顯示差異，不能推論步驟無用。工具／檢查器錯誤、缺配對或缺時間時標為資料不足，不算行為失敗。不同案例或不同模型不可併成單一效益數字。
+
+新 live 結果記錄來源 commit、工作區變更雜湊與乾淨狀態、案例輸入雜湊、runner 雜湊、Python 與 CLI 版本、權限及超時。這些欄位供核對，不保留來源全文；工作區有變更時，單靠雜湊無法重建變更，稽核會標出 `source_clean` 缺口。要精確重跑，需保存相同 commit、工作區變更與外部工具版本。舊結果缺欄時，稽核只報缺項，不補造。`run/` 的驗證快照證明當次輸入與結果，不能取代評測的模型、提示與 CLI 條件。
+
+`evidence_audit.py` 也檢查 `run/*-blocked.md` 是否有重現步驟、根因假設、失敗嘗試與結果、證據位置、待裁決問題。若沒有真實報告，明示無實測交接資料；格式檢查不能證明接手者已成功恢復。
+
+```sh
+python3 evals/evidence_audit.py
+```
+
 ```sh
 git show HEAD:.agent-flow/PRACTICES.md > /tmp/practices-before.md
 python3 evals/compare_practices.py --baseline /tmp/practices-before.md --runs 3 --dry-run

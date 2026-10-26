@@ -76,7 +76,7 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
 
 ## 卡住／HITL 協定（背景 agent 需要使用者裁決時）
 
-11. **停前落盤（硬要求）**：manifest 標 `status: "blocked"`＋一句 blocked_reason；寫自足卡點報告 `run/<run_id>-blocked.md`（重現步驟、目前的根因假設、試過什麼且為何失敗、要使用者裁決的問題與選項）。落盤後才停——恢復路徑不保證是同一個 agent，沒落盤備援就斷了。
+11. **停前落盤（硬要求）**：manifest 標 `status: "blocked"`＋一句 blocked_reason；寫自足卡點報告 `run/<run_id>-blocked.md`。報告使用 `## 重現步驟`、`## 目前的根因假設`、`## 失敗嘗試與結果`、`## 證據位置`、`## 使用者裁決` 五節；每項已試方法寫輸入、實際結果及為何未解，證據位置指向原始 log／命令輸出；未試過時明寫「尚未嘗試」及原因，不得捏造。最後一節列需要裁決的問題與選項。落盤後才停——恢復路徑不保證是同一個 agent，沒落盤備援就斷了。
 12. **凍結不擋人**：blocked 的 run 原地凍結，另一支照常跑、照常 rolling merge。使用者不需立刻處理。
 13. **恢復雙路徑**：首選 SendMessage 回原 agent（context 尚熱，最便宜）；原 agent 已不在（session 重啟、隔日處理）→ 於原 worktree 起新 agent 走 `eval-flow-resume`＋讀卡點報告接手。使用者的裁決內容記入 manifest 留痕（比照驗證豁免慣例）。
 
