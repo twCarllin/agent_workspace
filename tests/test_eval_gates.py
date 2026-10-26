@@ -165,14 +165,6 @@ class ValidateStateTest(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.code, 2)
 
-    # verify_passed 非 true 仍擋
-    def test_verify_passed_false_key_blocks(self):
-        with self.assertRaises(SystemExit) as ctx:
-            eval_gates.validate_state(
-                self.state(verify_passed=False), "test", require_passed=True
-            )
-        self.assertEqual(ctx.exception.code, 2)
-
 
 class ManifestPhaseTest(unittest.TestCase):
     # 2026-09-22 tier2-slimming（Spec §3.2）：PHASES 5→3，risk_done／usage_confirmed

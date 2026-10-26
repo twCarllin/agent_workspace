@@ -33,7 +33,7 @@ def eval_state_cli(*argv):
         eval_state.main()
 
 
-class RunVerifyTest(unittest.TestCase):
+class RunVerifyFixture:
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.old_cwd = os.getcwd()
@@ -56,6 +56,8 @@ class RunVerifyTest(unittest.TestCase):
         with open(os.path.join("run", f"{run_id}.events.jsonl"), encoding="utf-8") as f:
             return [json.loads(line) for line in f if line.strip()]
 
+
+class RunVerifyTest(RunVerifyFixture, unittest.TestCase):
     def test_rerun_reasons_real_subprocess(self):
         subprocess.run(["git", "init", "-q"], check=True, capture_output=True)
         self.write_manifest()
@@ -318,7 +320,7 @@ class RunVerifyTest(unittest.TestCase):
         self.assertEqual(len(self.read_manifest()["verification_commands"]), 1)
 
 
-class RunVerifyCacheTest(RunVerifyTest):
+class RunVerifyCacheTest(RunVerifyFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
         subprocess.run(["git", "init", "-q"], check=True)
