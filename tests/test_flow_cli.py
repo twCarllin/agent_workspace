@@ -208,7 +208,7 @@ class FlowCliTest(unittest.TestCase):
         self.assertEqual((self.repo / "run/counter").read_text(), "1")
         self.assertTrue(self.read_manifest()["verification_commands"][-1]["reused"])
 
-    def test_finish_executes_matching_result_without_reuse_request(self):
+    def test_finish_requires_reason_for_matching_success(self):
         command = (
             "python3 -c \"from pathlib import Path; p=Path('run/counter'); "
             "p.write_text(str(int(p.read_text())+1) if p.exists() else '1')\""
@@ -223,7 +223,11 @@ class FlowCliTest(unittest.TestCase):
             text=True,
         )
         self.assertEqual(first.returncode, 0, first.stderr)
-        result = self.finish()
+        blocked = self.finish()
+        self.assertEqual(blocked.returncode, 2, blocked.stderr + blocked.stdout)
+        self.assertIn("rerun_reason_required", blocked.stderr)
+        self.assertEqual((self.repo / "run/counter").read_text(), "1")
+        result = self.finish("--rerun-reason", "evidence_refresh")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual((self.repo / "run/counter").read_text(), "2")
         self.assertTrue(self.read_manifest()["verification_commands"][-1]["executed"])
@@ -254,7 +258,7 @@ class FlowCliTest(unittest.TestCase):
         self.assertEqual(first.returncode, 0, first.stderr)
         before = self.git("rev-parse", "HEAD")
         (self.repo / "run/external_exit").write_text("7")
-        result = self.finish()
+        result = self.finish("--rerun-reason", "environment_changed")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(
             self.read_manifest()["verification_commands"][-1]["exit_code"], 7
@@ -437,7 +441,7 @@ class FlowCliTest(unittest.TestCase):
         self.assertEqual(before, self.git("rev-parse", "HEAD"))
         self.assertEqual(self.read_manifest()["status"], "ready_to_commit")
         hook.unlink()
-        self.assertEqual(self.finish().returncode, 0)
+        self.assertEqual(self.finish("--reuse").returncode, 0)
         self.assertNotIn("finish_error", self.read_manifest())
 
     def test_status_reports_existing_failed_reason_and_dispatch(self):

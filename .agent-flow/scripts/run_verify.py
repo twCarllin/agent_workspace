@@ -72,8 +72,8 @@ def main():
     )
     parser.add_argument(
         "--rerun-reason",
-        choices=("user_requested",),
-        help="Explicit user request to repeat this command",
+        choices=("user_requested", "environment_changed", "evidence_refresh"),
+        help="Reason for repeating an unchanged successful command",
     )
     parser.add_argument(
         "--quiet-success",
@@ -156,6 +156,19 @@ def main():
         and previous.get("context") == record.get("context")
         and (not args.quiet_success or has_output)
     )
+    unexplained_repeat = (
+        previous.get("exit_code") == 0
+        and record.get("rerun_reason") == "unknown"
+        and not reusable
+        and (not schema2 or before is not None)
+    )
+    if unexplained_repeat:
+        print(
+            "[run-verify] outcome=blocked reason=rerun_reason_required; "
+            "use --reuse or provide --rerun-reason",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     if schema2 and before is None:
         exit_code = 2
     elif reusable:

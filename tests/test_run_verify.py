@@ -74,7 +74,7 @@ class RunVerifyTest(RunVerifyFixture, unittest.TestCase):
             (1, []),
             (0, []),
             (0, ["--rerun-reason", "user_requested"]),
-            (0, []),
+            (2, []),
         ):
             if expected == 0:
                 Path("ok").touch()
@@ -84,14 +84,58 @@ class RunVerifyTest(RunVerifyFixture, unittest.TestCase):
         self.assertNotIn("rerun_reason", records[0])
         self.assertEqual(
             [row["rerun_reason"] for row in records[1:]],
-            ["previous_failed", "input_changed", "user_requested", "unknown"],
+            ["previous_failed", "input_changed", "user_requested"],
         )
         self.assertTrue(all(row["elapsed_seconds"] >= 0 for row in records))
         event = [row for row in self.read_events("r1") if row["cmd"] == "verify_cmd"][
             -1
         ]
-        self.assertEqual(event["args"]["rerun_reason"], "unknown")
+        self.assertEqual(event["args"]["rerun_reason"], "user_requested")
         self.assertGreaterEqual(event["args"]["elapsed_seconds"], 0)
+
+    def test_repeat_blocked_before_subprocess_for_both_entries(self):
+        subprocess.run(["git", "init", "-q"], check=True, capture_output=True)
+        self.write_manifest()
+        manifest = self.read_manifest()
+        manifest["evidence_schema"] = 2
+        Path("run/r1.json").write_text(json.dumps(manifest))
+        root = Path(__file__).resolve().parents[1]
+        command = """python3 -c 'from pathlib import Path; p=Path("run/count"); p.write_text(p.read_text()+"x" if p.exists() else "x")'"""
+        first = subprocess.run(
+            [
+                sys.executable,
+                str(root / ".agent-flow/scripts/run_verify.py"),
+                "--run-id",
+                "r1",
+                "--cmd",
+                command,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(first.returncode, 0, first.stderr)
+        for entry in (".agent-flow/scripts", ".claude/hooks"):
+            argv = [
+                sys.executable,
+                str(root / entry / "run_verify.py"),
+                "--run-id",
+                "r1",
+                "--cmd",
+                command,
+            ]
+            original = Path("run/r1.json").read_bytes()
+            blocked = subprocess.run(argv, capture_output=True, text=True)
+            self.assertEqual(blocked.returncode, 2, blocked.stderr)
+            self.assertIn("rerun_reason_required", blocked.stderr)
+            self.assertEqual(Path("run/count").read_text(), "x")
+            self.assertEqual(Path("run/r1.json").read_bytes(), original)
+        refreshed = subprocess.run(
+            argv + ["--rerun-reason", "evidence_refresh"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+        self.assertEqual(Path("run/count").read_text(), "xx")
 
     def test_real_subprocess_v2_rejects_nested_then_reuses_approved_exclusion(self):
         subprocess.run(["git", "init", "-q"], check=True, capture_output=True)
@@ -332,13 +376,14 @@ class RunVerifyCacheTest(RunVerifyFixture, unittest.TestCase):
         Path("input.py").write_text("one")
         self.command = "python3 -c \"from pathlib import Path; p=Path('counter'); p.write_text(str(int(p.read_text())+1) if p.exists() else '1')\""
 
-    def verify(self, reuse=False, command=None):
+    def verify(self, reuse=False, command=None, reason=None):
         return run_cli(
             "--run-id",
             "r1",
             "--cmd",
             command or self.command,
             *(["--reuse"] if reuse else []),
+            *(["--rerun-reason", reason] if reason else []),
         )
 
     def test_reuse_requires_optin_and_matching_inputs_environment(self):
@@ -355,8 +400,8 @@ class RunVerifyCacheTest(RunVerifyFixture, unittest.TestCase):
         Path("input.py").write_text("two")
         self.assertEqual(self.verify(True), 0)
         with mock.patch.dict(os.environ, {"CACHE_TEST_ENV": "changed"}):
-            self.assertEqual(self.verify(True), 0)
-        self.assertEqual(self.verify(), 0)
+            self.assertEqual(self.verify(True, reason="environment_changed"), 0)
+        self.assertEqual(self.verify(reason="environment_changed"), 0)
         self.assertEqual(Path("counter").read_text(), "4")
 
     def test_input_mutation_and_snapshot_errors_fail_closed(self):
@@ -430,7 +475,7 @@ class RunVerifyCacheTest(RunVerifyFixture, unittest.TestCase):
                 )
 
             runner.side_effect = execute
-            self.assertEqual(self.verify(), 3)
+            self.assertEqual(self.verify(reason="evidence_refresh"), 3)
         self.assertEqual(self.verify(True), 0)
         self.assertEqual(Path("counter").read_text(), "2")
 
@@ -539,7 +584,9 @@ class RunVerifyCacheTest(RunVerifyFixture, unittest.TestCase):
         first = subprocess.run(args, capture_output=True, text=True)
         self.assertEqual(first.returncode, 0, first.stderr)
         result = subprocess.run(
-            args + ["--quiet-success", "--reuse"], capture_output=True, text=True
+            args + ["--quiet-success", "--reuse", "--rerun-reason", "evidence_refresh"],
+            capture_output=True,
+            text=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         record = self.read_manifest()["verification_commands"][-1]

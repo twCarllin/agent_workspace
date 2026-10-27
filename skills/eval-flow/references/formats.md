@@ -56,7 +56,7 @@
 - `estimated_active_minutes`／`actual_active_minutes`：**選填**。Router 判級時的預估主動工時與收尾補記的實際值（估實分記，agentflow 慣例；消費端為判級校準，缺欄＝無記錄）
 - `subagent_usage`／`token_usage`：選填的實測用量與來源明細，由 `token_usage.py --write` 記錄；未知不填零。欄位、時間窗與統計限制見 `.agent-flow/FLOW_CLI.md`「用量紀錄」。
 
-- `harness`：新 run 依目前 harness 設為 `"codex"` 或 `"claude"`；舊 run 缺欄時使用 Claude 相容行為。`token_usage.py --write` 遇 Codex 時只寫 `token_usage_status: "unknown_codex"`，不把 Claude transcript 當作 Codex 用量
+- `harness`：新 run 依目前 harness 設為 `"codex"` 或 `"claude"`；舊 run 缺欄時使用 Claude 相容行為。`token_usage.py --write` 遇 Codex 時只寫 `token_usage_status: "unsupported_codex"`，不把 Claude transcript 當作 Codex 用量
 - `session_id`／`config_dir`：**選填**。init 事件（Tier 2 `init --run-id`、Tier 1 `init-run --run-id`）由 `eval_state.py` 自 `CLAUDE_CODE_SESSION_ID`／`CLAUDE_CONFIG_DIR` 環境變數自動寫入，已有值不覆寫（resume 換 session 保留首次）；`token_usage.py` 憑此開 `<config_dir>/projects/<cwd 編碼>/<session_id>.jsonl`。舊 run 缺欄＝該腳本走 fallback 掃描 `~/.claude*/projects/*/` 含 run_id 的 transcript
 - `executor_notes`：選填 list[str]，記有用的委派／直寫選擇理由；無 gate 消費。adaptive 不逐 item 強制產生格式說明。
 - `auto_decisions`：**選填**。list[str]，每筆一句 `<問題>｜<選項>｜<採用>｜<理由>`——預設採納模式（ROUTER.md 同名條）下 agent 代替提問所做的決定留痕，收尾回報逐筆列出供使用者檢查。純記錄欄位，無 gate 消費
@@ -200,3 +200,5 @@
 
 部分交付仍須通過 task 審查與四項測試／審查憑據。reviewer 須明列未交付 item
 及使用者裁示，才可對已接受的部分範圍記 task `passed`；未獲裁示仍阻擋。
+
+計量狀態：`unsupported_codex` 表示未支援計量，數值不填零；歷史 `unknown_codex` 保留原值，統計列為歷史未知。沒有狀態或用量資料者列為資料缺失。

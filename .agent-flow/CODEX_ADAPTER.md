@@ -9,7 +9,7 @@
 
 子 agent 沿用父 session 權限。背景與 worktree 依目前工具能力執行。Claude 的 Bash 批准、run_in_background 與 Agent isolation 欄位不適用。CLI 派工省略 `--permissions` 時，有寫入工具的角色用 `edits`（`--sandbox workspace-write`），其他角色用 `inherit`（不附權限覆寫，遵守子 CLI 自身設定，不能保證繼承未保存的父程序權限）。明確指定 `--permissions unrestricted` 才使用完整權限旗標。
 
-Codex 回報不使用 Claude PostToolUse payload；主 flow 或 dispatch.py 檢查必要節與 Self-check 終行。主 session 用量無資料時記 unknown_codex，不改為零。
+Codex 回報不使用 Claude PostToolUse payload；主 flow 或 dispatch.py 檢查必要節與 Self-check 終行。主 session 用量無資料時記 unsupported_codex，不改為零。
 
 新 run 記 harness: codex 與 evidence_schema: 2；以共用 run_verify.py、run_commit.py 完成驗證與提交。hooks 安裝後仍須依客戶端要求檢查與信任。既有 commit-msg hook 與 core.hooksPath 保留，依安裝輸出接入共用提交 gate。SessionStart 透過 AGENT_FLOW_HARNESS=codex 明示 harness。
 

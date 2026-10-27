@@ -369,6 +369,7 @@ def collect(run_dir="run"):
         "checked_by_dist_new": Counter(),
         "checked_by_none_new": 0,
         "checked_by_boundary_new": 0,
+        "token_usage_statuses": Counter(),
         "subagent_usage": [],
         "subagent_usage_missing": 0,  # (run_id, prep, loop)，僅實測 run
         "subagent_usage_main": [],  # (run_id, main) 選填鍵，主 flow 用量（實測 run）
@@ -381,6 +382,16 @@ def collect(run_dir="run"):
         m = load(path)
         if not isinstance(m, dict) or "run_id" not in m:
             continue
+        status = m.get("token_usage_status")
+        if status == "unsupported_codex":
+            usage_status = "unsupported_codex"
+        elif status == "unknown_codex":
+            usage_status = "unknown_codex"
+        elif isinstance(m.get("token_usage"), dict):
+            usage_status = "measured"
+        else:
+            usage_status = "missing"
+        data["token_usage_statuses"][usage_status] += 1
         data["runs"].append(m["run_id"])
         data["tiers"][str(m.get("tier"))] += 1
         data["statuses"][str(m.get("status"))] += 1
@@ -664,6 +675,13 @@ def append_checker_escalation(out, data):
 
 
 def append_subagent_usage(out, data):
+    statuses = data["token_usage_statuses"]
+    out.append(
+        f"Token 計量：已記錄 {statuses['measured']}／"
+        f"未支援計量（Codex）{statuses['unsupported_codex']}／"
+        f"歷史未知（Codex）{statuses['unknown_codex']}／"
+        f"資料缺失 {statuses['missing']} 個 run"
+    )
     if data["subagent_usage"]:
         main_by_run = dict(data["subagent_usage_main"])
         parts = [

@@ -102,11 +102,11 @@ python3 .agent-flow/scripts/flow.py finish --run-id <id> \
 
 `finish` 依序核對範圍與既有憑據、執行 `run_verify.py`、歸檔符合條件的 Tier 2 狀態、執行 `run_commit.py prepare`、Git commit 與 finalize。它不推定審查通過，也不自動 stage 檔案；測試欄位由實際驗證結果產生。驗證命令依 test-strategy「依變更選擇驗證」；純設定使用必要設定／操作檢查，程式部分保留適用回歸範圍，專案另有要求時依專案規則。
 
-已知命令只依本地輸入決定結果時，可加 `--reuse` 沿用同 run、同指令、同輸入與環境的成功證據；外部服務或實際環境檢查應實跑。`finish` 對 schema 2 的本地命令只顯示驗證摘要，完整輸出保存在 `run/<id>.verify-<序號>.log`；失敗時另顯示輸出末 40 行。若舊成功紀錄沒有完整輸出檔，首次使用精簡輸出時會實跑。直接使用 `run_verify.py` 的預設輸出行為不變，可另加 `--quiet-success` 取得相同的精簡輸出。
+已知命令只依本地輸入決定結果時，可加 `--reuse` 沿用同 run、同指令、同輸入與環境的成功證據；外部服務或實際環境檢查應實跑。`finish` 對 schema 2 的本地命令只顯示驗證摘要，完整輸出保存在 `run/<id>.verify-<序號>.log`；失敗時另顯示輸出末 40 行。若舊成功紀錄沒有完整輸出檔，首次使用精簡輸出時須提供 `--rerun-reason evidence_refresh` 才會實跑。直接使用 `run_verify.py` 的預設輸出行為不變，可另加 `--quiet-success` 取得相同的精簡輸出。
 
 有額外 staged 檔、範圍內未 stage 修改、其他 run 的熱狀態、未完成審查或驗證失敗時停止。錯誤保留原始輸出，已有現場與證據保留。提交訊息自動加入唯一的 `Run-Id` trailer。
 
-遠端／實際環境證據不得僅以本地快照相同而沿用，依 test-strategy 的目標狀態核對規則。明確加上 `--reuse` 才嘗試沿用本 run 中命令、輸入與環境相同的本地成功驗證；不符合時重跑。若 commit 已成功而 finalize 中斷，重跑同一指令會核對提交後補 finalize，避免重複 commit。
+遠端／實際環境證據不得僅以本地快照相同而沿用，依 test-strategy 的目標狀態核對規則。明確加上 `--reuse` 才嘗試沿用本 run 中命令、輸入與環境相同的本地成功驗證；不符合時，輸入變更或前次失敗可直接重跑；其餘情況須提供重跑原因。若 commit 已成功而 finalize 中斷，重跑同一指令會核對提交後補 finalize，避免重複 commit。
 
 明確加上 `--push` 才推送至目前分支的 `origin` 遠端；不使用 force。完成後 push 失敗，可重跑帶 `--push` 的指令。同一 Git repository（含 worktree）同時只允許一個 finish；程序中斷留下的鎖須先核對程序已停止再處理。
 
@@ -154,3 +154,5 @@ python3 .agent-flow/scripts/item_accounting.py --run-id <id> partial --items 1.2
 - `subagent_usage`：**選填**。step 6 子項②收尾時由 `python3 .agent-flow/scripts/token_usage.py <run_id> --write` **實測回寫**的 tokens 彙總 `{"prep": int, "loop": int, "main": int}`——三鍵皆為 transcript 四欄（`input_tokens`／`cache_creation_input_tokens`／`cache_read_input_tokens`／`output_tokens`）加總；`prep`＝usage-analyzer／task-decomposer／impact-analyzer 的 subagent 合計、`loop`＝其餘 subagent 合計、`main`＝主 flow 自身。不以 Agent 工具回執自報、不憑印象估 `main`（估計法系統性低估流程稅）。消費端 `stats.py`：prep／loop 缺一或非 int → 整筆計無記錄；`main` 非 int → 只跳過 main、prep/loop 照收
 
 - `token_usage`：**選填**。與 `subagent_usage` 同時由 `token_usage.py --write` 寫入的明細：`{"session_id", "window": [lo, hi]|null, "main": {四欄＋turns}, "subagents": [{"agent_type", "description", 四欄＋turns}]}`；`window` 取自 `events.jsonl` 首尾 `ts`（init 之前的判級／載 skill 用量不在窗內，屬已知低估面）；`subagents` 為 transcript `subagents/` 目錄 ∪ `run/<run_id>.dispatch.jsonl` 派工留痕（後者 `description` 為 `dispatch:<backend>`、不切窗）。純記錄，無 gate 消費
+
+相同成功指令且輸入未變時，優先用 `--reuse` 沿用證據。必須重跑時，`run_verify.py` 與 `flow.py finish` 均須提供 `--rerun-reason user_requested|environment_changed|evidence_refresh`；原因須符合實際情況。未填且無法重用時，在子程序啟動前阻擋。輸入變更與前次失敗由工具自動分類。

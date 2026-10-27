@@ -423,6 +423,8 @@ def finish(args):
             ) == 2 and not run_verify.live_command(command)
             if args.reuse:
                 verify_args.append("--reuse")
+            if args.rerun_reason:
+                verify_args.extend(["--rerun-reason", args.rerun_reason])
             if reusable_local:
                 verify_args.append("--quiet-success")
             call(*verify_args)
@@ -491,6 +493,10 @@ def main(argv=None):
     end.add_argument("--verify-command")
     end.add_argument("--push", action="store_true")
     end.add_argument("--reuse", action="store_true")
+    end.add_argument(
+        "--rerun-reason",
+        choices=("user_requested", "environment_changed", "evidence_refresh"),
+    )
     args = parser.parse_args(argv)
     try:
         if args.command == "review-packet":

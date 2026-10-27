@@ -68,7 +68,14 @@ class AdaptiveTier1Test(unittest.TestCase):
 
     def verify(self, command='python3 -c "pass"', ok=True):
         self.cli(
-            "--run-id", "demo", "--cmd", command, ok=ok, entry=SCRIPTS / "run_verify.py"
+            "--run-id",
+            "demo",
+            "--cmd",
+            command,
+            "--rerun-reason",
+            "evidence_refresh",
+            ok=ok,
+            entry=SCRIPTS / "run_verify.py",
         )
 
     def review(self, reviewer="self", ok=True):
@@ -282,6 +289,8 @@ class AdaptiveTier1Test(unittest.TestCase):
         self.prepare(ok=False)
         result = self.cli(
             "finish",
+            "--rerun-reason",
+            "evidence_refresh",
             "--run-id",
             "demo",
             "--message",
@@ -317,6 +326,8 @@ class AdaptiveTier1Test(unittest.TestCase):
         self.review()
         self.cli(
             "finish",
+            "--rerun-reason",
+            "evidence_refresh",
             "--run-id",
             "demo",
             "--message",

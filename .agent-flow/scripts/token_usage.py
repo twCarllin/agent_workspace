@@ -30,6 +30,7 @@
   `token_usage`（明細：session_id、window、main、subagents）；其他欄位不動。
   無 `--write` 不寫任何檔。
 """
+
 import argparse
 import glob
 import json
@@ -185,11 +186,13 @@ def collect_subagents(subagents_dir, lo, hi):
     for jsonl_path in sorted(glob.glob(os.path.join(subagents_dir, "agent-*.jsonl"))):
         usage = read_jsonl_usage(jsonl_path, lo, hi)
         meta = read_meta(jsonl_path)
-        subagents.append({
-            "agent_type": meta.get("agentType"),
-            "description": (meta.get("description") or "")[:30],
-            **usage,
-        })
+        subagents.append(
+            {
+                "agent_type": meta.get("agentType"),
+                "description": (meta.get("description") or "")[:30],
+                **usage,
+            }
+        )
     return subagents
 
 
@@ -202,15 +205,27 @@ def collect_dispatch(dir_, run_id):
     for e in entries:
         if not isinstance(e, dict):
             continue
-        usage = {k: e.get(k, 0) if isinstance(e.get(k), int) and not isinstance(e.get(k), bool) else 0
-                 for k in TOKEN_FIELDS}
+        usage = {
+            k: (
+                e.get(k, 0)
+                if isinstance(e.get(k), int) and not isinstance(e.get(k), bool)
+                else 0
+            )
+            for k in TOKEN_FIELDS
+        }
         turns = e.get("turns", 0)
-        subagents.append({
-            "agent_type": e.get("role"),
-            "description": f"dispatch:{e.get('backend')}",
-            **usage,
-            "turns": turns if isinstance(turns, int) and not isinstance(turns, bool) else 0,
-        })
+        subagents.append(
+            {
+                "agent_type": e.get("role"),
+                "description": f"dispatch:{e.get('backend')}",
+                **usage,
+                "turns": (
+                    turns
+                    if isinstance(turns, int) and not isinstance(turns, bool)
+                    else 0
+                ),
+            }
+        )
     return subagents
 
 
@@ -243,7 +258,9 @@ def resolve_usage(manifest, args, lo, hi):
         pattern = os.path.join(args.projects_root, "*.jsonl")
     else:
         pattern = os.path.expanduser("~/.claude*/projects/*/*.jsonl")
-    candidates = [p for p in sorted(glob.glob(pattern)) if _contains_run_id(p, args.run_id)]
+    candidates = [
+        p for p in sorted(glob.glob(pattern)) if _contains_run_id(p, args.run_id)
+    ]
     if not candidates:
         print(
             f"[token-usage] 找不到 run_id={args.run_id} 對應的 transcript"
@@ -256,7 +273,9 @@ def resolve_usage(manifest, args, lo, hi):
     subagents = []
     for candidate in candidates:
         main_usage = _add_usage(main_usage, read_jsonl_usage(candidate, lo, hi))
-        base_no_ext = candidate[: -len(".jsonl")] if candidate.endswith(".jsonl") else candidate
+        base_no_ext = (
+            candidate[: -len(".jsonl")] if candidate.endswith(".jsonl") else candidate
+        )
         subagents += collect_subagents(os.path.join(base_no_ext, "subagents"), lo, hi)
     return None, main_usage, subagents
 
@@ -269,7 +288,9 @@ def _fmt(u):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("run_id")
     parser.add_argument("--dir", default="run")
     parser.add_argument("--full-session", action="store_true")
@@ -285,9 +306,11 @@ def main():
     if manifest.get("harness") == "codex":
         # Codex transcript format is not a stable metering interface. Keep the
         # measurement unknown instead of scanning Claude sessions and reporting zero.
-        print("[token-usage] Codex 用量：未知（未提供穩定的逐 agent transcript 計量介面）")
+        print(
+            "[token-usage] Codex 用量：未支援計量（未提供穩定的逐 agent transcript 計量介面）"
+        )
         if args.write and manifest_path and os.path.isfile(manifest_path):
-            manifest["token_usage_status"] = "unknown_codex"
+            manifest["token_usage_status"] = "unsupported_codex"
             with open(manifest_path, "w", encoding="utf-8") as stream:
                 json.dump(manifest, stream, ensure_ascii=False, indent=2)
                 stream.write("\n")
@@ -299,7 +322,7 @@ def main():
     session_id, main_usage, subagents = resolve_usage(manifest, args, lo, hi)
     subagents += collect_dispatch(args.dir, args.run_id)
 
-    prep =[s for s in subagents if s.get("agent_type") in PREP_AGENT_TYPES]
+    prep = [s for s in subagents if s.get("agent_type") in PREP_AGENT_TYPES]
     loop = [s for s in subagents if s.get("agent_type") not in PREP_AGENT_TYPES]
 
     print(f"main: {_fmt(main_usage)}")
@@ -313,7 +336,10 @@ def main():
 
     if args.write:
         if not manifest_path or not os.path.isfile(manifest_path):
-            print(f"[token-usage] --write 需要既有 manifest：{args.dir}/{args.run_id}.json 不存在", file=sys.stderr)
+            print(
+                f"[token-usage] --write 需要既有 manifest：{args.dir}/{args.run_id}.json 不存在",
+                file=sys.stderr,
+            )
             sys.exit(1)
         manifest["subagent_usage"] = {
             "prep": _sum4_list(prep),
@@ -322,7 +348,11 @@ def main():
         }
         manifest["token_usage"] = {
             "session_id": session_id,
-            "window": [lo.isoformat(), hi.isoformat()] if lo is not None and hi is not None else None,
+            "window": (
+                [lo.isoformat(), hi.isoformat()]
+                if lo is not None and hi is not None
+                else None
+            ),
             "main": main_usage,
             "subagents": subagents,
         }
