@@ -121,7 +121,7 @@ class RepoRootRejectionTest(unittest.TestCase):
         proc = run_runner("--dry-run", "--harness", "codex")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("codex exec", proc.stdout)
-        self.assertIn("gpt-6.1-sol", proc.stdout)
+        self.assertIn("gpt-6.1-terra", proc.stdout)
         self.assertNotIn("--max-budget-usd", proc.stdout)
         self.assertNotIn("--dangerously-bypass", proc.stdout)
 

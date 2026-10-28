@@ -173,7 +173,7 @@ class CodexFlowTest(unittest.TestCase):
         for agent in (writer, reviewer):
             self.assertEqual(
                 (agent["model"], agent["model_reasoning_effort"]),
-                ("gpt-6.1-sol", "low"),
+                ("gpt-6.1-terra", "low"),
             )
 
     def test_install_seeds_support_files_without_overwriting_project_history(self):

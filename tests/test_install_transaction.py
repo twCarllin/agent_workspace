@@ -69,7 +69,7 @@ class TransactionTest(unittest.TestCase):
                 self.assertEqual(data[key], value)
                 self.assertNotIn(key, data["agents"])
             self.assertEqual(data["projects"]["/project"]["trust_level"], "trusted")
-            self.assertEqual(data["agents"]["default_subagent_model"], "gpt-6.1-sol")
+            self.assertEqual(data["agents"]["default_subagent_model"], "gpt-6.1-terra")
 
     def test_preview_does_not_create_target(self):
         with tempfile.TemporaryDirectory(prefix="preview space ") as tmp:

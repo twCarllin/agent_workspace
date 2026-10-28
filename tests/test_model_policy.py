@@ -138,7 +138,9 @@ class CodexModelPolicyTest(unittest.TestCase):
     def test_m1_codex_roles_use_requested_model_and_effort(self):
         """M1③：Codex exec 角色遵守使用者指定的角色專屬 model／effort。"""
         for role, settings in codex_policy_table().items():
-            expected_model = "gpt-6-luna" if role == "task-verifier" else "gpt-6.1-sol"
+            expected_model = (
+                "gpt-6-luna" if role == "task-verifier" else "gpt-6.1-terra"
+            )
             self.assertEqual(settings, (expected_model, "low"), role)
 
     def test_m2_modified_toml_copy_reported(self):
@@ -166,7 +168,7 @@ class CodexModelPolicyTest(unittest.TestCase):
         text = "\n".join(
             line
             for line in text.splitlines()
-            if not line.startswith("| retro | gpt-6.1-sol |")
+            if not line.startswith("| retro | gpt-6.1-terra |")
         )
         table = codex_policy_table(text)
         self.assertNotIn("retro", table)

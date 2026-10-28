@@ -21,7 +21,7 @@ python3 .agent-flow/scripts/flow.py preflight --harness codex --run-id <id> --li
 
 首次尚未建立 manifest 時省略 `--run-id`；manifest 已存在時再指定。
 
-靜態檢查涵蓋安裝檔案、模型設定、CLI、登入、工作目錄寫入和測試命令。測試命令只檢查入口，正式驗證由 `finish` 執行。模型來源是 `harnesses/models.json`，Codex 使用 `gpt-6.1-sol`。
+靜態檢查涵蓋安裝檔案、模型設定、CLI、登入、工作目錄寫入和測試命令。測試命令只檢查入口，正式驗證由 `finish` 執行。模型來源是 `harnesses/models.json`，Codex 使用 `gpt-6.1-terra`。
 
 `--live` 才啟動有時間上限的 Codex 模型探針。探針會使用模型用量，只驗證模型與登入；無工具呼叫的成功結果不能證明 hooks 已信任或已執行。設定存在與原生執行證據分開回報，未確認項目記為 `unknown`。
 
