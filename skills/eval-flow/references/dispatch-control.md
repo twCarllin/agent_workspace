@@ -76,6 +76,8 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、hook gate�
   - **advisory**（只缺首行戳記行）＝表現層缺項，**不退件**：hook 以 PostToolUse `additionalContext` 回傳警告，主 flow 照常解析報告、在回報留痕一句
   - 由 PostToolUse hook（`.agent-flow/scripts/report_envelope_check.py`）機械偵測——blocking 時 exit 2 的 stderr 即標準化退件訊息；hook 屬品質 lint、fail-open（解析異常放行），人工檢查為兜底、不因 hook 存在而豁免（兩類項目與載荷的單一枚舉點住 `SKILL.md「Gate 的硬性執行」` 信封 lint 節）
 - 與 write-ahead 的關係：`eval_state` 的 `step` 欄記的是**意圖**（打算做），憑據才是**動作發生的證明**——兩者缺一不可，resume 時以憑據對賬（見 eval-flow-resume skill）。
+- **控制階段**：派工、取消等操作依實際證據區分「已請求」「已接受」「已完成」。送出呼叫不代表已接受，已接受不代表已完成；只回報已觀測階段，不補推缺少的階段。收到報告記「報告已收到」，仍依既有契約核對完成度；送出取消記「已請求取消」，確認程序退出後才記「程序已停止」。這是回報語義，不新增必填狀態欄位或審查輪次。
+- 等待期間的狀態回報依 [FLOW_CLI.md「查看進度」](../../../.agent-flow/FLOW_CLI.md#查看進度)，區分程序存活、進展與受阻原因。
 
 ## 資料格式與操作規則
 

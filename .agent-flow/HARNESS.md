@@ -25,6 +25,8 @@ Codex 的 AGENTS.md 管理區段與 `.codex/config.toml` developer_instructions�
 
 CLI 與事件適配由 `.agent-flow/scripts/harness_adapter.py` 提供 build_argv、parse_result、normalize_hook、capabilities。CLI 回報統一為 result、session_id、usage、is_error 等欄位；錯誤輸出不得當成驗收通過。Codex CLI 無美元預算能力，成本未知記 null，執行以次数與 timeout 限制。
 
+呼叫端明確指定的選項，適配層須按其語義執行或在執行前明確拒絕，指出選項與原因；不得靜默忽略或替換。能力宣告與執行檢查使用同一判準。平台支援、設定已存在與目前 session 已生效分開表示，未知不得記為已支援或已啟用；未知狀態沿用既有處置，不一律增加阻擋。
+
 安裝器先在暫存區產生計畫，--dry-run 不修改目標。ownership manifest 記已安装內容雜湊；使用者修改與更新衝突時停止。可捕捉的寫入失敗會還原檔案、連結與 Git hook；斷電或強制終止不在 rollback 保證內。安裝器把工具鏈路徑（含 `run/`、`task/`、`retro/`、`CLAUDE.local.md`）寫入 Git 的 `info/exclude`，所有 worktree 共用、不進版控；Claude 入口區塊寫入 `CLAUDE.local.md`，Codex 入口區塊寫入 `.codex/config.toml` 的 developer_instructions，不改寫專案 CLAUDE.md 與 AGENTS.md。Codex hook 與 Git commit-msg hook 從主工作區（Git 共用目錄的上層）執行腳本，尚未建立連結的 worktree 也能執行。
 
 驗證分兩層：本地確定性整合測試，以及 harness_smoke.py --live 的原生 CLI 證據。後者涵蓋檔案修改、hook 阻擋、測試失敗留痕與恢復定位；完整 skill 行為用 skill_eval.py 評測。CLI、帳號、模型或 trust 不可用時記 blocked，不宣稱 pass。
