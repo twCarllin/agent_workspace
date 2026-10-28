@@ -14,7 +14,7 @@
   - `usage_report_path`、`task_file`：先設 `null`
   - `phase`：`"init"`
   - `status`：`"in_progress"`
-- **建立 `eval_state.json`**（**熱 scratchpad，commit 後清除**），填入 `run_id`（指回 manifest）、空的 `sub_tasks`
+- **建立 `eval_state.json`**（**熱 scratchpad，收尾依 SKILL.md 循環 step 6 歸檔與清除**），填入 `run_id`（指回 manifest）、空的 `sub_tasks`
 - **Gate（硬性）**：manifest 的 `spec_path` 未寫入前，**不可進入前置 1（分拆 task）**。沒有被記錄的 Spec，等於整條 pipeline 沒有輸入來源
 - 各後續步驟一律用 `eval_state.json.run_id` 定位 `run/<run_id>.json`，從 manifest 讀 `spec_path` / `usage_report_path`，**不重組日期 / 檔名**
 

@@ -1,7 +1,7 @@
 ---
 name: task-decomposition
 version: 1.0
-description: 依 Spec（若曾具名問題觸發 usage-analyzer／impact-analyzer，答案已併入 Spec）把工作拆成可執行、可平行、可驗收的 task 與 item，並強制拆分粒度（每 task ≤ 5 個 item、每 item ≤ 300 行 code）。觸發語：「把這個 Spec 拆成 task」、「分拆 task」、「這個功能怎麼拆」、「拆 sub_tasks」。不適用於：Spec 尚未確立前、單檔 ≤10 行的 UI 微調（走難易度分級直接改）。
+description: 依 Spec（若曾具名問題觸發 usage-analyzer／impact-analyzer，答案已併入 Spec）把工作拆成可執行、可平行、可驗收的 task 與 item，並強制拆分粒度（每 task ≤ 5 個 item、每 item ≤ 300 行 code）。觸發語：「把這個 Spec 拆成 task」、「分拆 task」、「這個功能怎麼拆」、「拆 sub_tasks」。不適用於：Spec 尚未確立前、Router 判為 Tier 0 的微調。
 ---
 
 # Task 分拆框架
@@ -43,29 +43,13 @@ description: 依 Spec（若曾具名問題觸發 usage-analyzer／impact-analyze
 - **邊界的機械判準：與核心行為走不同回傳／副作用分支的輸入**（不同 error code、提前 return、不同 side effect；典型如空值、特殊字元、越界值）
 - 「可觀察效果」＝回傳值＋副作用（DB 寫入、檔案、對外呼叫），**不含內部實作細節**
 - 此表是需求與驗證的依據：每條 row 須有適用證據，可沿用既有測試、實跑或設定檢查；不要求逐 row 新增測試或斷言。writer 發現未定義行為時先建議補表，不自行創造需求
-- 新增測試的量由證據缺口決定，不由 row 數或 writer 的盡責本能決定——這是「寫 test 太貴」的源頭治理：超寫的測試 writer 要花 token 寫、reviewer 要花 token 審、紅了要花輪次仲裁、日後行為變更還要陪葬
 - 此表也是測試失敗時的仲裁基準（判「code 錯還是測試錯」**以 DoD 中的行為契約表為準**，與 code-writer 測試管轄規則的 DoD 仲裁同義）。表未涵蓋但應測的邊界 → 回頭補進表再測（表可增補，single source 不變）；本規則禁止的是繞過表、對實作細節或未定義行為做臆測性斷言
 - 契約表由拆分者（另一顆腦）從情境報告推導，不是 writer 對需求的自我詮釋——這是「自產自證」變「他證」的關鍵
 - **組合 row 規則**：item 有 ≥2 個可獨立取值的輸入面（旗標×模式、參數×路徑、選項×子命令）時，契約表除既有「至少 1 條邊界輸入」外，須含至少 1 條組合 row（兩個輸入面同時取非預設值的可觀察效果）；此類 row 需求超額時比照下方「輸出格式」節行數預算——以再拆 item 消化、不砍邊界覆蓋
 
-**功能移除的測試三分法（行為作廢專用，測試同步段的極端型）**：需求是**刪除既有功能**時，被刪行為的測試不是「要不要更新」而是「怎麼分流」。拆分時（Tier 2 由拆分者、Tier 1 由主 flow）以 grep 盤出斷言被刪行為的所有測試，逐一按**主題**機械分類：
-- **A 主題＝被刪行為**（測試名／契約 row 直接指涉它，如「gate 失敗擋渲染」）→ **隨功能刪**（刪檔／刪函式），依據＝Spec 的作廢行為清單，不算「改弱測試」。
-- **B 主題是存活行為、只順帶斷言被刪行為**（如 resume 整合測試順帶檢查 gate 狀態）→ **只拔被刪行為的斷言行，主題斷言保留**——這批是手術安全網，證明刪除沒切到旁邊器官，禁止整檔陪葬。
-- **C 無關** → 不動。
-- 分類清單寫進對應 item 的 DoD（writer 交付時列「刪了哪些／拔了哪幾行」供審）
-- **空轉檢查**：若 A 類刪完導致某存活模組零測試覆蓋 → 回報使用者，不得讓 step 5 靠「沒東西可失敗」假綠通過
-- 此類需求（大改既有測試）**不進並行／fan-out**（沿既有規則）
-- 附註：A 類大量存在通常代表舊測試違反「斷言去重／寬鬆檢查」——刪功能付的這筆是歷史債，新測試在測試預算規則下不會再擴散
+## 功能移除的測試三分法與測試同步段
 
-**測試同步段（有意的行為變更專用）**：需求含**有意改變既有行為**時，Spec／spec_inline 須明列「作廢舊行為清單」（舊契約 → 新契約對照）。
-
-- **拆分者負責核對**：情境報告／Spec 隱含既有行為被改而未列清單 → 回頭要求補清單再拆（比照契約表的他證原則），不可照單續拆
-- 以 `python3 .agent-flow/scripts/test_baseline.py related --files <受影響檔>` 預算受影響的既有測試（主 flow 執行：直建時自跑；派 task-decomposer 時結果附進 prompt，它無 Bash），在**對應實作 item 內標註「測試同步段」**（不是獨立 item——見下時序理由）
-- 執行時序：實作 writer 交付後、該 item 的 **step 2（git add）之前**，由主 flow 另派**快 model** 依對照表機械批次更新舊測試斷言，同步後的測試**與 writer 產出一併 staged**
-  - staged 的理由：step 3 的 code-reviewer 才審得到測試變更（「測試變更需有依據 → 🔴」防線在此執行：逐條核對測試改動能否對映到對照表 row，對映不上 → 🔴）
-- 實作 writer 仍不碰舊測試（管轄分離、成本分離都保留），step 5 於 review∥verify 通過後照常跑——此時 code 與測試都已斷言新契約，check 才不會死結
-- **時序理由（不變量）**：行為變更的舊測試失敗不在 baseline，check 是確定性 script、不讀 DoD 散文，任何「先過 gate 再同步」或「先同步再實作」的排序都會讓某一方的 check 必紅——唯一無死結的位置是同一 item 內、check 之前
-- 測試同步段的 `local_test_evidence` **逐條列「改動的測試檔 ＋ 對應對照表 row」**（滿足 test-strategy「測試過時」三項留痕：改了哪個測試＝檔名、舊斷言為何不再成立＝舊契約 row、依據＝清單本身）
+需求刪除功能或有意改變既有行為時，拆分前必讀 [既有行為與測試分流](references/behavior-changes.md)；Tier 1 由主 flow、Tier 2 由拆分者核對，並將適用規則與對照表交付執行者。
 
 **多處投放語義檢查（拆分期檢核）**：item 需求是把**同一句規範文字**投放到 **≥2 個異質語境**（多個 agent 定義、多個 skill）時，拆分期（Tier 2 由拆分者、Tier 1 由主 flow）須逐語境核對該句的關鍵詞在各語境無語義碰撞，碰撞則措辭加區隔詞（R-006）。
 
@@ -133,15 +117,7 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 
 ## 寬幅重構例外（expand–contract，唯一不縱切的拆法）
 
-**適用判準（三者全中才適用）**：同一個**機械式變更**（改名、retype 共用符號、換欄位）＋ 爆炸半徑**跨全庫**（一動就破壞大量呼叫端）＋ **任何縱切片都無法獨綠**（單片改完必留紅燈給下一片）。滿足時不硬拆 tracer-bullet 縱切，改**三段序列**：
-
-1. **expand** — 新形式加在舊形式**旁邊**（新名稱、新欄位、新簽名並存），零呼叫端破壞。一個 item。
-2. **migrate** — 呼叫端**按爆炸半徑分批**遷移到新形式（per 套件／per 目錄），每批一個 item、`depends` expand 批；舊形式仍在，**批批之間 step 5 check 保持綠**。
-3. **contract** — `grep` 確認舊形式**零呼叫端殘留**後刪除舊形式。一個 item，`depends` 全部 migrate 批。
-
-與 Tier 0 機械式改動例外的分界：Tier 0 例外（.agent-flow/ROUTER.md 分級表）管每檔 ≤50 行、可一次直改完的機械變更；超出該量級（一次改不完、改了必紅）→ 進本節的分批序列。
-
----
+機械式變更跨全庫且任何縱切片都無法獨綠時，拆分前必讀 [寬幅重構](references/wide-refactor.md)，核對完整適用判準與三段序列。
 
 ## Step 4：標註平行化與依賴
 
@@ -197,7 +173,7 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 
 ---
 
-## 反模式（要 reject 重拆的分拆；前文各硬性規則的違反不重列——缺表、缺測試綁定、缺組合 row、缺偽代碼骨架、評價詞、DoD 內嵌實作、fixture 兩條、測試同步段缺漏、R-006 未核，命中即 reject）
+## 反模式（命中即 reject 重拆；前文硬性規則同樣適用）
 
 - item 沒有估計行數，或估計明顯灌水以躲過 300 行上限（含未套 ×2 校準的系統性低估）；一個 item 觸及 >3 個檔案還宣稱 <300 行
 - task 塞滿 5 個 item 只為了不開新 task（湊數，不是內聚）
@@ -212,27 +188,12 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 
 ## 範例：Spec「廠商付款申請單新增部分沖銷」
 
-**使用情境報告（節錄）：** 情境 A 財務對一張已核准申請單登記部分付款；情境 B 系統依已沖銷金額更新未結餘額；情境 C 沖銷金額 > 未結餘額時擋下並提示。
-
-**分拆結果：**
+使用情境報告（節錄）：情境 A 財務登記部分付款；情境 B 系統更新未結餘額；情境 C 超額時拒絕登記。B 的共用計算先成前置 task，A、C 依賴它。以下示範 C 的完整 item；其他 item 使用同一輸出格式。
 
 ```
-## Task 1: 部分沖銷資料模型與餘額計算  (情境 B 的基礎)
-- 依賴: 無
-- [ ] 1.1 新增 settlement 資料表 + migration ＋ model 層測試  ~180行  files: models/settlement.py, migrations/, tests/test_settlement_model.py
-      DoD: 表建立、外鍵指向 payment_request；測試涵蓋建立與外鍵約束  情境: B
-- [ ] 1.2 未結餘額計算函式（申請額 − Σ已沖銷）＋單元測試  ~200行  files: services/balance.py, tests/test_balance.py
-      DoD: 多筆部分沖銷加總正確；測試涵蓋零沖銷 / 多筆 / 全額三種  情境: B
-
 ## Task 2: 部分沖銷登記 API  depends: Task 1
-- [ ] 2.1 POST /settlements endpoint + 驗證＋單元測試  ~280行  files: routes/settlement.py, tests/test_settlement_api.py
-      DoD: 成功登記回 201、寫入 settlement 表；測試涵蓋成功與欄位驗證失敗  情境: A
-- [ ] 2.2 超額沖銷防呆（金額 > 未結餘額 → 422）＋單元測試  ~140行  files: routes/settlement.py, tests/test_settlement_api.py
-      DoD: 超額回 422 + 錯誤訊息  情境: C
-      契約: 金額=餘額 → 201、餘額歸零；金額>餘額 → 422、settlement 表無寫入；[邊界] 金額=0 → 422（不產生空沖銷）
+- [ ] 2.2 超額沖銷防呆與適用測試  ~140行  files: routes/settlement.py, tests/test_settlement_api.py
+      DoD: 超額回 422 且不寫入 settlement；沿用或補齊契約證據  情境: C
+      契約: 金額=餘額 → 201、餘額歸零；金額<餘額 → 201、扣除該金額；[邊界] 金額>餘額 → 422、不寫入 settlement；[邊界] 金額=0 → 422、不寫入 settlement
       退場: none
-- [ ] 2.3 整合測試（登記 → 餘額更新 → 超額被擋全流程）（僅補證據缺口）  ~150行  files: tests/test_settlement_integration.py
-      DoD: 情境 A→B→C 全流程串通過；沿用或補齊餘額計算與防呆條件的適用證據  情境: A, B, C
 ```
-
-兩個 task、共 5 個 item，皆 ≤300 行（估算含測試、已 ×2 校準）；單元測試隨各實作 item，整合測試收尾；情境 B 的基礎抽成 Task 1 供 Task 2 依賴。

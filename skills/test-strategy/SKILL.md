@@ -32,51 +32,15 @@ description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無
 
 ## 外部答案解析與第二根因（契約與證據的單一枚舉點）
 
-主 flow 在規劃、派工與審查時核對本節。將適用條文原文貼進 writer 與 reviewer prompt 的硬性約束區，並納入 item 的 DoD／契約表；主 flow 直寫時留下相同證據。角色文件與循環指令只引用本節，不另列規則。
-
-- **外部答案解析**：修改外部答案解析時，離線重放至少使用兩個獨立樣本，其中至少一個是已知失敗反例；同一來源樣本的複製或格式變體不算獨立樣本。紀錄須能定位各樣本的來源／識別、重放命令、實際結果與結論。只有一個樣本時，結論須標「單一樣本，未證實」，不得據此取消 item 或宣稱解析已修復；樣本不足列為未完成項目。
-- **全數丟失的品質契約**：外部資料有內容，但抽取結果全為零時，產品執行端須在 job 的 `quality` 欄記錄明確數量標記（例如 `financial_dropped_all: 20`），並保持產出流程可繼續；送 job 後的監看須主動回報此標記。驗證須核對輸入數量、實際 quality 計數、產出可繼續與監看回報的適用證據。只有 WARNING log 不算完成。模板只核對產品實作與證據，不在模板內假造 job 品質結果；缺產品環境時明列待驗，不填虛構結果。
-- **第二根因的範圍裁示**：發現第二根因時，先量化受影響資料／案例的數量與範圍，保留計量方法與證據；無法量化時記明缺口，不推定影響為零。再對照已確認的 Spec／DoD／契約與 item 清單，記錄是否在範圍內。超出範圍時，writer 只回報影響與建議，由主 flow 將 run 設為 `paused` 並等待使用者裁示；未獲裁示不得新增 item 或靜默擴修。裁示紀錄須含使用者原文、時間、來源及允許範圍；agent 建議與裁示計數不能代替裁示。審查須核對量化證據、範圍對照與適用裁示紀錄，未獲裁示不得把範圍外修正列為通過。
+修改外部答案解析、抽取品質或發現第二根因時，規劃、派工與審查前必讀 [外部結果與範圍裁示](references/external-results.md)，並依其規則投放適用條文與取證。
 
 ## Baseline（run 的測試基準，第一次產品修改前建立）
 
-```
-python3 .agent-flow/scripts/test_baseline.py baseline
-```
-
-- **全套測試指令從 manifest 的 `test_command` 讀**（single source of truth；`--cmd` 僅供覆寫）。manifest 尚無此欄時，先確認指令並寫入 manifest 再跑——不要每個 run 各猜一套，baseline 與 check 範圍不一致就會出現「無關的既有失敗」
-  - **`test_command` 須指定專案直譯器**（專案有虛擬環境時，寫成 `.venv/bin/python3 -m pytest` 之類，不要用裸 `python3`）——系統直譯器缺專案套件會讓整批測試 import 失敗、被誤記為既有 `stable_failures`（幻影欠帳）。baseline 偵測到「有 `.venv/bin` 但 cmd 未用它且有 stable 失敗」時會於 stderr 印錯配警示（僅提醒、不改執行環境）
-  - **`test_command` 須為完整組指令**：專案把測試分成日常組／完整組時（pytest marker、conftest 白名單等），manifest 寫**完整組**——日常組是開發期快速回饋，不當 gate（日常組白名單會讓全套靜默縮水而收尾檢查無人察覺）
-- **來源前置**：第一次產品修改前建立。須有 Git HEAD，tracked／staged／untracked 產品輸入乾淨；只有 `eval_state.json`、`run/` 的 JSON／JSONL／log 與 `task/`、`spec/` 的 Markdown 等明確流程產物不阻擋。測試前、確認重跑前與結束後核對 HEAD／產品輸入，漂移不發布可信基準。不自動 stash、reset、建 Docker 或 worktree。
-- **穩定失敗要二次確認**：第一次有可辨測試 ID 的失敗時，在同一修改前來源重跑一次，只把兩次交集記為 `stable_failures`；首次成功只跑一次。unittest 以具體案例 ID 判定，`FAILED (failures=1)` 摘要不是測試 ID。
-- **執行問題不能扣除**：逾時（含命令退出碼 124）、無法解析的 `__suite__`、測試程序啟動／執行錯誤永不列 stable，也不能讓 check 通過。每次執行預設上限 300 秒；`--timeout <秒數>` 可指定 `0 < 秒數 <= 86400`，baseline 與 check 必須使用相同上限。逾時清理本次程序群組，不終止其他程序；输出收尾與 wait 各最多再等 0.25 秒。自行脫離群組的後代不在清理承諾內，其持有 pipe 不得使工具無限等待。分類、退出碼、實際 stdout／stderr 與執行時間保存在 observations；baseline 執行問題另存 `run/<run_id>.baseline_execution.json` 並回傳非零。
-- **可信沿用**：schema 2 必須具有相同的乾淨來源前後紀錄、確認觀測、命令、環境指紋與上限。跨 run 自動沿用還須 HEAD 相同；已有產品修改只能沿用上述可信檔，不能重建。check 可沿用目前 HEAD 祖先的可信基準，保留相關測試 `--cmd` 範圍，記錄實際命令並按同一可辨 ID 扣除。舊 schema、來源不明、sentinel 或觀測不符者明確拒絕，不能補欄位升格。
-- **環境範圍**：指紋涵蓋環境變數（排除 shell 易變欄位）、執行此工具的 Python 版本／路徑、平台與工作目錄，只存雜湊。它不能證明外部服務或套件內容未變；已知環境改變須在乾淨產品來源用 `--fresh` 重建。
-- **修改後缺可信基準**：保留現場，使用另外保留的乾淨起始版本另行取證與比較；不同目錄的基準不能直接搬回沿用，不把目前失敗宣稱為既有。若不需要扣除既有失敗，主 flow 可直接用 `run_verify.py` 執行必要驗證，要求零失敗；不為補基準自動建立額外環境。
-- 寫入 `run/<run_id>.test_baseline.json`（`run_id` 自動讀 `eval_state.json`）。此檔是冷溯源檔，**留在工作目錄、永不清除；不進版控**（處置的單一枚舉點住 eval-flow SKILL.md step 6 子項②，改任一端時對照另一端）。`stable_failures` 就是本 run 進場時的**既有欠帳快照**
-- **既有壞測試 = 記錄級欠帳，不是攔截級**：與 hotfix `debt` 不同——不擋新 run、本 run 不修（修它是 scope 偏移），但 retro 時彙報數量與清單，讓債看得見
-- 無任何測試框架的專案不建 baseline，改走「零測試專案」節
+使用 baseline／check 扣除既有失敗前，必讀 [基準建立與可信沿用](references/baseline.md)。修改後缺基準或環境改變時也適用；不得補造既有失敗。不需扣除既有失敗時，可直接以 `run_verify.py` 驗證零失敗。
 
 ## Writer 相關自驗與 mine 快速模式
 
-```
-# Tier 1／2（eval_state.json 存在）：run_id 與測試指令都自動解析
-python3 .agent-flow/scripts/test_baseline.py mine
-
-# Tier 0（無 eval_state.json、無 manifest）：兩個旗標都必須給
-python3 .agent-flow/scripts/test_baseline.py mine --run-id <任意識別字串> --cmd "<全套測試指令>"
-```
-
-- **參數解析順序（實作為準）**：`--run-id` → `eval_state.json` 的 `run_id` → 失敗中止；`--cmd` → `run/<run_id>.json` 的 `test_command` → 失敗中止。故 **Tier 0 兩個都要給**——沒有 eval_state 也沒有 manifest 可查。`--run-id` 在 mine 的唯一用途是定位 manifest 取 `test_command`，給了 `--cmd` 之後它只是為了通過解析（已知小瑕疵，見本節末）
-- **不要傳 `--strike-key`**：該旗標只有 `check` 子命令消費（累犯計數）；mine 端無消費者，傳了會被 argparse 接受但完全忽略
-
-- **用途與分工**：writer 依變更選相關測試，可直接執行派工命令，或用 `run_verify.py` 在相同 run／sub_task 留紀錄，供 step 5 核對與明確重用。mine 只是快速模式，不是唯一准用命令；只選未提交變更中的測試檔，不做 baseline 扣除。既有測試足夠時不必修改測試檔，仍須跑適用的相關測試。範圍外失敗回報主 flow，不自行擴修。
-- **範圍推導原理**：每 sub_task 結尾 commit ⇒ writer 開工時樹乾淨 ⇒ 當下 git 未提交變更（staged＋unstaged＋untracked）全屬該 writer，其中的測試檔即其管轄範圍——機械推導，零判斷
-- **mine 的範圍限制**：writer 改 source 弄壞既有測試但沒碰測試檔時 mine 不會抓到——writer 須依變更另選相關既有測試，step 5 核對證據範圍並補缺口
-- **`[P]` item 的 mine 模式均適用**：`[P]` item 在 fan-out（各開 worktree，隔離樹）或門檻不足的循序退回（逐個執行）下，mine 範圍推導**均成立**（未提交變更只屬當前 item）；兩路徑均無多 writer 並發共樹
-- **已知小瑕疵（不影響正確性）**：`cmd_mine` 無條件先跑 `resolve_run_id()` 再跑 `resolve_cmd()`，所以即使給了 `--cmd`、`--run-id` 仍為必填。Tier 0 使用時隨便給一個識別字串即可
-- **mine 不落檔**：mine 每次執行不寫任何 `run/` 檔；writer 交付時主 flow 以工作報告的「仲裁記錄」稽核（見上），改測試湊綠的退路由獨立審查核對「需求逐條有適用證據」現形
-- writer 端的行為約束（先實作後測試、範圍外失敗照抄不修、仲裁三選一先判再動手、2 次上限帶失敗交付）住在 `.agent-flow/roles/code-writer.md` 的「測試管轄規則」節，不在此重述
+writer 須依變更跑相關測試，既有證據足夠時不新增案例。派 writer 或使用 mine 前必讀 [相關自驗與 mine](references/writer-mine.md)；mine 不替代完整相關測試或可重用快照。
 
 ## 前端／UI 實機驗證的定位（best-effort，非阻塞）
 
@@ -94,7 +58,7 @@ python3 .agent-flow/scripts/test_baseline.py mine --run-id <任意識別字串> 
 
 ## Step 5 執行順序（每個 sub_task）
 
-進入本步先核對 writer 已有紀錄的命令、範圍、快照、環境與結果有效性；以相同 target 的 `run_verify.py --reuse` 沿用有效證據，只有缺口、失敗、輸入改變、證據失效或具名疑點才重跑。mine 不落快照，不能當成完整回歸或可重用的 run_verify 紀錄。跨 task 與 manifest 不自動轉用證據；收尾無相符完整回歸紀錄時安全重跑。再依「依變更選擇驗證」選定方法。純設定直接由主 flow 用 `run_verify.py` 跑設定／操作檢查並核對全部必要結果，不走下列測試專用步驟；混合任務同時完成適用的兩部分。
+進入本步先依「分段與重用」核對 writer 已有證據，以相同 target 的 `run_verify.py --reuse` 明確沿用有效紀錄。mine 不落快照，不能當成完整回歸或可重用的 run_verify 紀錄。跨 task 與 manifest 不自動轉用證據；收尾無相符完整回歸紀錄時安全重跑。再依「依變更選擇驗證」選定方法。純設定直接由主 flow 用 `run_verify.py` 跑設定／操作檢查並核對全部必要結果，不走下列測試專用步驟；混合任務同時完成適用的兩部分。
 
 進入本步先按 `.agent-flow/CODE_QUALITY.md` 核對 formatter 與適用 log 證據。對本次 Python 檔執行選定 formatter 的檢查模式，以 `run_verify.py` 留下實際命令與結果；無適用檔案記原因，缺工具或檢查失敗不得記通過。格式化若改動受審內容，先重新 stage 並依 eval-flow 的增量審查規則核對變更，再驗證。log 測試併入下方相關測試，不另建重複案例。格式檢查成功不能代替本步功能測試或最後收尾驗證。
 
@@ -133,7 +97,7 @@ python3 .agent-flow/scripts/test_baseline.py mine --run-id <任意識別字串> 
 
 ## 真新失敗的處置（script 確認可重現後才進這裡）
 
-script 重跑確認可重現的真新失敗，先判是否屬下列兩種**確定性處置**（不是「卡住」、不需 HITL）：
+script 重跑確認可重現的真新失敗，先判是否屬下列三類；前兩類可依既定規則處理，第三類須使用者裁決：
 
 | 分類 | 判定 | 處置 |
 |---|---|---|

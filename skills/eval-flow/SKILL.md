@@ -25,13 +25,13 @@ description: Tier 1／2 實作流程。新 Tier 1 依授權開始、自選方法
 
 ## Tier 1 精簡路徑
 
-完整規則住 [Tier 1 路徑](references/tier1.md)。**初始化與寫 code 前必讀**。新 run 採 `adaptive-v1`，一般路徑只需本節與該文件；主 flow 依具體問題選擇 HITL、委派或獨立審查，不預設進入完整循環。不建 eval_state 仍須保存完成度及實際驗證證據。派工、手動欄位操作或 gate 擋下時才讀對應專門文件。舊 run 的相容路徑同見該文件。
+初始化與寫 code 前必讀 [Tier 1 路徑](references/tier1.md)，依 manifest 政策選新路徑或舊 run 相容路徑。
 
 ## Tier 2 完整路徑
 
 前置開始前必讀 [Tier 2 前置](references/tier2-prep.md)。模型由 agent 定義承載，見下方「Model 指派原則」。
 
-前置四步住 `references/tier2-prep.md`（步驟清單見「路徑選擇」表），依序完成、**HITL gate 未過不可進入循環**；前置完成後回本檔「循環」節，與 Tier 1 共用步驟 1–7。
+依前置文件順序完成；**HITL gate 未過不可進入循環**。前置完成後進入下方 Tier 2 與舊 Tier 1 的共用循環。
 
 ## 循環（Tier 2 與舊 Tier 1）
 
@@ -85,8 +85,6 @@ Tier 2、舊 run 或新 Tier 1 須手動操作狀態欄位時，讀 [資料格�
 
 遭 gate 攔截時必讀 [Gate 規則](references/gates.md)。不能用快取或資料包繞過證據。
 
-各 gate 由 PreToolUse hook 攔截，涵蓋 commit 前的歸檔／防刪除／intent／測試／假測試 lint／不變量檢查，與呼叫流程管制 subagent 時的 phase 狀態機檢查。完整清單、判定條件與窄例外見 `.agents/skills/eval-flow/references/gates.md`——被 gate 攔截需查全貌時讀取。
-
 ## 效率與驗證重用
 
 修正重審或請求 `--reuse` 時，必讀 [增量審查與驗證重用](references/efficiency.md)。首輪仍完整獨立審查，過期證據不可重用。
@@ -94,8 +92,6 @@ Tier 2、舊 run 或新 Tier 1 須手動操作狀態欄位時，讀 [資料格�
 ## 中斷恢復（Resume）
 
 中斷續跑時必讀 eval-flow-resume skill，按 manifest／eval_state 與實際憑據對賬，不靠記憶。ready_to_commit 核對實際 commit 後接續 finalize。
-
-掃 `run/` 找 `status: "in_progress"` 的 manifest → 依 `phase` 定位前置進度 → 已 `decomposed` 則讀 `eval_state.json` 的 in_progress sub_task 及其 `step`／`files` → 用 `git diff --cached -- <files>` 還原工作現場 → 從該步驟繼續。已 `passed` 的 sub_task 不重跑；hook gates 照常生效。
 
 ## 其他路徑
 

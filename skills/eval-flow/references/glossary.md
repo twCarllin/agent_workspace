@@ -22,7 +22,7 @@
 | 直寫捷徑 | 主 flow 不派 code-writer、自行寫 code 的路徑 | 直做、自寫 |
 | 知識前置 | 派工前把 retro 條目／慣例／契約原文貼進 prompt 硬性約束區 | 知識注入、前置知識 |
 | 冷溯源檔 | 留在工作目錄、永不清除、不進版控的 run 記錄（manifest、events、baseline、task 檔） | 歷史檔、溯源日誌 |
-| 熱 scratchpad | `eval_state.json`，commit 後清除 | 暫存檔、工作檔 |
+| 熱 scratchpad | `eval_state.json`；歸檔與清除依 eval-flow 循環 step 6 | 暫存檔、工作檔 |
 | 報告信封 | subagent 報告的首行戳記＋末行 `Self-check:` | 報告格式（指信封時）、信封格式 |
 | 升級 | checker 四類觸發之一成立後改派 reviewer | 提升、提級 |
 | 收尾 | 循環 step 6：收尾檢查、歸檔、prepare、commit、finalize | 結案、收工 |

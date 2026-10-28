@@ -48,9 +48,9 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
      - ③驗證本需求的前提在同步後確實成立（例如所需檔案／目錄存在、數量符合預期；含 `.agent-flow/` 存在——hook 於第①步已自動連結，缺則先跑 `python3 .agent-flow/scripts/flow.py worktree-link`）。**前提不成立就停下回報，不可帶著錯的前提往下做**——第②③步互為備援：②保證起點正確，③保證即使②失效也攔得住
    - 工作目錄已由 harness 釘定：**禁止切換到其他工作區**，**禁止碰主工作區與其他 worktree**。
    - 載入 `eval-flow` skill，走 **Tier 1 精簡路徑**，但：
-     - 精簡初始化照常（manifest 填 `tier: 1`、`spec_inline`；report path 欄維持 `null`）；因 HITL 已在主 session 完成，`phase` 直接設 `"decomposed"`，並在 manifest 附註「HITL 於主 session 批次完成（parallel-run）」。
+     - Tier 1 的 manifest 與 task 由主 session 在步驟 5 建好 worktree 後、spawn 前依 Tier 1 路徑初始化；用 `hitl-confirm` 記錄步驟 3 的實際裁示原文與來源並建立 item 計畫。背景 agent 只核對與接續，不直接改 phase，也不自行確認 HITL。
      - **task 檔命名例外**：用 `task/YYYY-MM-DD-<slug>.md`（防兩個 run 同建當天檔造成 merge 衝突）。僅並行 run 適用此例外；單一 run 維持 `task/YYYY-MM-DD.md`。
-   - 跑循環 1–7，全部 gate 照常；hook 以 tool payload 實際 cwd 解析所屬 worktree。目前 harness 的 root 限制見適配層，不能假設環境變數隨 worktree 改變。
+   - 新 `adaptive-v1` 依 Tier 1 路徑選實作與審查；舊 Tier 1 依相容路徑跑循環 1–7。批次 HITL、隔離、停止條件與 merge gate 照常；hook 以 tool payload 實際 cwd 解析所屬 worktree。目前 harness 的 root 限制見適配層，不能假設環境變數隨 worktree 改變。
    - **既有測試只增不改**（含 fixture／conftest／測試工具檔）：發現必須修改既有測試＝這個變更動到既有行為＝獨立性假設已破 → 觸發「卡住即停」，該需求退出並行（之後改序列跑）。單一 run 的「有意行為變更同步舊測試」規則僅在非並行模式適用。
    - **BUGLOG 不落盤**：修到 bug 時，BUGLOG 條目寫進回報內容，**不** append `retro/BUGLOG.md`；由主 session 於 merge 後統一 append 並做兩層制升級判定（兩個 worktree 各 grep 自己的快照會漏看對方，重複偵測會失靈）。
    - **blocker 出在 main 既有 code 時禁止在 worktree 修**：標明後依「卡住／HITL 協定」停下，由主 session 在 main 上走 bugfix 流程（診斷先行→判級→修），修完後本 worktree `git merge main` 同步再續跑（修一次、兩支受惠、merge 零衝突）。

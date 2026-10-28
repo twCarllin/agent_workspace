@@ -88,7 +88,4 @@ Flow 對 subagent 有滿滿的防線（引文核實、仲裁稽核、hook gate�
 
 ## 上下文索引試驗
 
-只觀察後續三個真實 Tier 1／2 run，不宣稱 token 節省。
-可用 `dispatch.py --context-index run/<id>.context.json` 沿用已驗證的定位提示；失效時不啟動代理。
-索引不替代獨立審查；reviewer 仍核對 staged diff。原生代理未經 dispatch 的讀檔、搜尋與 token 不推估。
-建立、驗證、大小限制及紀錄方式見 [上下文索引試驗](../../../.agent-flow/REVIEW_PACKET.md#上下文索引試驗)。
+使用上下文索引前，必讀 [上下文索引試驗](../../../.agent-flow/REVIEW_PACKET.md#上下文索引試驗) 的適用範圍、驗證、限制與紀錄規則。

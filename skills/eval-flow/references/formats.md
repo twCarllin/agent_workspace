@@ -85,7 +85,7 @@
 
 ## eval_state.json 格式
 
-熱評分 scratchpad。靠 `run_id` 關聯 manifest；commit 後歸檔為 `run/<run_id>.eval.json` 再清除。
+熱評分 scratchpad，靠 `run_id` 關聯 manifest。歸檔與清除時機依 SKILL.md 循環 step 6，收尾前必讀。
 
 > 下方範例是**欄位形狀骨架**，數值為佔位符、非通過所有不變量的自洽樣本（例如 `review_reds: null` 配非空 `rounds`、全 0 的 `dimensions` 在真實歸檔檔中都會被 hook 擋）；合法組合見「操作規則」與「Gate 的硬性執行」。
 
