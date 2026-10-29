@@ -63,7 +63,7 @@ description: Tier 1／2 實作流程。新 Tier 1 依授權開始、自選方法
 
 ## 派工機制（headless CLI；規則為單一枚舉點）
 
-派工前必讀 [派工與證據控制](references/dispatch-control.md) 的「派工機制」與「Subagent 呼叫原則」節，使用角色契約與目前 session 已授權模式。修正／重取沿用原 session，越界與信封退件依原規則處置。
+派工前必讀 [派工與證據控制](references/dispatch-control.md) 的「派工機制」與「Subagent 呼叫原則」節，使用角色契約與目前 session 已授權模式。續作、修正與重取的 session 選擇依該文件「修正輪與 session 邊界」；越界與信封退件依原規則處置。
 
 ## Model 指派原則
 

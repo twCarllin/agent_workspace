@@ -32,7 +32,7 @@
    再用 `hitl-confirm` 記錄；**無人看管的 session（headless）不得自行確認** HITL。
 4. **主 flow 直寫捷徑**：主 flow 判斷直接實作或委派何者合適；需要乾淨 context 或明確
    模組分工時才派 writer。委派時完整投放適用契約與知識前置（R-011），檔案與權限範圍明列。
-   主 flow 直寫同守 `.agent-flow/CODE_QUALITY.md`。`executor_notes` 可記有用的選擇理由，
+   主 flow 直寫同守 `.agent-flow/CODE_QUALITY.md`。涉及資料接入或轉換時，實作前必讀並執行 [資料接入前核對](writing.md#資料接入前核對)。`executor_notes` 可記有用的選擇理由，
    不為每個 item 產生固定格式的空白說明。
 5. **驗證與交付**：只 stage 本次檔案，選足以覆蓋需求的測試或實際運行驗證，以
    `run_verify.py --run-id <id> --cmd '<適用驗證>'` 記實際結果。依適用判斷記自查或獨立結論；用 `item_accounting.py --run-id <id> deliver <item-id> --files <本次檔案>` 逐項對帳，再用 `flow.py finish --run-id <id> --message '<訊息>' --files <本次檔案> --verify-command '<適用驗證>'` 驗證、提交並 finalize。疑難用法與欄位查 `.agent-flow/FLOW_CLI.md`。
@@ -46,5 +46,5 @@
 使用 `hitl-confirm` 推進 phase；四項憑據直接記 manifest，不建 `eval_state.json`。
 實作／staging、checker 四類升級、測試與收尾依共用循環 step 1–7。信任邊界或公開契約
 理由仍直派 reviewer；獨立審查結論由 `review-run` 記錄，不得用 `self`。
-同一連貫變更的一輪可讀 diff 可合併審查；相依 items 沿用同一 writer。
+同一連貫變更的一輪可讀 diff 可合併審查；相依 items 的 session 選擇依 `dispatch-control.md`「修正輪與 session 邊界」。
 不以新政策為既有確認、審查或 item 交付結果補造紀錄。

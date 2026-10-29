@@ -10,7 +10,9 @@ writer 派工前，先依 [實作與 staging 的批次規則](writing.md) 決定
 - **prompt 檔**：主 flow 把派工 prompt 全文（含硬性約束區、契約表原文——知識前置規則不變，R-011）寫到 `run/<run_id>.prompt-<role>-<n>.md`（冷溯源檔，不進版控）再派工，不走命令列參數；retro 條目不在此列——派 `code-writer` 時由 dispatch 依 `--files` 自動前置到 prompt 末尾，主 flow 不讀 RETRO.md、不貼條目
 - **輸出**：stdout＝子 agent 報告全文（可保存供獨立審查；主 flow 閱讀方式見「派工上下文」）；stderr 摘要行 `[dispatch] role=… backend=… session=<sid> turns=… tokens=… cost_usd=…`；exit 2＝信封 blocking（退件重取，見「主 flow 憑據紀律」）、exit 3＝子程序失敗／超時（預設 1200 秒）／報告超量（預設 60000 字元，截斷）、exit 4＝越界變更（退件；範圍外檔案列在 stderr，優先於 exit 2）
 - **越界檢查（主 flow 派 code-writer 時必帶 `--files`，值＝本次批次 items 的 files 聯集）**：script 以派工前後的 `git status` 對照，「派工後新出現且不在清單內」的路徑即越界。越界退件時主 flow 先看 stderr 清單裁決（真越界→`--resume` 要求還原；清單漏列→補 files 後照常收），不自行放行
-- **修正輪**：同一角色、同一任務的拆批續作／修正／重取沿用未失效的原 agent；原生工具用 followup，CLI 用 `--resume <sid>`（`<sid>` 取自上一輪 stderr 摘要行）。確有前次上下文時只傳未解問題、差異與新增證據；契約變動補變動原文，不重送未變背景。原 agent 無法續用或 context 遺失時，依下節建立新 agent 並附精簡交接資料；writer 與 reviewer 仍須由不同 agent 擔任。
+- **修正輪與 session 邊界**：同一交付的續作、修正與重取預設沿用原 agent；原生工具用 followup，CLI 用 `--resume <sid>`（取自上一輪 stderr）。新批次若仍需前批的設計判斷與共用程式脈絡，可以沿用；若只需已完成的介面與驗收結果，另開 agent。不得只因角色或 task ID 相同而沿用，也不要求每個 item 都開新 session。
+  - 沿用時只傳未解問題、差異與新增證據；契約變動補變動原文，不重送未變背景。錯誤判讀已造成多輪返工與大量無效探索時，先整理正確契約、目前修改狀態及未解問題，再依下節精簡交接給新 agent；原 agent 不可用或 context 遺失也依此重建。不設固定 token 門檻。
+  - 換 session 前確認舊 writer 已結束或停止寫入，保留既有修改、修正次數與審查狀態；換 session 不重置修正上限或 gate。writer 與 reviewer 仍須由不同 agent 擔任。
 - **信封驗收內建**：script 以 `report_envelope_check.check_envelope` 判定（單一出處），blocking／advisory 處置同 PostToolUse hook（該 hook 仍掛在 `Agent` 工具路徑上）
 - **權限**：CLI 相容模式與原生工具的執行前提見目前 harness 適配層；目前 session 必須已授權該模式。CLI 派工為前景子程序
 - **留痕**：每次派工 append `run/<run_id>.dispatch.jsonl`（格式見 `SKILL.md「資料格式與操作規則」`），`token_usage.py` 收尾時併入用量；gate 7 對命令工具派工指令同樣生效（見 `SKILL.md「Gate 的硬性執行」`）
@@ -31,9 +33,9 @@ writer 派工前，先依 [實作與 staging 的批次規則](writing.md) 決定
 ```
 
 - 引用的檔案須在子 agent 的工作區可讀；不可只引用主對話中的「上面說過」。缺資料就補必要片段，不改用完整對話繼承。
-- 同一 agent 確有前次上下文且內容未變時沿用；只補未解問題、差異與新增證據，契約變動附變動原文。session 不可用或 context 遺失時按上列範本精簡重交接，必要裁決、硬性約束與相應完整契約原文不得改成檔案連結。不要要求每個角色重新閱讀所有流程文件。派工前核對實際呼叫的 `fork_turns` 與以上資料，不為此另開審查或派工。
+- 依上節 session 邊界決定沿用，且確有前次上下文、內容未變時，只補未解問題、差異與新增證據，契約變動附變動原文。session 不可用或 context 遺失時按上列範本精簡重交接，必要裁決、硬性約束與相應完整契約原文不得改成檔案連結。不要要求每個角色重新閱讀所有流程文件。派工前核對實際呼叫的 `fork_turns` 與以上資料，不為此另開審查或派工。
 
-完整交付與測試輸出可保存於子 agent 可讀的位置，供獨立審查核對；主 flow 只讀各 item 結果、DoD 證據定位與必要摘要。失敗原文、仲裁記錄及疑似注入必須在交付訊息明列，不可只藏在連結後。信封驗收與 review_packet 完整資料要求不變。
+完整交付與測試輸出保存於子 agent 可讀的位置，供獨立審查核對；主 flow 只讀各 item 結果、DoD 證據定位與必要摘要。失敗原文、仲裁記錄及疑似注入必須在交付訊息明列，不可只藏在連結後。信封驗收與 review_packet 完整資料要求不變。
 
 ## 共用程式定位資訊
 

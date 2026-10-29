@@ -7,7 +7,7 @@
    - **產碼品質前置**：先讀 `.agent-flow/CODE_QUALITY.md`，將適用的格式、可閱讀性與 log 條文原文貼進 writer prompt 硬性約束區，並註明專案設定、檔案範圍與不適用原因。涉及 log 的情境與憑據列入 DoD／契約表；reviewer prompt 同附適用原文。主 flow 直寫自行核對並留下相同交付證據。
    - writer 的共用定位內容依 [派工與證據控制「共用程式定位資訊」](dispatch-control.md#共用程式定位資訊) 組裝及核對。
    - **item 是驗收單位，不等於一次 writer 派工**：主 flow 依共用上下文與依賴決定批次；在下列批次條件內，同 task 共用檔案與行為的相鄰 items 優先合批，例如同模型的建立與修改、同模板的排版與計算。拆批時在既有計畫或派工 prompt 註明具體理由，例如超出批次上限、須等待前批實測結果或需求尚未確定；不只因 item 編號不同而拆批。合批仍逐 item 保留契約、DoD 與交付證據，依原路徑在 task 完成後審查，不因派工批次增加審查輪次或省略必要修正與複審。
-   - **批次派工（省 spawn 稅）**：派工單位＝**task**，同 task 多 item 一次派給同一 code-writer（知識前置一次組裝、item 間共用 context）。條件：①批內合計預估 ≤400 行（與合併審查上限對齊，超過拆批但續用未失效的原 writer session）②`[P]` item 不混批（保留平行／worktree 路徑）③**失敗隔離**：單 item 帶失敗交付只退該 item，其餘 item 照常收④工作報告與憑據**逐 item 分節**（審查輪輸入不變、逐 item 核對，格式住 code-writer.md）。相依 items 交同一 writer；因交付大小或 context 負載拆批時續用原 session，僅 session 不可用或 context 遺失才重建。每批 files 為該批 items 的聯集。獨立審查、測試管轄、契約仲裁與修正上限不變；單 item 的 task 照舊
+   - **批次派工（省 spawn 稅）**：同 task 中共用上下文與行為的多個 items 可一次派給同一 code-writer（知識前置一次組裝、item 間共用 context）。條件：①批內合計預估 ≤400 行（與合併審查上限對齊，超過拆批，session 選擇依 dispatch-control.md「修正輪與 session 邊界」）②`[P]` item 不混批（保留平行／worktree 路徑）③**失敗隔離**：單 item 帶失敗交付只退該 item，其餘 item 照常收④工作報告與憑據**逐 item 分節**（審查輪輸入不變、逐 item 核對，格式住 code-writer.md）。相依 items 是否沿用同一 writer，依 dispatch-control.md「修正輪與 session 邊界」判斷；僅依賴前批成果不代表需要原 session。每批 files 為該批 items 的聯集。獨立審查、測試管轄、契約仲裁與修正上限不變；單 item 的 task 照舊
    - **知識前置（硬性步驟）**：呼叫前，主 flow 把三個來源的相關內容**原文貼進 writer prompt 的硬性約束區**——不是叫 writer「自己去讀」，首次／重建交接必須以明文約束前置（R-011）；同一 session 確有前次上下文且內容未變時沿用，只補新增或變更原文，規則見 dispatch-control.md「派工上下文」。三源：
      - **retro 條目**：派工路徑由 `dispatch.py` 依 `--files` 自動篩選 `retro/RETRO.md`（標籤第一段＝模組路徑，見 retro agent 規範）並附加到 prompt 末尾的硬性約束節——主 flow 不讀 `retro/RETRO.md`、不執行 `retro_select.py`、不貼條目；retire 候選取自 dispatch 的 stderr 摘要行，於收尾回報使用者
        - **篩選由 script 執行**：主 flow 直寫捷徑（自己當 writer）才執行 `python3 .agent-flow/scripts/retro_select.py --files <該 item 的 files>` 取選中條目——它一次做完下兩條（排除 retired、錨點鮮度檢查），輸出即可直接作為硬性約束的條目原文與 retire 候選清單。機械步驟不留給模型逐次手做；篩選以標籤命中為準，主 flow 不另行補判
@@ -33,3 +33,7 @@
    - `<files>`＝**當前 sub_task（task）的 `files`**（主 flow 讀 `eval_state.json` 該 sub_task 的 `files` 欄帶入，即該 task 全部 item 的聯集；收斂到當前 task 涉及檔，避免跨 sub_task staging 累積污染）。
      - **注意**：`eval_state.py list-files` 是全 sub_task 聯集，不是單一 sub_task 來源、不可用於此。此收斂為退回主 worktree 循序時的污染修法（與 fan-out 無關、底層必需）。
    - 審查以 task 為界，staging 天然以 task 分批，不另做批前快照
+
+## 資料接入前核對
+
+涉及資料接入或轉換時，在依據資料判讀實作前，用實際來源的代表性樣本核對欄位、格式、缺值及預期轉換結果；記錄樣本來源與核對結果到既有 task 的 DoD／契約及證據位置。既有核對仍適用時可沿用，不新增固定審查輪次或獨立報告。主 flow 直寫也適用；委派時將本段與適用資料契約原文放入 writer 硬性約束區。拿不到必要樣本或業務意義未明時，明列缺口並依適用路徑處理，不把推測寫成已確認契約。
