@@ -442,10 +442,16 @@ def register_codex_agents(target):
     path = target / ".codex/config.toml"
     text = path.read_text() if path.exists() else ""
     data = tomllib.loads(text)
-    if "default_subagent_model" not in data.get("agents", {}):
-        model = PROFILES["codex"]["code-writer"]["model"]
-        setting = f"default_subagent_model = {json.dumps(model)}\n"
-        header = re.search(r"^\[agents\]\s*$", text, re.M)
+    model = PROFILES["codex"]["code-writer"]["model"]
+    setting = f"default_subagent_model = {json.dumps(model)}\n"
+    header = re.search(r"^\[agents\]\s*$", text, re.M)
+    current = data.get("agents", {}).get("default_subagent_model")
+    if current in LEGACY["codex_default_models"] and header:
+        # A previous framework default is upgraded; any other user value is kept.
+        line = re.compile(r"^default_subagent_model\s*=.*\n?", re.M)
+        found = line.search(text, header.end())
+        text = text[: found.start()] + setting + text[found.end() :]
+    elif current is None:
         if header:
             text = text[: header.end()] + "\n" + setting + text[header.end() :]
         else:

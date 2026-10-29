@@ -28,6 +28,7 @@
 | impact-analyzer | gpt-6.1-terra | low | 2026-10-28 使用者指定：將原 Sol 角色改為 Terra，推理強度維持 low |
 | retro | gpt-6.1-terra | low | 2026-10-28 使用者指定：將原 Sol 角色改為 Terra，推理強度維持 low |
 
+- 改 Codex code-writer model 時，把舊值加入 `.agent-flow/harnesses/legacy.json` 的 `codex_default_models`；下游執行 `./init` 時，安裝器才會把舊的 `default_subagent_model` 改為新值，其他值保留
 - 主 session（coordinator）model 不入表，沿用 `~/.codex/config.toml` 預設，與 Claude 端「主 session 不入表」一致
 - 本次參數設定未呼叫付費 Codex session 驗證模型可用性。
 

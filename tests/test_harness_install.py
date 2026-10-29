@@ -362,6 +362,21 @@ class HarnessInstallTest(unittest.TestCase):
                 config["developer_instructions"],
             )
 
+    def test_codex_default_model_upgrades_only_previous_framework_value(self):
+        expected = installer.PROFILES["codex"]["code-writer"]["model"]
+        for old, after in (
+            (installer.LEGACY["codex_default_models"][0], expected),
+            ("custom-model", "custom-model"),
+        ):
+            with self.subTest(old=old), tempfile.TemporaryDirectory() as tmp:
+                project = Path(tmp)
+                (project / ".codex").mkdir()
+                path = project / ".codex/config.toml"
+                path.write_text(f'[agents]\ndefault_subagent_model = "{old}"\n')
+                self.install(project, "--p", "codex")
+                config = tomllib.loads(path.read_text())
+                self.assertEqual(config["agents"]["default_subagent_model"], after)
+
     def test_hooks_run_in_unlinked_worktree(self):
         """Hook commands resolve scripts from the main checkout, so a fresh worktree works."""
         with tempfile.TemporaryDirectory() as tmp:
