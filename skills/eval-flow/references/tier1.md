@@ -35,7 +35,7 @@
    主 flow 直寫同守 `.agent-flow/CODE_QUALITY.md`。涉及資料接入或轉換時，實作前必讀並執行 [資料接入前核對](writing.md#資料接入前核對)。`executor_notes` 可記有用的選擇理由，
    不為每個 item 產生固定格式的空白說明。
 5. **驗證與交付**：只 stage 本次檔案，選足以覆蓋需求的測試或實際運行驗證，以
-   `run_verify.py --run-id <id> --cmd '<適用驗證>'` 記實際結果。依適用判斷記自查或獨立結論；用 `item_accounting.py --run-id <id> deliver <item-id> --files <本次檔案>` 逐項對帳，再用 `flow.py finish --run-id <id> --message '<訊息>' --files <本次檔案> --verify-command '<適用驗證>'` 驗證、提交並 finalize。疑難用法與欄位查 `.agent-flow/FLOW_CLI.md`。
+   `run_verify.py --run-id <id> --cmd '<適用驗證>'` 記實際結果。依適用判斷記自查或獨立結論；用 `item_accounting.py --run-id <id> deliver <item-id> --files <本次檔案> --evidence <憑據>` 逐項對帳（憑據三選一：`existing:<檔:函式>`／`ran:<命令>`／`new:<函式>|<既有為何不夠>`，見 test-strategy「測試取捨」），再用 `flow.py finish --run-id <id> --message '<訊息>' --files <本次檔案> --verify-command '<適用驗證>'` 驗證、提交並 finalize。疑難用法與欄位查 `.agent-flow/FLOW_CLI.md`。
    自查由 `eval_state.py review-run <id> 0 --checked-by self --evidence '<完成度與驗證範圍>' --passed` 記錄；
    須已有目前來源的有效成功驗證且無審查原因。來源變更或測試失敗後不可沿用。
    自查不代表可以跳過測試、偽造結果、覆蓋他人變更或擴張外部授權。

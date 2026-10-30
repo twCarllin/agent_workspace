@@ -19,6 +19,7 @@ import os
 import subprocess
 import sys
 import hashlib
+import re
 import shlex
 import time
 from collections import deque
@@ -33,6 +34,29 @@ def environment_digest():
     return hashlib.sha256(
         json.dumps(dict(os.environ), sort_keys=True).encode()
     ).hexdigest()
+
+
+TEST_PATH_RE = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)(test_[^/]*|[^/]*_test)\.py$")
+
+
+def test_growth_ratio():
+    """staged diff 的測試行數 ÷ 非測試行數（增＋刪）；只記不擋，見 test-strategy「測試取捨」Writable。"""
+    numstat = subprocess.run(
+        ["git", "diff", "--cached", "--numstat"], capture_output=True, text=True
+    ).stdout
+    test_lines = code_lines = 0
+    for line in numstat.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3 or parts[0] == "-":
+            continue
+        changed = int(parts[0]) + int(parts[1])
+        if TEST_PATH_RE.search(parts[2]):
+            test_lines += changed
+        else:
+            code_lines += changed
+    if not code_lines:
+        return None if not test_lines else float("inf")
+    return round(test_lines / code_lines, 2)
 
 
 def live_command(command):
@@ -209,6 +233,9 @@ def main():
             record["error"] = str(error)
             exit_code = exit_code or 2
     record.update(exit_code=exit_code, elapsed_seconds=time.monotonic() - started)
+    ratio = test_growth_ratio()
+    if ratio is not None:
+        record["test_growth_ratio"] = "inf" if ratio == float("inf") else ratio
     if args.quiet_success and record.get("output_file"):
         print(f"[run-verify] 完整輸出：{record['output_file']}")
         if exit_code and record["executed"]:

@@ -134,7 +134,7 @@ adaptive Tier 1 由 `start-run` 依已授權需求建立，或有決策時用真
 
 ```sh
 python3 .agent-flow/scripts/item_accounting.py --run-id <id> confirm-plan
-python3 .agent-flow/scripts/item_accounting.py --run-id <id> deliver 1.1 --files src/file.py
+python3 .agent-flow/scripts/item_accounting.py --run-id <id> deliver 1.1 --files src/file.py --evidence "existing:tests/test_file.py:test_x"
 python3 .agent-flow/scripts/item_accounting.py --run-id <id> pending 1.2 --reason '待使用者裁示'
 python3 .agent-flow/scripts/item_accounting.py --run-id <id> remove 1.2 --ruling-file ruling.json
 python3 .agent-flow/scripts/item_accounting.py --run-id <id> partial --items 1.2 --ruling-file ruling.json

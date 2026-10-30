@@ -153,6 +153,8 @@ class HarnessFlowTest(unittest.TestCase):
                     "--files",
                     "answer.py",
                     "test_answer.py",
+                    "--evidence",
+                    "ran:pytest",
                 )
                 self.assertEqual(delivered.returncode, 0, delivered.stderr)
                 reviewed = call(

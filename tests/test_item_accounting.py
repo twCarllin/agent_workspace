@@ -64,12 +64,12 @@ class ItemAccountingTest(unittest.TestCase):
         with self.assertRaises(RuleViolation):
             accounting.confirm_plan(legacy, TASK)
         with self.assertRaises(RuleViolation):
-            accounting.record_result(legacy, TASK, "1.1", "delivered", files=["a.py"])
+            accounting.record_result(legacy, TASK, "1.1", "delivered", files=["a.py"], evidence="existing:tests/test_a.py:test_a")
         self.assertNotIn("item_plan", legacy)
 
     def test_delivery_pending_and_user_ruling(self):
         manifest = self.confirmed()
-        accounting.record_result(manifest, TASK, "1.1", "delivered", files=["a.py"])
+        accounting.record_result(manifest, TASK, "1.1", "delivered", files=["a.py"], evidence="existing:tests/test_a.py:test_a")
         accounting.record_result(
             manifest, TASK, "1.2", "pending", reason="等待範圍裁示"
         )
@@ -96,11 +96,13 @@ class ItemAccountingTest(unittest.TestCase):
 
     def test_invalid_results_do_not_mutate_manifest(self):
         cases = [
-            ("1.1", "delivered", dict(files=[])),
-            ("1.1", "delivered", dict(files=["../outside"])),
-            ("1.1", "delivered", dict(files=["a", "a"])),
+            ("1.1", "delivered", dict(files=[], evidence="ran:x")),
+            ("1.1", "delivered", dict(files=["../outside"], evidence="ran:x")),
+            ("1.1", "delivered", dict(files=["a", "a"], evidence="ran:x")),
             ("1.1", "pending", dict(reason=" ")),
-            ("9.9", "delivered", dict(files=["a"])),
+            ("9.9", "delivered", dict(files=["a"], evidence="ran:x")),
+            ("1.1", "delivered", dict(files=["a"])),
+            ("1.1", "delivered", dict(files=["a"], evidence="new:test_x")),
             (
                 "1.1",
                 "removed",
@@ -189,13 +191,13 @@ class ItemAccountingTest(unittest.TestCase):
                     datetime.timedelta(0),
                 )
                 self.assertEqual(path.read_text(), before)
-            result = cli("deliver", "1.1", "--files", "a.py", "--log-format", "json")
+            result = cli("deliver", "1.1", "--files", "a.py", "--evidence", "ran:pytest", "--log-format", "json")
             self.assertEqual(result.returncode, 0, result.stderr)
             fields = json.loads(result.stderr)
             self.assertEqual(
                 (fields["event"], fields["level"]), ("item_accounting.recorded", "INFO")
             )
-            result = cli("--log-level", "ERROR", "deliver", "1.2", "--files", "b.py")
+            result = cli("--log-level", "ERROR", "deliver", "1.2", "--files", "b.py", "--evidence", "ran:pytest")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stderr, "")
             self.assertEqual(
@@ -248,6 +250,8 @@ class ItemAccountingTest(unittest.TestCase):
                 "1.1",
                 "--files",
                 "a.py",
+                "--evidence",
+                "ran:pytest",
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             result = cli(

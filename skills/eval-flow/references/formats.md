@@ -122,7 +122,7 @@
 ```
 
 - `review_dimensions`：維度→問題數的字典（例 `{"Non-functional": 2}`）；null 表示零 🔴 無問題可標。五維詞彙：`Clarity`／`Completeness`／`Testability`／`Non-functional`／`Technical_constraints`。由主 flow 於 set-review 時以 `--dimensions` 寫入，供 stats.py 維度分佈遙測
-- `verification_commands`：由 `run_verify.py` 執行驗證並追加命令、退出碼及 schema 2 快照；與 `local_test_evidence` 的仲裁、豁免等說明並存。
+- `verification_commands`：由 `run_verify.py` 執行驗證並追加命令、退出碼、schema 2 快照與 `test_growth_ratio`（staged 測試行數 ÷ 非測試行數，只記不擋）；與 `local_test_evidence` 的仲裁、豁免等說明並存。
   - **提交快照判定（單一說明）**：`evidence_schema: 2` 的 Tier 1／2 run，commit gate 檢查 manifest 最後一筆驗證須 `exit_code: 0`、有有效快照且符合目前程式樹；缺席、失敗或輸入變動都拒絕。測試範圍依 tier 與專案要求選定；快照相同不代表測試範圍已足夠。
   - 舊 schema 與 Tier B／hotfix 沿用既有相容規則。`add-verification` 只保留逐 task 命令紀錄，不產生提交所需快照；Tier 2 收尾仍需不帶 `--sub-task` 執行 `run_verify.py`。
 
@@ -191,7 +191,7 @@
 
 新 Tier 1／2 manifest 記 `framework_version: "2026.10.19.1"`（或更新版本）
 與 `item_accounting_required: true`。`item_plan` 保存凍結的交付清單；
-`item_results` 以 item ID 為 key。結果為 `delivered` 時記 `files`，為 `pending`
+`item_results` 以 item ID 為 key。結果為 `delivered` 時記 `files` 與 `evidence`（`existing:`／`ran:`／`new:…|理由` 三選一），為 `pending`
 時記 `reason` 並暫停 run，為 `removed` 時記 `ruling`。
 裁示須含 `actor: "user"`、`text`、含時區的 `at` 與 `source`。
 `partial_acceptance` 保存 `item_ids`（全部未交付 ID）及 `ruling`。

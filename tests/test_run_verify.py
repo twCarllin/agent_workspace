@@ -58,6 +58,15 @@ class RunVerifyFixture:
 
 
 class RunVerifyTest(RunVerifyFixture, unittest.TestCase):
+    def test_growth_ratio_counts_staged_test_lines_against_code(self):
+        subprocess.run(["git", "init", "-q"], check=True, capture_output=True)
+        self.assertIsNone(run_verify.test_growth_ratio())
+        Path("src.py").write_text("a\n")
+        Path("tests").mkdir()
+        Path("tests/test_src.py").write_text("x\ny\nz\n")
+        subprocess.run(["git", "add", "."], check=True)
+        self.assertEqual(run_verify.test_growth_ratio(), 3.0)
+
     def test_rerun_reasons_real_subprocess(self):
         subprocess.run(["git", "init", "-q"], check=True, capture_output=True)
         self.write_manifest()

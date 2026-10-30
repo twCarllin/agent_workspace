@@ -22,6 +22,19 @@ description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無
 - **收尾**：全部必要證據齊全、適用驗證通過且必要的獨立審查或主 flow 自查完成，就進入收尾。必要環境／權限缺失時記錄受阻原因與未驗項目，依 eval-flow `references/formats.md` 的 manifest item 對帳狀態規則保留未完成狀態；必要證據缺失不得標通過或完成。設定準備與實際部署的 DoD 必須分開。
 - **證據**記錄實際命令、執行時間、目標環境、可接受結果、實際輸出與限制，遮蔽秘密。exit 0 不足以證明符合契約，須核對實際結果與預期；複合收尾命令任一必要檢查失敗須回傳非零，不得以最後一條成功覆蓋先前失敗。主 flow 用 `run_verify.py` 執行適用命令並保存成功快照；保留 schema 2、prepare → Run-Id commit → finalize。遠端／實際環境狀態不在本地快照內，不得僅因本地輸入相同自動 `--reuse`，須重新確認目標狀態。
 
+## 測試取捨（全 tier，單一枚舉點）
+
+依 [Test Desiderata](https://testdesiderata.com/) 的十二項屬性互相衝突，本 repo 只優先四項；writer 寫測試、reviewer 審測試、lint 警示都以本節為準，不在角色檔重述。Predictive 與 Inspiring 是四項的結果，不另設檢查。
+
+| 屬性 | 判準 | 違反的典型樣子 |
+|---|---|---|
+| **Behavioral** | 斷言回傳值、exit code、檔案與狀態副作用、訊息的 key 或 gate id | 斷言訊息全文、欄位順序、完整輸出形狀（lint `message-literal`） |
+| **Structure-insensitive** | 走公開介面；mock 只在系統邊界（外部 API、時鐘、亂數）；改文案或重構時測試不該壞 | mock 專案內部函式、數呼叫次數、讀私有狀態（lint `internal-coupling`） |
+| **Writable** | 既有測試能驗就沿用；新增測試須在交付憑據寫 `new:<函式>\|<既有為何不夠>`；本次測試行數不應超過被測程式碼（`run_verify` 記 `test_growth_ratio`） | 每條 DoD 一個新測試、憑據只能靠 grep 新函式名成立 |
+| **Specific** | 一個測試一個主題；只差常數的案例合成一個參數化測試；一個行為只在主題測試完整斷言，路過行為只驗存在性／型別／狀態碼 | 同檔多個只差一個值的測試；多個測試同時鎖同一細節 |
+
+lint 的兩條新規則只警示、不擋 commit；writer 把警示列進工作報告，reviewer 對未豁免的警示標 🟡。豁免用行尾 `# testlint: allow` 並在 `local_test_evidence` 記理由。
+
 ## adaptive Tier 1 的適用方式
 
 新 Tier 1 的方法與 HITL／獨立審查判斷依 eval-flow 的 Tier 1 路徑。本文件的驗證範圍、

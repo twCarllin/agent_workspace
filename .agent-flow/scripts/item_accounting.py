@@ -78,6 +78,17 @@ def validate_ruling(ruling):
     )
 
 
+EVIDENCE_RE = re.compile(r"^(existing:\S+|ran:\S.*|new:\S+\|\S.*)$")
+
+
+def validate_evidence(evidence):
+    """交付憑據三選一：existing:<檔:函式>／ran:<命令>／new:<函式>|<既有為何不夠>。"""
+    require(
+        isinstance(evidence, str) and bool(EVIDENCE_RE.match(evidence.strip())),
+        "交付憑據格式須為 existing:<檔:函式>、ran:<命令> 或 new:<函式>|<既有測試為何不夠>",
+    )
+
+
 def validate_files(files):
     require(isinstance(files, list) and bool(files), "交付 files 不可為空")
     require(all(nonempty(path) for path in files), "交付檔案路徑不可為空")
@@ -158,14 +169,23 @@ def validate_results(manifest, files=None, allow_pending=False):
 
 
 def record_result(
-    manifest, task_text, item_id, status, *, files=None, reason=None, ruling=None
+    manifest,
+    task_text,
+    item_id,
+    status,
+    *,
+    files=None,
+    evidence=None,
+    reason=None,
+    ruling=None,
 ):
     items = validate_plan(manifest, task_text)
     require(item_id in {item["id"] for item in items}, "未確認的 item")
     require(manifest.get("status") in ("in_progress", "paused"), "run 已收尾")
     if status == "delivered":
         validate_files(files)
-        result = dict(status=status, files=files)
+        validate_evidence(evidence)
+        result = dict(status=status, files=files, evidence=evidence.strip())
     elif status == "pending":
         require(nonempty(reason), "待裁示理由不可為空")
         result = dict(status=status, reason=reason)
@@ -248,6 +268,11 @@ def main():
     deliver = commands.add_parser("deliver", parents=[log_options])
     deliver.add_argument("item_id")
     deliver.add_argument("--files", nargs="+", required=True)
+    deliver.add_argument(
+        "--evidence",
+        required=True,
+        help="existing:<檔:函式> | ran:<命令> | new:<函式>|<既有測試為何不夠>",
+    )
     pending = commands.add_parser("pending", parents=[log_options])
     pending.add_argument("item_id")
     pending.add_argument("--reason", required=True)
@@ -297,6 +322,7 @@ def main():
                         args.command
                     ],
                     files=getattr(args, "files", None),
+                    evidence=getattr(args, "evidence", None),
                     reason=getattr(args, "reason", None),
                     ruling=ruling,
                 )
