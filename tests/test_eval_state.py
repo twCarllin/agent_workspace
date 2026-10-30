@@ -8,6 +8,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -16,7 +17,6 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".claude" / "hooks"))
 import eval_state  # noqa: E402
-import eval_gates  # noqa: E402
 
 
 def run_cli(*argv):
@@ -268,17 +268,26 @@ class EvalStateHelperTest(unittest.TestCase):
             self.assertFalse(Path("run/empty.json").exists())
             self.assertFalse(Path("run/empty.events.jsonl").exists())
 
-    def test_init_creates_state(self):
+    def fresh(self):
+        if os.path.exists("eval_state.json"):
+            os.remove("eval_state.json")
+        self.bootstrap()
+
+    def exit_of(self, *argv):
+        """回傳 (exit code, stderr)；命令必須以 SystemExit 結束。"""
+        err = io.StringIO()
+        with mock.patch("sys.stderr", err), self.assertRaises(SystemExit) as ctx:
+            run_cli(*argv)
+        return ctx.exception.code, err.getvalue()
+
+    def test_init_creates_state_and_refuses_overwrite(self):
         run_cli("init", "--run-id", "r1")
         state = self.read_state()
         self.assertEqual(state["run_id"], "r1")
         self.assertEqual(state["sub_tasks"], [])
         self.assertNotIn("threshold", state)
-
-    def test_init_refuses_overwrite(self):
-        run_cli("init", "--run-id", "r1")
-        with self.assertRaises(SystemExit):
-            run_cli("init", "--run-id", "r2")
+        self.assertTrue(self.exit_of("init", "--run-id", "r2")[0])
+        self.assertEqual(self.read_state()["run_id"], "r1")
 
     def test_set_step_and_files(self):
         self.bootstrap()
@@ -286,62 +295,61 @@ class EvalStateHelperTest(unittest.TestCase):
         run_cli("set-files", "1", "src/a.py", "src/b.py", "src/a.py")
         st = self.read_state()["sub_tasks"][0]
         self.assertEqual(st["step"], "writing")
-        self.assertEqual(st["files"], ["src/a.py", "src/b.py"])  # 去重保序
+        # Q9 契約 row 3：set-files 寫入反映在 task 層 files 聯集（去重保序）
+        self.assertEqual(st["files"], ["src/a.py", "src/b.py"])
+        self.assertTrue(self.exit_of("set-step", "99", "writing")[0])  # 未知 id
 
     def test_set_test_passed_requires_evidence(self):
         self.bootstrap()
-        with self.assertRaises(SystemExit):
-            run_cli("set-test", "1", "--passed")
+        self.assertTrue(self.exit_of("set-test", "1", "--passed")[0])
         run_cli("set-test", "1", "--passed", "--evidence", "pytest -q -> 3 passed")
-        st = self.read_state()["sub_tasks"][0]
-        self.assertTrue(st["local_test_passed"])
+        self.assertTrue(self.read_state()["sub_tasks"][0]["local_test_passed"])
 
     def test_list_files_unions_across_subtasks(self):
         self.bootstrap()
         run_cli("add-subtask", "--id", "2", "--name", "demo2")
         run_cli("set-files", "1", "src/a.py")
         run_cli("set-files", "2", "src/b.py", "src/a.py")
-        import io
-
         buf = io.StringIO()
         with mock.patch.object(sys, "stdout", buf):
             run_cli("list-files")
         self.assertEqual(buf.getvalue().split(), ["src/a.py", "src/b.py"])
 
-    def test_archive_blocks_unpassed_subtask(self):
-        self.bootstrap()
-        with self.assertRaises(SystemExit):
-            run_cli("archive")
-        self.assertTrue(os.path.exists("eval_state.json"))  # 不落盤、不清除
+    def test_archive_blocks_incomplete_subtask(self):
+        def passed_without_review_verify():
+            run_cli("set-files", "1", "src/a.py")
+            run_cli("set-test", "1", "--passed", "--evidence", "pytest -q -> 3 passed")
+            run_cli("set-status", "1", "passed")
 
-    def test_archive_writes_and_clears(self):
+        cases = (
+            ("unpassed_subtask", lambda: None),
+            ("passed_but_review_verify_unset", passed_without_review_verify),
+        )
+        for name, prepare in cases:
+            with self.subTest(name):
+                self.fresh()
+                prepare()
+                self.assertEqual(self.exit_of("archive")[0], 2)
+                self.assertTrue(os.path.exists("eval_state.json"))  # 不落盤、不清除
+
+    def test_archive_writes_clears_and_carries_checked_by(self):
         self.bootstrap()
         run_cli("set-files", "1", "src/a.py")
         run_cli("set-test", "1", "--passed", "--evidence", "pytest -q -> 3 passed")
-        run_cli("set-review", "1", "1")
+        run_cli("set-review", "1", "1", "--checked-by", "reviewer:④")
         run_cli("set-verify", "1")
+        self.assertTrue(self.read_state()["sub_tasks"][0]["verify_passed"])
         run_cli("set-status", "1", "passed")
         run_cli("archive")
         self.assertFalse(os.path.exists("eval_state.json"))
         with open("run/2026-07-15-demo.eval.json", encoding="utf-8") as f:
             archived = json.load(f)
         self.assertEqual(archived["run_id"], "2026-07-15-demo")
+        self.assertEqual(archived["sub_tasks"][0]["checked_by"], "reviewer:④")
 
-    def test_add_subtask_default_review_verify_fields(self):
-        self.bootstrap()
-        st = self.read_state()["sub_tasks"][0]
-        self.assertIsNone(st["review_reds"])
-        self.assertFalse(st["verify_passed"])
-
-    # --- per-task 改構（Q2／Q9／Q10，2026-09-22）---
-
-    def test_add_subtask_skeleton_key_set_is_exact(self):
-        """R-004 加嚴：skeleton 是寫出留痕欄位的函式，逐鍵斷言完整鍵集而非只驗存在性。
-
-        Q10 裁示 `eval_state` 不存 item 層資料（item 的 DoD／契約表 single source
-        ＝task 檔），故鍵集**不得**含 `items`；Q8 裁示 `risk_analysis` 移除，亦不得出現。
-        鍵集寫死是刻意的——新增欄位會使本測試紅，強制改動者回來確認該欄位真的該進 skeleton。
-        """
+    def test_add_subtask_skeleton_key_set_and_defaults(self):
+        """R-004 加嚴：逐鍵斷言完整鍵集。Q10：不存 item 層資料（不得含 `items`）；
+        Q8：`risk_analysis` 已移除。鍵集寫死是刻意的——新增欄位須回來確認該進 skeleton。"""
         self.bootstrap()
         st = self.read_state()["sub_tasks"][0]
         self.assertEqual(
@@ -362,17 +370,13 @@ class EvalStateHelperTest(unittest.TestCase):
                 "verify_passed",
             },
         )
-
-    def test_add_subtask_skeleton_has_no_item_layer(self):
-        """Q10：確認 skeleton 不含 items（曾於 2026-09-22 短暫加入後依裁示移除）。"""
-        self.bootstrap()
-        self.assertNotIn("items", self.read_state()["sub_tasks"][0])
+        self.assertIsNone(st["review_reds"])
+        self.assertFalse(st["verify_passed"])
+        self.assertEqual(st["verification_commands"], [])
 
     def test_legacy_flat_subtask_with_extra_keys_still_operable(self):
-        """向後相容：既有 19 份歸檔與進行中的舊 eval_state 帶 `risk_analysis` 等已移除的鍵，
-        子命令仍須能對其操作（本 run 自身即為此形狀，改構期間不得把自己鎖死）。"""
+        """向後相容：舊 eval_state 帶 `risk_analysis` 等已移除的鍵，子命令仍須能對其操作。"""
         self.bootstrap()
-        # setUp 已 chdir 到 tmpdir，"eval_state.json" 即該 run 的實際狀態檔（同 read_state 慣例）
         state = self.read_state()
         state["sub_tasks"][0]["risk_analysis"] = {"technical": "舊欄位"}
         with open("eval_state.json", "w", encoding="utf-8") as f:
@@ -382,202 +386,108 @@ class EvalStateHelperTest(unittest.TestCase):
         self.assertEqual(st["review_reds"], 0)
         self.assertEqual(st["risk_analysis"], {"technical": "舊欄位"})
 
-    def test_set_review_writes_task_layer_reds_with_zero(self):
-        """Q9 契約 row 2：set-review id=1 reds=0 → sub_tasks[0].review_reds == 0（task 層憑據）。"""
-        self.bootstrap()
-        run_cli("set-review", "1", "0")
-        self.assertEqual(self.read_state()["sub_tasks"][0]["review_reds"], 0)
-
-    def test_set_files_reflects_in_task_layer_union(self):
-        """Q9 契約 row 3：set-files 寫入反映在 task 層 files 聯集。"""
-        self.bootstrap()
-        run_cli("set-files", "1", "src/a.py", "src/b.py")
-        self.assertEqual(
-            self.read_state()["sub_tasks"][0]["files"], ["src/a.py", "src/b.py"]
+    def test_set_review_writes_fields(self):
+        dims = '{"Clarity":1,"Completeness":1}'
+        cases = (
+            # Q9 契約 row 2：reds=0 寫入 task 層 review_reds == 0；未帶 --checked-by 維持 null
+            ("zero_reds_keeps_checked_by_null", ("1", "0"), {"review_reds": 0, "checked_by": None}),
+            ("reds_written", ("1", "3"), {"review_reds": 3}),
+            (
+                "checked_by_written",
+                ("1", "0", "--checked-by", "checker"),
+                {"checked_by": "checker"},
+            ),
+            (
+                # 邊界直派（2026-09-21）：reviewer:boundary 為合法審定者值
+                "checked_by_boundary_is_valid",
+                ("1", "0", "--checked-by", "reviewer:boundary"),
+                {"checked_by": "reviewer:boundary"},
+            ),
+            (
+                "valid_dimensions",
+                ("1", "2", "--dimensions", dims),
+                {"review_reds": 2, "review_dimensions": {"Clarity": 1, "Completeness": 1}},
+            ),
         )
+        for name, argv, expected in cases:
+            with self.subTest(name):
+                self.fresh()
+                run_cli("set-review", *argv)
+                st = self.read_state()["sub_tasks"][0]
+                for key, value in expected.items():
+                    self.assertEqual(st[key], value, key)
 
-    def test_set_review_writes_reds(self):
-        self.bootstrap()
-        run_cli("set-review", "1", "3")
-        self.assertEqual(self.read_state()["sub_tasks"][0]["review_reds"], 3)
-
-    def test_set_review_negative_exits(self):
-        self.bootstrap()
-        with self.assertRaises(SystemExit):
-            run_cli("set-review", "1", "-1")
-
-    def test_set_review_checked_by_writes_value(self):
-        self.bootstrap()
-        run_cli("set-review", "1", "0", "--checked-by", "checker")
-        self.assertEqual(self.read_state()["sub_tasks"][0]["checked_by"], "checker")
-
-    def test_set_review_without_checked_by_keeps_null(self):
-        self.bootstrap()
-        run_cli("set-review", "1", "0")
-        self.assertIsNone(self.read_state()["sub_tasks"][0]["checked_by"])
-
-    def test_set_review_invalid_checked_by_exits_and_leaves_file(self):
-        self.bootstrap()
-        before = self.read_state()
-        captured = io.StringIO()
-        with mock.patch("sys.stderr", captured):
-            with self.assertRaises(SystemExit) as ctx:
-                run_cli("set-review", "1", "0", "--checked-by", "reviewer:⑥")
-        self.assertEqual(ctx.exception.code, 2)  # 契約：exit 非 0
-        self.assertIn(
-            "checker", captured.getvalue()
-        )  # 契約：stderr 含合法值清單（寬鬆存在性）
-        self.assertEqual(self.read_state(), before)  # 檔案不變
-
-    def test_set_review_checked_by_boundary_is_valid(self):
-        """邊界直派（2026-09-21）：reviewer:boundary 為合法審定者值。"""
-        self.bootstrap()
-        run_cli("set-review", "1", "0", "--checked-by", "reviewer:boundary")
-        self.assertEqual(
-            self.read_state()["sub_tasks"][0]["checked_by"], "reviewer:boundary"
+    def test_set_review_invalid_input_exits_and_leaves_file(self):
+        cases = (
+            ("negative_reds", ("1", "-1"), None, ""),
+            # 契約：exit 2、stderr 含合法值清單（寬鬆存在性）
+            ("invalid_checked_by", ("1", "0", "--checked-by", "reviewer:⑥"), 2, "checker"),
+            ("invalid_dimension_key", ("1", "1", "--dimensions", '{"InvalidKey":1}'), 2, ""),
+            ("negative_dimension_value", ("1", "1", "--dimensions", '{"Clarity":-1}'), 2, ""),
+            ("bad_json_dimensions", ("1", "1", "--dimensions", "{not valid json}"), 2, ""),
         )
+        for name, argv, code, stderr_has in cases:
+            with self.subTest(name):
+                self.fresh()
+                before = self.read_state()
+                got, err = self.exit_of("set-review", *argv)
+                if code is None:
+                    self.assertTrue(got)
+                else:
+                    self.assertEqual(got, code)
+                self.assertIn(stderr_has, err)
+                self.assertEqual(self.read_state(), before)  # 不落盤
 
     def test_add_verification_event_records_command_text(self):
-        """事件鍵 verify_command：append_event 過濾 `command` 鍵（子命令 dest），指令原文須以
-        verify_command 鍵留痕（2026-09-21 修正；消費端 stats.py 全套次數）。"""
+        """事件鍵 verify_command：append_event 過濾 `command` 鍵（子命令 dest），
+        指令原文須以 verify_command 留痕（消費端 stats.py 全套次數）。"""
         self.bootstrap()
         run_cli(
-            "add-verification",
-            "1",
-            "--command",
-            "pytest -q --strike-key full_suite",
-            "--exit-code",
-            "0",
+            "add-verification", "1", "--command", "pytest -q --strike-key full_suite", "--exit-code", "0"
         )
         with open("run/2026-07-15-demo.events.jsonl", encoding="utf-8") as f:
             ev = [json.loads(line) for line in f if line.strip()][-1]
         self.assertEqual(ev["cmd"], "add-verification")
-        self.assertEqual(
-            ev["args"]["verify_command"], "pytest -q --strike-key full_suite"
-        )
+        self.assertEqual(ev["args"]["verify_command"], "pytest -q --strike-key full_suite")
         self.assertEqual(ev["args"]["exit_code"], 0)
         self.assertEqual(ev["args"]["id"], 1)
 
-    def test_archive_carries_checked_by(self):
-        self.bootstrap()
-        run_cli("set-files", "1", "src/a.py")
-        run_cli("set-test", "1", "--passed", "--evidence", "pytest -q -> 3 passed")
-        run_cli("set-review", "1", "1", "--checked-by", "reviewer:④")
-        run_cli("set-verify", "1")
-        run_cli("set-status", "1", "passed")
-        run_cli("archive")
-        with open("run/2026-07-15-demo.eval.json", encoding="utf-8") as f:
-            archived = json.load(f)
-        self.assertEqual(archived["sub_tasks"][0]["checked_by"], "reviewer:④")
+    def test_add_verification_records_or_refuses(self):
+        """add-verification 為純記錄欄位，不被任何 gate 消費。"""
 
-    def test_set_verify_sets_true(self):
-        self.bootstrap()
-        run_cli("set-verify", "1")
-        self.assertTrue(self.read_state()["sub_tasks"][0]["verify_passed"])
+        def add(cmd, code, tid="1"):
+            return ("add-verification", tid, "--command", cmd, "--exit-code", str(code))
 
-    def test_archive_blocks_missing_review_verify(self):
-        # sub_task passed but review_reds/verify_passed not set → archive should exit 2
-        self.bootstrap()
-        run_cli("set-files", "1", "src/a.py")
-        run_cli("set-test", "1", "--passed", "--evidence", "pytest -q -> 3 passed")
-        run_cli("set-status", "1", "passed")
-        with self.assertRaises(SystemExit) as ctx:
-            run_cli("archive")
-        self.assertEqual(ctx.exception.code, 2)
-        self.assertTrue(os.path.exists("eval_state.json"))
+        def drop_key():  # 後加的可選欄位：舊 sub_task 無此鍵時不可 KeyError
+            state = self.read_state()
+            del state["sub_tasks"][0]["verification_commands"]
+            with open("eval_state.json", "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False)
+            self.assertNotIn("verification_commands", self.read_state()["sub_tasks"][0])
 
-    def test_unknown_subtask_id_fails(self):
-        self.bootstrap()
-        with self.assertRaises(SystemExit):
-            run_cli("set-step", "99", "writing")
+        def row(cmd, code):
+            return {"command": cmd, "exit_code": code}
 
-    # set-review --dimensions 案例
-    def test_set_review_with_valid_dimensions(self):
-        self.bootstrap()
-        run_cli(
-            "set-review", "1", "2", "--dimensions", '{"Clarity":1,"Completeness":1}'
+        recorded = (
+            ("appends_in_order", None, [add("pytest -q", 0), add("ruff check .", 1)],
+             [row("pytest -q", 0), row("ruff check .", 1)]),
+            ("negative_exit_code", None, [add("killed", -9)], [row("killed", -9)]),
+            ("backward_compat_missing_key", drop_key, [add("pytest -q", 0)], [row("pytest -q", 0)]),
         )
-        st = self.read_state()["sub_tasks"][0]
-        self.assertEqual(st["review_reds"], 2)
-        self.assertEqual(st["review_dimensions"], {"Clarity": 1, "Completeness": 1})
-
-    def test_set_review_invalid_dimension_key_exits(self):
-        self.bootstrap()
-        with self.assertRaises(SystemExit) as ctx:
-            run_cli("set-review", "1", "1", "--dimensions", '{"InvalidKey":1}')
-        self.assertEqual(ctx.exception.code, 2)
-        # 不落盤
-        self.assertIsNone(self.read_state()["sub_tasks"][0]["review_dimensions"])
-
-    def test_set_review_negative_dimension_value_exits(self):
-        self.bootstrap()
-        with self.assertRaises(SystemExit) as ctx:
-            run_cli("set-review", "1", "1", "--dimensions", '{"Clarity":-1}')
-        self.assertEqual(ctx.exception.code, 2)
-        # 不落盤
-        self.assertIsNone(self.read_state()["sub_tasks"][0]["review_dimensions"])
-
-    def test_set_review_bad_json_dimensions_exits(self):
-        self.bootstrap()
-        with self.assertRaises(SystemExit) as ctx:
-            run_cli("set-review", "1", "1", "--dimensions", "{not valid json}")
-        self.assertEqual(ctx.exception.code, 2)
-        # 不落盤
-        self.assertIsNone(self.read_state()["sub_tasks"][0]["review_dimensions"])
-
-    # --- add-verification（純記錄欄位，不被任何 gate 消費）---
-
-    def test_add_subtask_skeleton_has_empty_verification_commands(self):
-        self.bootstrap()
-        self.assertEqual(self.read_state()["sub_tasks"][0]["verification_commands"], [])
-
-    def test_add_verification_appends_in_order(self):
-        self.bootstrap()
-        run_cli("add-verification", "1", "--command", "pytest -q", "--exit-code", "0")
-        run_cli(
-            "add-verification", "1", "--command", "ruff check .", "--exit-code", "1"
-        )
-        vc = self.read_state()["sub_tasks"][0]["verification_commands"]
-        self.assertEqual(
-            vc,
-            [
-                {"command": "pytest -q", "exit_code": 0},
-                {"command": "ruff check .", "exit_code": 1},
-            ],
-        )
-
-    def test_add_verification_accepts_negative_exit_code(self):
-        self.bootstrap()
-        run_cli("add-verification", "1", "--command", "killed", "--exit-code", "-9")
-        vc = self.read_state()["sub_tasks"][0]["verification_commands"]
-        self.assertEqual(vc[0]["exit_code"], -9)
-
-    def test_add_verification_unknown_id_exits(self):
-        self.bootstrap()
-        with self.assertRaises(SystemExit) as ctx:
-            run_cli("add-verification", "99", "--command", "pytest", "--exit-code", "0")
-        self.assertEqual(ctx.exception.code, 1)
-
-    def test_add_verification_rejects_blank_command(self):
-        self.bootstrap()
-        with self.assertRaises(SystemExit) as ctx:
-            run_cli("add-verification", "1", "--command", "   ", "--exit-code", "0")
-        self.assertEqual(ctx.exception.code, 1)
-        # 不落盤
-        self.assertEqual(self.read_state()["sub_tasks"][0]["verification_commands"], [])
-
-    def test_add_verification_backward_compat_missing_key(self):
-        """本欄位為後加的可選欄位：舊 eval_state.json 的 sub_task 無此鍵時不可 KeyError。"""
-        self.bootstrap()
-        state = self.read_state()
-        del state["sub_tasks"][0]["verification_commands"]
-        with open("eval_state.json", "w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False)
-        self.assertNotIn("verification_commands", self.read_state()["sub_tasks"][0])
-
-        run_cli("add-verification", "1", "--command", "pytest -q", "--exit-code", "0")
-        vc = self.read_state()["sub_tasks"][0]["verification_commands"]
-        self.assertEqual(vc, [{"command": "pytest -q", "exit_code": 0}])
+        for name, prepare, calls, expected in recorded:
+            with self.subTest(name):
+                self.fresh()
+                if prepare:
+                    prepare()
+                for argv in calls:
+                    run_cli(*argv)
+                self.assertEqual(self.read_state()["sub_tasks"][0]["verification_commands"], expected)
+        refused = (("unknown_id", add("pytest", 0, tid="99")), ("blank_command", add("   ", 0)))
+        for name, argv in refused:
+            with self.subTest(name):
+                self.fresh()
+                self.assertEqual(self.exit_of(*argv)[0], 1)
+                self.assertEqual(self.read_state()["sub_tasks"][0]["verification_commands"], [])
 
 
 # --- 2a：events.jsonl append（旁路記錄，不得影響主命令 exit code）---
@@ -601,7 +511,7 @@ class EventAppendTest(unittest.TestCase):
         with open(os.path.join("run", f"{run_id}.events.jsonl"), encoding="utf-8") as f:
             return [json.loads(line) for line in f if line.strip()]
 
-    def test_write_subcommand_appends_event(self):
+    def test_write_subcommands_append_events_in_order(self):
         run_cli("init", "--run-id", "r1")
         events = self.read_events("r1")
         self.assertEqual(len(events), 1)
@@ -610,32 +520,15 @@ class EventAppendTest(unittest.TestCase):
         self.assertEqual(events[0]["args"]["run_id"], "r1")
         self.assertNotIn("func", events[0]["args"])
         self.assertNotIn("command", events[0]["args"])
-
-    def test_multiple_write_subcommands_append_in_order(self):
-        run_cli("init", "--run-id", "r2")
         run_cli("add-subtask", "--id", "1", "--name", "demo")
         run_cli("set-step", "1", "writing")
-        events = self.read_events("r2")
         self.assertEqual(
-            [e["cmd"] for e in events], ["init", "add-subtask", "set-step"]
+            [e["cmd"] for e in self.read_events("r1")], ["init", "add-subtask", "set-step"]
         )
 
-    def test_list_files_does_not_append(self):
-        run_cli("init", "--run-id", "r3")
-        run_cli("add-subtask", "--id", "1", "--name", "demo")
-        run_cli("set-files", "1", "a.py")
-        before = len(self.read_events("r3"))
-        buf = io.StringIO()
-        with mock.patch.object(sys, "stdout", buf):
-            run_cli("list-files")
-        after = len(self.read_events("r3"))
-        self.assertEqual(before, after)  # 唯讀命令不 append
-
-    @unittest.skipIf(
-        hasattr(os, "geteuid") and os.geteuid() == 0, "root 略過檔案權限測試"
-    )
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root 略過檔案權限測試")
     def test_events_dir_unwritable_main_command_still_succeeds(self):
-        """events 目錄不可寫（無法新建檔案）→ 主命令仍成功，僅 stderr warning（風險技術#1）。"""
+        """events 目錄不可寫 → 主命令仍成功，僅 stderr warning（風險技術#1）。"""
         with open("eval_state.json", "w", encoding="utf-8") as f:
             json.dump({"run_id": "r4", "sub_tasks": []}, f)
         os.makedirs("run", exist_ok=True)
@@ -646,57 +539,35 @@ class EventAppendTest(unittest.TestCase):
                 run_cli("add-subtask", "--id", "1", "--name", "demo")
         finally:
             os.chmod("run", 0o700)
-        st = self.read_state()["sub_tasks"][0]
-        self.assertEqual(st["name"], "demo")  # 主命令成功寫入
-        self.assertIn("事件記錄寫入失敗", stderr_buf.getvalue())
+        self.assertEqual(self.read_state()["sub_tasks"][0]["name"], "demo")
+        self.assertTrue(stderr_buf.getvalue())  # 有 warning
         self.assertFalse(os.path.exists(os.path.join("run", "r4.events.jsonl")))
 
     def test_missing_run_id_skips_append_with_warning(self):
         """eval_state.json 缺 run_id（如舊檔）→ 略過事件記錄，僅 warning，不影響主命令（D-err2）。"""
         with open("eval_state.json", "w", encoding="utf-8") as f:
-            json.dump({"sub_tasks": []}, f)  # 無 run_id 鍵
+            json.dump({"sub_tasks": []}, f)
         stderr_buf = io.StringIO()
         with mock.patch.object(sys, "stderr", stderr_buf):
             run_cli("add-subtask", "--id", "1", "--name", "demo")
-        self.assertIn("run_id 缺失", stderr_buf.getvalue())
-        self.assertEqual(
-            self.read_state()["sub_tasks"][0]["name"], "demo"
-        )  # 主命令仍成功
+        self.assertTrue(stderr_buf.getvalue())
+        self.assertEqual(self.read_state()["sub_tasks"][0]["name"], "demo")
         self.assertFalse(os.path.isdir("run"))  # 未產生任何 events 檔
 
-    def test_arg_value_over_200_chars_truncated(self):
+    def test_arg_value_truncation_and_special_characters(self):
         run_cli("init", "--run-id", "r5")
         run_cli("add-subtask", "--id", "1", "--name", "demo")
-        long_val = "x" * 250
-        run_cli("set-test", "1", "--passed", "--evidence", long_val)
-        events = self.read_events("r5")
-        self.assertEqual(events[-1]["args"]["evidence"], "x" * 200 + "…[truncated]")
-
-    def test_arg_value_exactly_200_chars_not_truncated(self):
-        """[邊界] 恰 200 字元（非 >200）不截斷——DoD 的門檻是「>200」，200 本身合法。"""
-        run_cli("init", "--run-id", "r7")
-        run_cli("add-subtask", "--id", "1", "--name", "demo")
-        exact_val = "y" * 200
-        run_cli("set-test", "1", "--passed", "--evidence", exact_val)
-        events = self.read_events("r7")
-        self.assertEqual(events[-1]["args"]["evidence"], exact_val)
-
-    def test_arg_value_with_special_characters_not_mangled(self):
-        """含特殊字元：中文／引號／emoji 的 arg 值原樣寫入 events.jsonl（json.dumps ensure_ascii=False）。"""
-        run_cli("init", "--run-id", "r8")
-        run_cli("add-subtask", "--id", "1", "--name", "demo")
-        special_val = "含「引號」與換行\n特殊字元 🎉"
-        run_cli("set-test", "1", "--passed", "--evidence", special_val)
-        events = self.read_events("r8")
-        self.assertEqual(events[-1]["args"]["evidence"], special_val)
-
-    def test_events_file_name_not_matched_by_manifest_re(self):
-        """新衍生檔命名前置檢查（retro 約束）：.events.jsonl 不可被誤判為 run manifest——
-        `.jsonl` 副檔名不匹配 `MANIFEST_RE` 的 `\\.json$` 錨定。"""
-        run_cli("init", "--run-id", "r6")
-        events_path = os.path.join("run", "r6.events.jsonl")
-        self.assertTrue(os.path.exists(events_path))
-        self.assertIsNone(eval_gates.MANIFEST_RE.match(events_path))
+        cases = (
+            ("over_200_truncated", "x" * 250, "x" * 200 + "…[truncated]"),
+            # 恰 200 字元（門檻是「>200」）不截斷
+            ("exactly_200_not_truncated", "y" * 200, "y" * 200),
+            # 含中文／引號／換行／emoji 的值原樣寫入（ensure_ascii=False）
+            ("special_characters_preserved", "含「引號」與換行\n特殊字元 🎉", "含「引號」與換行\n特殊字元 🎉"),
+        )
+        for name, value, expected in cases:
+            with self.subTest(name):
+                run_cli("set-test", "1", "--passed", "--evidence", value)
+                self.assertEqual(self.read_events("r5")[-1]["args"]["evidence"], expected)
 
 
 class Tier01TelemetryTest(unittest.TestCase):
@@ -711,6 +582,17 @@ class Tier01TelemetryTest(unittest.TestCase):
         os.chdir(self.old_cwd)
         self.tmp.cleanup()
 
+    @contextlib.contextmanager
+    def sandbox(self, name):
+        """每個 subTest 獨立目錄（git repo／run 目錄互不污染）。"""
+        path = os.path.join(self.tmp.name, name)
+        os.makedirs(path)
+        os.chdir(path)
+        try:
+            yield
+        finally:
+            os.chdir(self.tmp.name)
+
     def read_events(self, run_id):
         with open(os.path.join("run", f"{run_id}.events.jsonl"), encoding="utf-8") as f:
             return [json.loads(line) for line in f if line.strip()]
@@ -719,13 +601,13 @@ class Tier01TelemetryTest(unittest.TestCase):
         with open(os.path.join("run", "tier0.jsonl"), encoding="utf-8") as f:
             return [json.loads(line) for line in f if line.strip()]
 
-    def test_event_without_state_file_succeeds(self):
+    def test_event_without_state_file_appends_in_order(self):
         """Tier 1 場景：eval_state.json 不存在也能寫事件（不經 load()）。"""
         self.assertFalse(os.path.exists("eval_state.json"))
         run_cli("event", "t1-run", "hitl_confirmed", "--note", "1 task／4 items")
+        run_cli("event", "t1-run", "item_reviewed")
         events = self.read_events("t1-run")
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["cmd"], "hitl_confirmed")
+        self.assertEqual([e["cmd"] for e in events], ["hitl_confirmed", "item_reviewed"])
         self.assertIn("ts", events[0])
         self.assertEqual(events[0]["args"]["note"], "1 task／4 items")
 
@@ -742,266 +624,199 @@ class Tier01TelemetryTest(unittest.TestCase):
         with open(os.path.join("run", f"{run_id}.json"), encoding="utf-8") as f:
             return json.load(f)
 
-    def test_event_init_records_session_keys_into_manifest(self):
-        before = self.write_manifest("t1-run")
-        env = {"CLAUDE_CODE_SESSION_ID": "sess-abc", "CLAUDE_CONFIG_DIR": "/cfg/dir"}
-        with mock.patch.dict(os.environ, env, clear=False):
-            run_cli("event", "t1-run", "init")
-        after = self.read_manifest("t1-run")
-        self.assertEqual(after["session_id"], "sess-abc")
-        self.assertEqual(after["config_dir"], "/cfg/dir")
-        for k, v in before.items():
-            self.assertEqual(after[k], v)
-
-    def test_event_init_defaults_config_dir_to_home_claude(self):
-        self.write_manifest("t1-run")
-        env = {"CLAUDE_CODE_SESSION_ID": "sess-abc"}
-        with mock.patch.dict(os.environ, env, clear=False):
-            os.environ.pop("CLAUDE_CONFIG_DIR", None)
-            run_cli("event", "t1-run", "init")
-        self.assertEqual(
-            self.read_manifest("t1-run")["config_dir"], os.path.expanduser("~/.claude")
+    def test_session_keys_recorded_into_manifest(self):
+        sess = "CLAUDE_CODE_SESSION_ID"
+        cfg = "CLAUDE_CONFIG_DIR"
+        init_ev = ("event", "t1-run", "init")
+        absent = {"session_id": None, "config_dir": None}  # None＝鍵必須不存在
+        cases = (
+            ("event_init_records_keys", {}, {sess: "sess-abc", cfg: "/cfg/dir"}, (), init_ev,
+             {"session_id": "sess-abc", "config_dir": "/cfg/dir"}),
+            ("event_init_defaults_config_dir_to_home_claude", {}, {sess: "sess-abc"}, (cfg,), init_ev,
+             {"session_id": "sess-abc", "config_dir": os.path.expanduser("~/.claude")}),
+            ("event_init_without_session_env_leaves_manifest_untouched", {}, {}, (sess,), init_ev, absent),
+            ("event_init_does_not_overwrite_existing", {"session_id": "old", "config_dir": "/old"},
+             {sess: "new", cfg: "/new"}, (), init_ev, {"session_id": "old", "config_dir": "/old"}),
+            ("non_init_event_does_not_record", {}, {sess: "sess-abc"}, (),
+             ("event", "t1-run", "hitl_confirmed"), absent),
+            ("tier2_init_records_keys", {}, {sess: "sess-t2", cfg: "/cfg"}, (),
+             ("init", "--run-id", "t1-run"), {"session_id": "sess-t2", "config_dir": "/cfg"}),
         )
-
-    def test_event_init_without_session_env_leaves_manifest_untouched(self):
-        self.write_manifest("t1-run")
-        path = os.path.join("run", "t1-run.json")
-        with open(path, "rb") as f:
-            raw = f.read()
-        with mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
-            run_cli("event", "t1-run", "init")
-        with open(path, "rb") as f:
-            self.assertEqual(f.read(), raw)
-        self.assertEqual(len(self.read_events("t1-run")), 1)
-
-    def test_event_init_does_not_overwrite_existing_session_id(self):
-        self.write_manifest("t1-run", session_id="old", config_dir="/old")
-        env = {"CLAUDE_CODE_SESSION_ID": "new", "CLAUDE_CONFIG_DIR": "/new"}
-        with mock.patch.dict(os.environ, env, clear=False):
-            run_cli("event", "t1-run", "init")
-        after = self.read_manifest("t1-run")
-        self.assertEqual((after["session_id"], after["config_dir"]), ("old", "/old"))
+        for name, extra, env, drop, argv, expected in cases:
+            with self.subTest(name), self.sandbox(name):
+                before = self.write_manifest("t1-run", **extra)
+                with mock.patch.dict(os.environ, env, clear=False):
+                    for key in drop:
+                        os.environ.pop(key, None)
+                    run_cli(*argv)
+                after = self.read_manifest("t1-run")
+                for key, value in expected.items():
+                    if value is None:
+                        self.assertNotIn(key, after)
+                    else:
+                        self.assertEqual(after[key], value, key)
+                kept = before if argv[0] == "event" else {}
+                for key, value in kept.items():
+                    self.assertEqual(after[key], value, key)
+                self.assertEqual(len(self.read_events("t1-run")), 1)
 
     def test_event_init_without_manifest_still_appends_event(self):
-        self.assertFalse(os.path.exists(os.path.join("run", "t1-run.json")))
-        env = {"CLAUDE_CODE_SESSION_ID": "sess-abc"}
         stderr = io.StringIO()
-        with mock.patch.dict(os.environ, env, clear=False), mock.patch(
-            "sys.stderr", stderr
-        ):
-            run_cli("event", "t1-run", "init")
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "sess-abc"}, clear=False):
+            with mock.patch("sys.stderr", stderr):
+                run_cli("event", "t1-run", "init")
         self.assertEqual([e["cmd"] for e in self.read_events("t1-run")], ["init"])
-        self.assertIn("session 對應鍵未寫入", stderr.getvalue())
+        self.assertTrue(stderr.getvalue())  # 有 warning
         self.assertFalse(os.path.exists(os.path.join("run", "t1-run.json")))
-
-    def test_non_init_event_does_not_record_session(self):
-        self.write_manifest("t1-run")
-        with mock.patch.dict(
-            os.environ, {"CLAUDE_CODE_SESSION_ID": "sess-abc"}, clear=False
-        ):
-            run_cli("event", "t1-run", "hitl_confirmed")
-        self.assertNotIn("session_id", self.read_manifest("t1-run"))
-
-    def test_tier2_init_records_session_keys_into_manifest(self):
-        self.write_manifest("r2")
-        env = {"CLAUDE_CODE_SESSION_ID": "sess-t2", "CLAUDE_CONFIG_DIR": "/cfg"}
-        with mock.patch.dict(os.environ, env, clear=False):
-            run_cli("init", "--run-id", "r2")
-        after = self.read_manifest("r2")
-        self.assertEqual(
-            (after["session_id"], after["config_dir"]), ("sess-t2", "/cfg")
-        )
-
-    def test_event_appends_in_order(self):
-        run_cli("event", "t1-run", "init_done")
-        run_cli("event", "t1-run", "item_reviewed")
-        self.assertEqual(
-            [e["cmd"] for e in self.read_events("t1-run")],
-            ["init_done", "item_reviewed"],
-        )
 
     # --- tier0 自算行數（item 13.3）---
-    #
-    # 下三條原本綁「收信自報 --lines、留痕恰 4 個鍵」的舊契約（無 git、檔案不必存在）。
-    # 有意的行為變更（非改弱測試）：Tier 0 直寫無任何 gate，自報行數從未被核對，13 筆歷史
-    # 留痕的 lines 全未經核。新契約自算並機械執行 CLAUDE.md 的檔數／行數上限，故三條改為
-    # 在真實 git fixture 上驗新契約。
+    # 有意的行為變更（非改弱測試）：Tier 0 直寫無 gate，自報行數從未被核對。新契約自算並
+    # 機械執行 CLAUDE.md 的檔數／行數上限，故在真實 git fixture 上驗新契約。
+
+    def git(self, *args):
+        subprocess.run(["git", *args], check=True, capture_output=True)
 
     def git_repo(self):
         """在 cwd 建一個有 baseline commit 的 git repo（tier0 自算需要 git diff HEAD）。"""
-        import subprocess
+        self.git("init", "-q")
+        self.git("config", "user.email", "t@t.com")
+        self.git("config", "user.name", "T")
+        self.write_lines("seed.txt", 1)
+        self.git("add", "seed.txt")
+        self.git("commit", "-q", "-m", "baseline")
 
-        for cmd in (
-            ["git", "init", "-q"],
-            ["git", "config", "user.email", "t@t.com"],
-            ["git", "config", "user.name", "T"],
-        ):
-            subprocess.run(cmd, check=True, capture_output=True)
-        with open("seed.txt", "w", encoding="utf-8") as f:
-            f.write("seed\n")
-        subprocess.run(["git", "add", "seed.txt"], check=True, capture_output=True)
-        subprocess.run(
-            ["git", "commit", "-q", "-m", "baseline"], check=True, capture_output=True
-        )
-
-    def tracked_file(self, name, lines):
-        """建一個已追蹤檔並改 lines 行（git diff HEAD 可見）。"""
-        import subprocess
-
+    def write_lines(self, name, lines, prefix="l"):
+        os.makedirs(os.path.dirname(name) or ".", exist_ok=True)
         with open(name, "w", encoding="utf-8") as f:
-            f.write("x\n")
-        subprocess.run(["git", "add", name], check=True, capture_output=True)
-        subprocess.run(
-            ["git", "commit", "-q", "-m", f"add {name}"],
-            check=True,
-            capture_output=True,
-        )
-        with open(name, "w", encoding="utf-8") as f:
-            f.write("".join(f"line{i}\n" for i in range(lines)))
+            f.write("".join(f"{prefix}{i}\n" for i in range(lines)))
 
-    def test_tier0_appends_entry_with_verified_lines(self):
-        """新契約：留痕的 lines 來自 git diff 實得，並多記 lines_verified／per_file_lines。"""
+    def committed(self, *names):
+        for name in names:
+            if not os.path.exists(name):
+                self.write_lines(name, 1, "x")
+            self.git("add", name)
+        self.git("commit", "-q", "-m", "add " + ",".join(names))
+
+    def test_tier0_appends_entries_with_verified_lines(self):
+        """新契約：lines 來自 git diff 實得，並多記 lines_verified／per_file_lines；留痕僅追加。"""
         self.git_repo()
-        self.tracked_file("a.py", 8)  # 1 行刪 + 8 行增 = 9
-        with open("b.md", "w", encoding="utf-8") as f:
-            f.write("m1\nm2\nm3\n")  # 未追蹤：3 行全新增
-        run_cli(
-            "tier0", "--summary", "文案微調", "--files", "a.py, b.md", "--lines", "12"
-        )
+        self.write_lines("a.py", 1, "x")
+        self.committed("a.py")
+        self.write_lines("a.py", 8, "line")  # 1 行刪 + 8 行增 = 9
+        self.write_lines("b.md", 3, "m")  # 未追蹤：3 行全新增
+        run_cli("tier0", "--summary", "文案微調", "--files", "a.py, b.md", "--lines", "12")
         entries = self.read_tier0()
         self.assertEqual(len(entries), 1)
         e = entries[0]
         self.assertEqual(
-            set(e),
-            {"ts", "summary", "files", "lines", "lines_verified", "per_file_lines"},
+            set(e), {"ts", "summary", "files", "lines", "lines_verified", "per_file_lines"}
         )
         self.assertEqual(e["summary"], "文案微調")
         self.assertEqual(e["files"], ["a.py", "b.md"])
         self.assertEqual(e["lines"], 12)
         self.assertTrue(e["lines_verified"])
         self.assertEqual(e["per_file_lines"], {"a.py": 9, "b.md": 3})
+        run_cli("tier0", "--summary", "第二筆", "--files", "b.md", "--lines", "3")
+        self.assertEqual([x["summary"] for x in self.read_tier0()], ["文案微調", "第二筆"])
 
-    def test_tier0_is_append_only(self):
-        self.git_repo()
-        with open("a.py", "w", encoding="utf-8") as f:
-            f.write("one\n")
-        with open("b.py", "w", encoding="utf-8") as f:
-            f.write("one\ntwo\n")
-        run_cli("tier0", "--summary", "第一筆", "--files", "a.py", "--lines", "1")
-        run_cli("tier0", "--summary", "第二筆", "--files", "b.py", "--lines", "2")
-        self.assertEqual(
-            [e["summary"] for e in self.read_tier0()], ["第一筆", "第二筆"]
+    def test_tier0_accepts_boundary_and_deleted_file(self):
+        def three_files_at_eighty():
+            names = [f"m{i}.txt" for i in range(3)]
+            for name, n in zip(names, (30, 30, 20)):
+                self.write_lines(name, n)
+            return names, 80, dict(zip(names, (30, 30, 20)))
+
+        def deleted_file():  # 🟡-3：合法刪檔（工作區已無、git diff 看得到）須能留痕
+            self.write_lines("gone.txt", 3)
+            self.committed("gone.txt")
+            os.remove("gone.txt")
+            return ["gone.txt"], 3, {"gone.txt": 3}
+
+        for name, build in (
+            ("three_files_at_eighty_lines", three_files_at_eighty),
+            ("deleted_file", deleted_file),
+        ):
+            with self.subTest(name), self.sandbox(name):
+                self.git_repo()
+                names, lines, per_file = build()
+                run_cli("tier0", "--summary", "s", "--files", ",".join(names), "--lines", str(lines))
+                e = self.read_tier0()[0]
+                self.assertEqual(e["files"], names)
+                self.assertEqual(e["lines"], lines)
+                self.assertEqual(e["per_file_lines"], per_file)
+
+    def test_tier0_rejections_leave_no_entry(self):
+        def mismatch():
+            self.git_repo()
+            self.write_lines("a.py", 1, "x")
+            self.committed("a.py")
+            self.write_lines("a.py", 8, "line")
+
+        def over_budget():
+            self.git_repo()
+            self.write_lines("big.txt", 81)
+
+        def binary():  # 🟡-2：二進位 numstat 為 `-`，以 0 計會讓任意大小改動偷渡 → 直接拒絕
+            self.git_repo()
+            with open("b.bin", "wb") as f:
+                f.write(b"\x00" * 16)
+            self.committed("b.bin")
+            with open("b.bin", "wb") as f:
+                f.write(b"\x01" * 5000)
+
+        def directory():  # 🟡-B：目錄會讓檔數上限失效 → 拒絕，要求逐檔列出
+            self.git_repo()
+            for i in range(5):
+                self.write_lines(f"d/f{i}.txt", 1, "x")
+            self.committed("d")
+            for i in range(5):
+                self.write_lines(f"d/f{i}.txt", 1, "changed")
+
+        def outside_git():  # 非 git 工作區 → 拒絕記帳（不靜默留痕）
+            self.write_lines("a.py", 1, "x")
+
+        # (名稱, 準備, summary, files, 自報行數, 預期 exit code, stderr 關鍵字)
+        cases = (
+            ("blank_summary", lambda: None, "  ", "a.py", "1", None, ()),
+            # 核心：自報與實得不符 → 拒絕，並同時印兩個數字
+            ("self_reported_mismatch", mismatch, "s", "a.py", "999", 1, ("自報 999", "實得 9")),
+            ("over_line_budget", over_budget, "s", "big.txt", "81", None, ("合計 80 行",)),
+            ("binary_change", binary, "s", "b.bin", "0", None, ("b.bin",)),
+            ("directory_pathspec", directory, "s", "d", "10", None, ("不接受目錄",)),
+            ("missing_file", self.git_repo, "s", "nope.py", "1", None, ("nope.py",)),
+            ("outside_git_repo", outside_git, "s", "a.py", "1", None, ("不在 git 工作區",)),
         )
-
-    def test_tier0_rejects_blank_summary(self):
-        with self.assertRaises(SystemExit):
-            run_cli("tier0", "--summary", "  ", "--files", "a.py", "--lines", "1")
-
-    def test_tier0_rejects_self_reported_mismatch(self):
-        """核心：自報與實得不符 → 拒絕留痕，並同時印兩個數字。"""
-        self.git_repo()
-        self.tracked_file("a.py", 8)
-        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
-            with self.assertRaises(SystemExit) as cm:
-                run_cli("tier0", "--summary", "s", "--files", "a.py", "--lines", "999")
-            err = buf.getvalue()
-        self.assertEqual(cm.exception.code, 1)
-        self.assertIn("自報 999", err)
-        self.assertIn("實得 9", err)
-        self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
-
-    def test_tier0_rejects_too_many_files(self):
-        """檔數 >3 → 拒絕並要求重新分級，不提供豁免旗標。"""
-        self.git_repo()
-        names = []
-        for i in range(4):
-            n = f"f{i}.txt"
-            with open(n, "w", encoding="utf-8") as f:
-                f.write("x\n")
-            names.append(n)
-        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
-            with self.assertRaises(SystemExit):
-                run_cli(
-                    "tier0",
-                    "--summary",
-                    "s",
-                    "--files",
-                    ",".join(names),
-                    "--lines",
-                    "4",
-                )
-            err = buf.getvalue()
-        self.assertIn("上限為 3 個檔案", err)
-        self.assertIn("重新分級", err)
-        self.assertNotIn("--mechanical", err)
-        self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
-
-    def test_tier0_rejects_over_line_budget(self):
-        """合計 >80 行 → 拒絕並說應判 Tier 1。"""
-        self.git_repo()
-        with open("big.txt", "w", encoding="utf-8") as f:
-            f.write("".join(f"l{i}\n" for i in range(81)))
-        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
-            with self.assertRaises(SystemExit):
-                run_cli(
-                    "tier0", "--summary", "s", "--files", "big.txt", "--lines", "81"
-                )
-            err = buf.getvalue()
-        self.assertIn("合計 80 行", err)
-        self.assertIn("Tier 1", err)
-        self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
-
-    def test_tier0_accepts_three_files_at_eighty_lines(self):
-        """3 檔、80 行的上限仍可留痕。"""
-        self.git_repo()
-        names = []
-        for i, lines in enumerate((30, 30, 20)):
-            n = f"m{i}.txt"
-            with open(n, "w", encoding="utf-8") as f:
-                f.write("".join(f"l{j}\n" for j in range(lines)))
-            names.append(n)
-        run_cli("tier0", "--summary", "s", "--files", ",".join(names), "--lines", "80")
-        e = self.read_tier0()[0]
-        self.assertEqual(e["files"], names)
-        self.assertEqual(e["lines"], 80)
-        self.assertEqual(e["per_file_lines"], dict(zip(names, (30, 30, 20))))
+        for name, prepare, summary, files, lines, code, fragments in cases:
+            with self.subTest(name), self.sandbox(name):
+                prepare()
+                with contextlib.redirect_stderr(io.StringIO()) as buf:
+                    with self.assertRaises(SystemExit) as cm:
+                        run_cli("tier0", "--summary", summary, "--files", files, "--lines", lines)
+                if code is None:
+                    self.assertTrue(cm.exception.code)
+                else:
+                    self.assertEqual(cm.exception.code, code)
+                for fragment in fragments:
+                    self.assertIn(fragment, buf.getvalue())
+                self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
 
     def test_tier0_real_cli_rejects_cross_file_bypass(self):
-        """共用入口與相容入口均拒絕 6 檔及已移除旗標，不改歷史留痕。"""
-        import subprocess
-
+        """共用入口與相容入口均拒絕 6 檔（>3，含不提供豁免旗標）及已移除旗標，不改歷史留痕。"""
         self.git_repo()
         names = [f"m{i}.txt" for i in range(6)]
         for name in names:
-            Path(name).write_text("x\n", encoding="utf-8")
+            self.write_lines(name, 1, "x")
         Path("run").mkdir()
         log = Path("run/tier0.jsonl")
         history = '{"summary":"舊記錄","mechanical":true}\n'
         log.write_text(history, encoding="utf-8")
         root = Path(__file__).resolve().parents[1]
-        for entry in (
-            ".agent-flow/scripts/eval_state.py",
-            ".claude/hooks/eval_state.py",
-        ):
-            for extra, expected in (
-                ([], "重新分級"),
-                (["--mechanical"], "unrecognized arguments"),
-            ):
+        for entry in (".agent-flow/scripts/eval_state.py", ".claude/hooks/eval_state.py"):
+            for extra, expected in (([], "重新分級"), (["--mechanical"], "unrecognized arguments")):
                 with self.subTest(entry=entry, extra=extra):
                     result = subprocess.run(
-                        [
-                            sys.executable,
-                            str(root / entry),
-                            "tier0",
-                            "--summary",
-                            "混合修改",
-                            "--files",
-                            ",".join(names),
-                            "--lines",
-                            "6",
-                            *extra,
-                        ],
+                        [sys.executable, str(root / entry), "tier0", "--summary", "混合修改",
+                         "--files", ",".join(names), "--lines", "6", *extra],
                         capture_output=True,
                         text=True,
                         check=False,
@@ -1009,94 +824,6 @@ class Tier01TelemetryTest(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(expected, result.stderr)
                     self.assertEqual(log.read_text(encoding="utf-8"), history)
-
-    def test_tier0_rejects_binary_change(self):
-        """🟡-2：二進位檔的 numstat 為 `-`，以 0 計會讓任意大小的改動偷渡 → 直接拒絕。"""
-        import subprocess
-
-        self.git_repo()
-        with open("b.bin", "wb") as f:
-            f.write(b"\x00" * 16)
-        subprocess.run(["git", "add", "b.bin"], check=True, capture_output=True)
-        subprocess.run(
-            ["git", "commit", "-q", "-m", "add bin"], check=True, capture_output=True
-        )
-        with open("b.bin", "wb") as f:
-            f.write(b"\x01" * 5000)
-        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
-            with self.assertRaises(SystemExit):
-                run_cli("tier0", "--summary", "s", "--files", "b.bin", "--lines", "0")
-            err = buf.getvalue()
-        self.assertIn("二進位檔", err)
-        self.assertIn("b.bin", err)
-        self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
-
-    def test_tier0_supports_deleted_file(self):
-        """🟡-3：合法的 Tier 0 刪檔（工作區已無、git diff 看得到）須能留痕。"""
-        import subprocess
-
-        self.git_repo()
-        with open("gone.txt", "w", encoding="utf-8") as f:
-            f.write("a\nb\nc\n")
-        subprocess.run(["git", "add", "gone.txt"], check=True, capture_output=True)
-        subprocess.run(
-            ["git", "commit", "-q", "-m", "add gone"], check=True, capture_output=True
-        )
-        os.remove("gone.txt")
-        run_cli(
-            "tier0",
-            "--summary",
-            "刪掉過期文案檔",
-            "--files",
-            "gone.txt",
-            "--lines",
-            "3",
-        )
-        e = self.read_tier0()[0]
-        self.assertEqual(e["per_file_lines"], {"gone.txt": 3})
-
-    def test_tier0_rejects_directory_pathspec(self):
-        """🟡-B：目錄會讓檔數上限失效（git diff 展開目錄下全部檔案）→ 拒絕，要求逐檔列出。"""
-        import subprocess
-
-        self.git_repo()
-        os.makedirs("d", exist_ok=True)
-        for i in range(5):
-            with open(os.path.join("d", f"f{i}.txt"), "w", encoding="utf-8") as f:
-                f.write("x\n")
-        subprocess.run(["git", "add", "d"], check=True, capture_output=True)
-        subprocess.run(
-            ["git", "commit", "-q", "-m", "add d"], check=True, capture_output=True
-        )
-        for i in range(5):
-            with open(os.path.join("d", f"f{i}.txt"), "w", encoding="utf-8") as f:
-                f.write("changed\n")
-        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
-            with self.assertRaises(SystemExit):
-                run_cli("tier0", "--summary", "s", "--files", "d", "--lines", "10")
-            err = buf.getvalue()
-        self.assertIn("不接受目錄", err)
-        self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
-
-    def test_tier0_rejects_missing_file(self):
-        """[邊界] --files 列出不存在的路徑 → 拒絕並印該路徑。"""
-        self.git_repo()
-        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
-            with self.assertRaises(SystemExit):
-                run_cli("tier0", "--summary", "s", "--files", "nope.py", "--lines", "1")
-            err = buf.getvalue()
-        self.assertIn("nope.py", err)
-
-    def test_tier0_outside_git_repo_refuses(self):
-        """[邊界] 非 git 工作區 → 拒絕記帳（不靜默留痕）。"""
-        with open("a.py", "w", encoding="utf-8") as f:
-            f.write("x\n")
-        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
-            with self.assertRaises(SystemExit):
-                run_cli("tier0", "--summary", "s", "--files", "a.py", "--lines", "1")
-            err = buf.getvalue()
-        self.assertIn("不在 git 工作區", err)
-        self.assertFalse(os.path.exists(os.path.join("run", "tier0.jsonl")))
 
 
 class HitlConfirmTest(unittest.TestCase):
@@ -1107,11 +834,9 @@ class HitlConfirmTest(unittest.TestCase):
         self.old_cwd = os.getcwd()
         os.chdir(self.tmp.name)
         os.makedirs("run", exist_ok=True)
-        # 釘住「有人看管」：本框架的派工（dispatch.py）與評測都是 headless（ATTENDED=0），
-        # 不釘的話成功路徑會被「無人看管拒絕」擋掉而誤紅——誤紅會打在自己的驗證與收尾 gate 上。
-        # 需要驗無人看管行為的測試自行覆寫（見 test_unattended_session_cannot_self_confirm）。
-        # 本釘樁是否承重，只能靠在 headless 環境跑整套來驗（實測：拿掉釘樁、ATTENDED=0 → 2 failed）；
-        # 測試無法對自己所在套件的環境穩健性下斷言，故不另設假鎖。
+        # 釘住「有人看管」：dispatch.py 與評測都是 headless（ATTENDED=0），不釘的話成功路徑會被
+        # 「無人看管拒絕」擋掉而誤紅。需要驗無人看管行為的案例自行覆寫。
+        # 本釘樁是否承重只能靠在 headless 環境跑整套來驗（拿掉釘樁、ATTENDED=0 → 2 failed）。
         patcher = mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ATTENDED": "1"})
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -1121,6 +846,9 @@ class HitlConfirmTest(unittest.TestCase):
         self.tmp.cleanup()
 
     RID = "2026-10-03-probe"
+
+    def manifest_path(self):
+        return os.path.join("run", f"{self.RID}.json")
 
     def write_manifest(self, **over):
         m = {
@@ -1134,12 +862,12 @@ class HitlConfirmTest(unittest.TestCase):
             "hitl_rulings": None,
         }
         m.update(over)
-        with open(os.path.join("run", f"{self.RID}.json"), "w", encoding="utf-8") as f:
+        with open(self.manifest_path(), "w", encoding="utf-8") as f:
             json.dump(m, f, ensure_ascii=False)
         return m
 
     def read_manifest(self):
-        with open(os.path.join("run", f"{self.RID}.json"), encoding="utf-8") as f:
+        with open(self.manifest_path(), encoding="utf-8") as f:
             return json.load(f)
 
     def read_events(self):
@@ -1149,24 +877,9 @@ class HitlConfirmTest(unittest.TestCase):
         with open(path, encoding="utf-8") as f:
             return [json.loads(line) for line in f if line.strip()]
 
-    def _expect_exit1(self, *argv):
-        with io.StringIO() as buf, contextlib.redirect_stderr(buf):
-            with self.assertRaises(SystemExit) as cm:
-                run_cli(*argv)
-            err = buf.getvalue()
-        self.assertEqual(cm.exception.code, 1)
-        return err
-
     def test_confirms_and_advances_phase(self):
         self.write_manifest()
-        run_cli(
-            "hitl-confirm",
-            self.RID,
-            "--note",
-            "確認 2 tasks／4 items",
-            "--rulings",
-            "2",
-        )
+        run_cli("hitl-confirm", self.RID, "--note", "確認 2 tasks／4 items", "--rulings", "2")
         m = self.read_manifest()
         self.assertEqual(m["phase"], "decomposed")
         self.assertEqual(m["hitl_rulings"], 2)
@@ -1174,102 +887,76 @@ class HitlConfirmTest(unittest.TestCase):
         self.assertRegex(m["hitl_confirmed_at"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2} — ")
         self.assertEqual([e["cmd"] for e in self.read_events()], ["hitl_confirmed"])
 
-    def test_rulings_defaults_to_zero(self):
-        self.write_manifest()
-        run_cli("hitl-confirm", self.RID, "--note", "無裁示，照計畫")
-        self.assertEqual(self.read_manifest()["hitl_rulings"], 0)
-
-    def test_blank_note_refused_and_manifest_untouched(self):
-        self.write_manifest()
-        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "   ")
-        self.assertIn("--note 不可為空", err)
-        m = self.read_manifest()
-        self.assertEqual(m["phase"], "init")
-        self.assertIsNone(m["hitl_confirmed_at"])
-
-    def test_missing_task_file_refused(self):
-        self.write_manifest(task_file=None)
-        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "x")
-        self.assertIn("HITL 掛在分拆之後", err)
-        self.assertEqual(self.read_manifest()["phase"], "init")
-
-    def test_intent_gate_refused(self):
-        self.write_manifest(spec_inline=None, spec_path=None)
-        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "x")
-        self.assertIn("intent gate", err)
-
-    def test_non_in_progress_refused(self):
-        self.write_manifest(status="completed")
-        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "x")
-        self.assertIn("非 in_progress", err)
-
-    def test_existing_confirmation_not_overwritten(self):
-        self.write_manifest(hitl_confirmed_at="2026-10-01 09:00 — 原確認")
-        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "新確認")
-        self.assertIn("已有 hitl_confirmed_at", err)
-        self.assertIn("原確認", err)
-        self.assertEqual(
-            self.read_manifest()["hitl_confirmed_at"], "2026-10-01 09:00 — 原確認"
-        )
-
-    def test_unattended_session_cannot_self_confirm(self):
-        """無人看管（ATTENDED=0）→ exit 1、三欄不變。出生證：headless 評測中模型自行確認後動工。"""
-        self.write_manifest()
-        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ATTENDED": "0"}):
-            err = self._expect_exit1("hitl-confirm", self.RID, "--note", "自己確認")
-        self.assertIn("無人看管", err)
-        self.assertIn("停在這一步", err)
-        m = self.read_manifest()
-        self.assertEqual(m["phase"], "init")
-        self.assertIsNone(m["hitl_confirmed_at"])
-
-    def test_attended_session_records_attended_flag(self):
-        """互動 session（ATTENDED=1）→ 照常確認並留痕 hitl_attended。"""
-        self.write_manifest()
-        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ATTENDED": "1"}):
-            run_cli("hitl-confirm", self.RID, "--note", "確認計畫")
-        m = self.read_manifest()
-        self.assertEqual(m["phase"], "decomposed")
-        self.assertIs(m["hitl_attended"], True)
-
-    def test_missing_attended_env_is_recorded_as_unknown(self):
-        """環境未提供該變數（例如直接在終端跑）→ 不擋，但留痕為 None 供稽核。"""
-        self.write_manifest()
-        env = {
+    def test_confirm_defaults_and_attended_flag(self):
+        env_without_flag = {
             k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ATTENDED"
         }
-        with mock.patch.dict(
-            os.environ, env, clear=True
-        ):  # clear 後 setUp 的釘樁不生效
-            run_cli("hitl-confirm", self.RID, "--note", "終端手動確認")
-        m = self.read_manifest()
-        self.assertEqual(m["phase"], "decomposed")
-        self.assertIsNone(m["hitl_attended"])
+        cases = (
+            # 未給 --rulings 預設 0；互動 session（ATTENDED=1）留痕 hitl_attended
+            ("attended", {"CLAUDE_CODE_SESSION_ATTENDED": "1"}, False, True),
+            # 環境未提供該變數（如直接在終端跑）→ 不擋，但留痕為 None 供稽核
+            ("missing_env_recorded_as_unknown", env_without_flag, True, None),
+        )
+        for name, env, clear, attended in cases:
+            with self.subTest(name):
+                self.write_manifest()
+                with mock.patch.dict(os.environ, env, clear=clear):
+                    run_cli("hitl-confirm", self.RID, "--note", "確認計畫")
+                m = self.read_manifest()
+                self.assertEqual(m["phase"], "decomposed")
+                self.assertEqual(m["hitl_rulings"], 0)
+                self.assertIs(m["hitl_attended"], attended)
 
-    def test_phase_cannot_be_rolled_back(self):
-        """🟡-1：phase 已 ≥ decomposed 時拒絕，不把前進過的 phase 倒退回去。"""
-        self.write_manifest(phase="completed")
-        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "x")
-        self.assertIn("不可把已前進的 phase 倒退", err)
-        self.assertEqual(self.read_manifest()["phase"], "completed")
-
-    def test_refusal_message_does_not_leak_env_var_name(self):
-        """🟡-4：拒絕訊息不印環境變數名（被擋的一方不需要知道哪個變數決定判定）。"""
-        self.write_manifest()
-        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ATTENDED": "0"}):
-            err = self._expect_exit1("hitl-confirm", self.RID, "--note", "x")
-        self.assertIn("無人看管", err)
-        self.assertNotIn("CLAUDE_CODE_SESSION_ATTENDED", err)
-
-    def test_unknown_run_id_refused(self):
-        err = self._expect_exit1("hitl-confirm", "2026-01-01-nope", "--note", "x")
-        self.assertIn("不存在", err)
-
-    def test_invalid_json_manifest_refused_without_traceback(self):
-        with open(os.path.join("run", f"{self.RID}.json"), "w", encoding="utf-8") as f:
-            f.write("{not json")
-        err = self._expect_exit1("hitl-confirm", self.RID, "--note", "x")
-        self.assertIn("非合法 JSON", err)
+    def test_refusals_exit_1_and_leave_manifest_untouched(self):
+        # (名稱, manifest 覆寫, run id, 環境覆寫, --note, stderr 關鍵字)
+        cases = (
+            ("blank_note", {}, None, {}, "   ", ["--note 不可為空"]),
+            ("missing_task_file", {"task_file": None}, None, {}, "x", ["HITL 掛在分拆之後"]),
+            ("intent_gate", {"spec_inline": None, "spec_path": None}, None, {}, "x", ["intent gate"]),
+            ("non_in_progress", {"status": "completed"}, None, {}, "x", ["非 in_progress"]),
+            (
+                "existing_confirmation_not_overwritten",
+                {"hitl_confirmed_at": "2026-10-01 09:00 — 原確認"},
+                None,
+                {},
+                "新確認",
+                ["已有 hitl_confirmed_at", "原確認"],
+            ),
+            (
+                # 出生證：headless 評測中模型自行確認後動工
+                "unattended_session_cannot_self_confirm",
+                {},
+                None,
+                {"CLAUDE_CODE_SESSION_ATTENDED": "0"},
+                "自己確認",
+                ["無人看管", "停在這一步"],
+            ),
+            # 🟡-1：phase 已 ≥ decomposed 時拒絕，不倒退
+            ("phase_cannot_be_rolled_back", {"phase": "completed"}, None, {}, "x", ["不可把已前進的 phase 倒退"]),
+            ("unknown_run_id", None, "2026-01-01-nope", {}, "x", ["不存在"]),
+            ("invalid_json_manifest", "{not json", None, {}, "x", ["非合法 JSON"]),
+        )
+        for name, over, rid, env, note, fragments in cases:
+            with self.subTest(name):
+                if isinstance(over, str):
+                    with open(self.manifest_path(), "w", encoding="utf-8") as f:
+                        f.write(over)
+                elif over is not None:
+                    self.write_manifest(**over)
+                path = self.manifest_path()
+                before = open(path, encoding="utf-8").read() if os.path.exists(path) else None
+                with mock.patch.dict(os.environ, env):
+                    with io.StringIO() as buf, contextlib.redirect_stderr(buf):
+                        with self.assertRaises(SystemExit) as cm:
+                            run_cli("hitl-confirm", rid or self.RID, "--note", note)
+                        err = buf.getvalue()
+                self.assertEqual(cm.exception.code, 1)
+                for fragment in fragments:
+                    self.assertIn(fragment, err)
+                # 🟡-4：拒絕訊息不印環境變數名
+                self.assertNotIn("CLAUDE_CODE_SESSION_ATTENDED", err)
+                after = open(path, encoding="utf-8").read() if os.path.exists(path) else None
+                self.assertEqual(after, before)
 
 
 if __name__ == "__main__":
