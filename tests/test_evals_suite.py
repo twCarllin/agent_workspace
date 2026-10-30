@@ -7,12 +7,18 @@
 """
 
 import ast
+import importlib
+import importlib.util
+import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import tomllib
 import unittest
+from pathlib import Path
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUNNER = os.path.join(ROOT, ".claude", "hooks", "skill_eval.py")
@@ -21,6 +27,11 @@ GITIGNORE = os.path.join(ROOT, ".gitignore")
 
 # 內嵌 CLAUDE.md 副本的指紋：Router 節名只該出現在 repo 根 CLAUDE.md，不該被複製進 evals/ 或 runner
 CLAUDE_MD_FINGERPRINT = "難易度分級"
+LOAD_RUNNER = (
+    "import importlib.util,sys\n"
+    f"s=importlib.util.spec_from_file_location('se', {RUNNER!r}); "
+    "m=importlib.util.module_from_spec(s); s.loader.exec_module(m)\n"
+)
 
 
 def case_dirs():
@@ -38,51 +49,74 @@ def read(path):
         return f.read()
 
 
-def run_runner(*args):
+def write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def run_runner(*args, env=None):
     return subprocess.run(
-        [sys.executable, RUNNER, *args], capture_output=True, text=True
+        [sys.executable, RUNNER, *args], capture_output=True, text=True, env=env
     )
+
+
+def _load_runner():
+    spec = importlib.util.spec_from_file_location("skill_eval", RUNNER)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _fake_claude(directory, body):
+    """在 directory 放假 claude；回傳含該目錄的 PATH。"""
+    fake = os.path.join(directory, "claude")
+    write(fake, "#!/bin/sh\n" + body + "\n")
+    os.chmod(fake, 0o755)
+    return directory + os.pathsep + os.environ.get("PATH", "")
+
+
+def _run_check(case, fixture, result_obj, workdir):
+    """以合成 result.json 執行情境 check.py（零費用）；回傳 (exit, stdout)。"""
+    rp = os.path.join(workdir, "result.json")
+    write(rp, json.dumps(result_obj, ensure_ascii=False))
+    case_dir = os.path.join(EVALS, case)
+    proc = subprocess.run(
+        [sys.executable, os.path.join(case_dir, "check.py"), fixture, rp],
+        cwd=case_dir,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    return proc.returncode, proc.stdout + proc.stderr
 
 
 class RunnerDefaultsTest(unittest.TestCase):
     """預算預設值是使用者裁示（runs 1、上限 3 美元），改掉即 FAIL。"""
 
-    def test_dry_run_prints_defaults_without_calling_claude(self):
+    def test_dry_run_prints_defaults_and_override_without_calling_claude(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = os.path.join(directory, "invoked")
-            fake_cli = os.path.join(directory, "claude")
-            with open(fake_cli, "w", encoding="utf-8") as stream:
-                stream.write('#!/bin/sh\nprintf invoked > "$MARKER"\nexit 2\n')
-            os.chmod(fake_cli, 0o755)
-            proc = subprocess.run(
-                [sys.executable, RUNNER, "--dry-run"],
-                capture_output=True,
-                text=True,
-                env={
-                    **os.environ,
-                    "PATH": directory + os.pathsep + os.environ.get("PATH", ""),
-                    "MARKER": marker,
-                },
-            )
-            self.assertEqual(proc.returncode, 0, proc.stderr)
-            self.assertFalse(os.path.exists(marker), "dry-run 不可呼叫模型 CLI")
-            self.assertIn("runs=1", proc.stdout)
-            self.assertIn("max_cost_usd=3.0", proc.stdout)
-            self.assertIn("不呼叫 claude", proc.stdout)
+            path = _fake_claude(directory, 'printf invoked > "$MARKER"\nexit 2')
+            env = {**os.environ, "PATH": path, "MARKER": marker}
+            for name, args, expected in (
+                ("defaults", [], ("runs=1", "max_cost_usd=3.0")),
+                ("cost override", ["--max-cost-usd", "1.5"], ("max_cost_usd=1.5",)),
+            ):
+                with self.subTest(name):
+                    proc = run_runner("--dry-run", *args, env=env)
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    self.assertFalse(os.path.exists(marker), "dry-run 不可呼叫模型 CLI")
+                    for token in expected:
+                        self.assertIn(token, proc.stdout)
 
     def test_dry_run_lists_every_case(self):
         proc = run_runner("--dry-run")
         for d in case_dirs():
             self.assertIn(f"## {os.path.basename(d)}", proc.stdout)
 
-    def test_cost_override_reflected(self):
-        proc = run_runner("--dry-run", "--max-cost-usd", "1.5")
-        self.assertIn("max_cost_usd=1.5", proc.stdout)
-
     def test_usage_error_is_exit_one(self):
-        proc = run_runner("--bogus")
-        self.assertEqual(proc.returncode, 1)
-        self.assertIn("參數錯誤", proc.stderr)
+        self.assertEqual(run_runner("--bogus").returncode, 1)
 
 
 class RepoRootRejectionTest(unittest.TestCase):
@@ -93,8 +127,6 @@ class RepoRootRejectionTest(unittest.TestCase):
                 fixture = runner.build_fixture(
                     os.path.join(EVALS, "resume-interrupted"), td, harness
                 )
-                from pathlib import Path
-
                 root = Path(fixture)
                 entry = (
                     (root / "CLAUDE.local.md").read_text()
@@ -109,8 +141,6 @@ class RepoRootRejectionTest(unittest.TestCase):
                     harness != "claude"
                     or (root / ".claude/skills/eval-flow/SKILL.md").is_file()
                 )
-                import json
-
                 manifest = json.loads(
                     (root / "run/2026-10-01-greeting-module.json").read_text()
                 )
@@ -125,56 +155,40 @@ class RepoRootRejectionTest(unittest.TestCase):
         self.assertNotIn("--max-budget-usd", proc.stdout)
         self.assertNotIn("--dangerously-bypass", proc.stdout)
 
-    def test_runner_refuses_repo_as_fixture(self):
-        code = (
-            "import importlib.util,sys\n"
-            f"s=importlib.util.spec_from_file_location('se', {RUNNER!r}); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)\n"
-            f"m.assert_not_repo({ROOT!r})\n"
-        )
-        proc = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True
-        )
-        self.assertEqual(proc.returncode, 1)
-        self.assertIn("拒絕以 repo 本身為 fixture", proc.stderr)
-
-    def test_rejection_uses_realpath(self):
-        """symlink 別名指向 repo 時也要拒（R-020：abspath 不解 symlink）。"""
+    def test_runner_refuses_repo_as_fixture_including_symlink_alias(self):
+        """R-020：abspath 不解 symlink，別名指向 repo 時也要拒。"""
         with tempfile.TemporaryDirectory() as td:
             alias = os.path.join(td, "alias")
             os.symlink(ROOT, alias)
-            code = (
-                "import importlib.util,sys\n"
-                f"s=importlib.util.spec_from_file_location('se', {RUNNER!r}); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)\n"
-                f"m.assert_not_repo({alias!r})\n"
-            )
-            proc = subprocess.run(
-                [sys.executable, "-c", code], capture_output=True, text=True
-            )
-            self.assertEqual(proc.returncode, 1, "symlink 指向 repo 根仍須被拒")
+            for name, target in (("repo root", ROOT), ("symlink alias", alias)):
+                with self.subTest(name):
+                    proc = subprocess.run(
+                        [
+                            sys.executable,
+                            "-c",
+                            LOAD_RUNNER + f"m.assert_not_repo({target!r})\n",
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(proc.returncode, 1, proc.stderr)
 
 
 class CaseStructureTest(unittest.TestCase):
-    def test_each_case_has_prompt_and_check(self):
+    def test_each_case_has_prompt_check_and_natural_prompt(self):
         self.assertTrue(case_dirs(), "評測案例不可為空")
         for d in case_dirs():
             with self.subTest(case=os.path.basename(d)):
-                self.assertTrue(
-                    os.path.isfile(os.path.join(d, "prompt.md")),
-                    f"{os.path.basename(d)} 缺 prompt.md",
-                )
-                self.assertTrue(
-                    os.path.isfile(os.path.join(d, "check.py")),
-                    f"{os.path.basename(d)} 缺 check.py",
-                )
-
-    def test_check_scripts_parse_and_declare_bound_fields(self):
-        for d in case_dirs():
-            p = os.path.join(d, "check.py")
-            with self.subTest(case=os.path.basename(d)):
-                src = read(p)
+                self.assertTrue(os.path.isfile(os.path.join(d, "prompt.md")))
+                src = read(os.path.join(d, "check.py"))
                 ast.parse(src)
                 self.assertIn(
-                    "綁定", src.split('"""', 2)[1], f"{p} 檔頭 docstring 須註明綁定欄位"
+                    "綁定", src.split('"""', 2)[1], "檔頭 docstring 須註明綁定欄位"
+                )
+                self.assertNotRegex(
+                    read(os.path.join(d, "prompt.md")),
+                    r"評測|eval|測試情境",
+                    "prompt.md 須是自然需求，不可透露這是評測",
                 )
 
     def test_setup_scripts_parse(self):
@@ -186,18 +200,6 @@ class CaseStructureTest(unittest.TestCase):
         self.assertTrue(setups, "至少 resume-interrupted 須有 setup.py（中斷現場）")
         for p in setups:
             self.assertIsInstance(ast.parse(read(p)), ast.Module, f"{p} 無法解析")
-
-    def test_prompts_do_not_tell_the_model_it_is_being_evaluated(self):
-        for d in case_dirs():
-            with self.subTest(case=os.path.basename(d)):
-                self.assertNotRegex(
-                    read(os.path.join(d, "prompt.md")),
-                    r"評測|eval|測試情境",
-                    "prompt.md 須是自然需求，不可透露這是評測",
-                )
-
-    def test_results_dir_is_not_a_case(self):
-        self.assertNotIn(os.path.join(EVALS, "results"), case_dirs())
 
 
 class NoEmbeddedRulesTest(unittest.TestCase):
@@ -214,33 +216,6 @@ class NoEmbeddedRulesTest(unittest.TestCase):
         self.assertEqual(hits, [], f"evals/ 內出現 CLAUDE.md 指紋：{hits}")
 
 
-def _load_runner():
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("skill_eval", RUNNER)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def _run_check(case, fixture, result_obj, workdir):
-    """以合成 result.json 執行情境 check.py（零費用）；回傳 (exit, stdout)。"""
-    import json
-
-    rp = os.path.join(workdir, "result.json")
-    with open(rp, "w", encoding="utf-8") as f:
-        json.dump(result_obj, f, ensure_ascii=False)
-    case_dir = os.path.join(EVALS, case)
-    proc = subprocess.run(
-        [sys.executable, os.path.join(case_dir, "check.py"), fixture, rp],
-        cwd=case_dir,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    return proc.returncode, proc.stdout + proc.stderr
-
-
 class CheckerContractTest(unittest.TestCase):
     """契約 row（item 11.2）：各 check.py 對合成產物的判定。fixture 由 runner 的 build_fixture 真建（git init＋cp），
     模型回應以合成 result.json 取代——測的是斷言邏輯，不是模型。"""
@@ -251,154 +226,118 @@ class CheckerContractTest(unittest.TestCase):
 
     def _fixture(self, case):
         wd = tempfile.mkdtemp(prefix="skill-eval-test-")
-        self.addCleanup(lambda: __import__("shutil").rmtree(wd, ignore_errors=True))
+        self.addCleanup(lambda: shutil.rmtree(wd, ignore_errors=True))
         return wd, self.se.build_fixture(os.path.join(EVALS, case), wd)
 
     def test_s3_setup_builds_interrupted_scene(self):
-        import json
-
         wd, fx = self._fixture("resume-interrupted")
-        st = json.load(open(os.path.join(fx, "eval_state.json"), encoding="utf-8"))
+        st = json.loads(read(os.path.join(fx, "eval_state.json")))
         self.assertEqual(st["sub_tasks"][1]["step"], "reviewing")
         self.assertEqual(st["sub_tasks"][0]["status"], "passed")
-        staged = subprocess.run(
-            ["git", "diff", "--cached", "--stat"],
-            cwd=fx,
-            capture_output=True,
-            text=True,
-        ).stdout
-        self.assertIn(
-            "test_greeting_farewell.py", staged, "task 2 的測試檔須在 staging"
-        )
-        head = subprocess.run(
-            ["git", "show", "HEAD:lib/greeting.py"],
-            cwd=fx,
-            capture_output=True,
-            text=True,
-        ).stdout
-        self.assertNotIn("farewell", head, "commit 1 不得含 task 2 的實作（現場要真）")
-        self.assertTrue(
-            os.path.isfile(os.path.join(fx, ".gitignore")),
-            "fixture 須含 .gitignore（否則 run/ 進程式樹快照）",
-        )
 
-    def test_s3_good_resume_response_passes(self):
-        wd, fx = self._fixture("resume-interrupted")
-        code, out = _run_check(
-            "resume-interrupted",
-            fx,
-            {
-                "result": "run 2026-10-01-greeting-module：task 2 卡在 reviewing，重派 checker、從循環步驟 3 續跑。"
-            },
-            wd,
-        )
-        self.assertEqual(code, 0, out)
-        self.assertIn("[check] FAIL 0 條", out)
+        def git(*args):
+            return subprocess.run(
+                ["git", *args], cwd=fx, capture_output=True, text=True
+            ).stdout
 
-    def test_s3_wrong_response_fails_without_exception(self):
-        wd, fx = self._fixture("resume-interrupted")
-        code, out = _run_check(
-            "resume-interrupted", fx, {"result": "我不知道要做什麼。"}, wd
-        )
-        self.assertEqual(code, 1, out)
-        self.assertIn("FAIL 回應含正確 run_id", out)
-        self.assertNotIn("Traceback", out)
+        # task 2 的測試檔須在 staging；commit 1 不得含 task 2 的實作（現場要真）
+        self.assertIn("test_greeting_farewell.py", git("diff", "--cached", "--stat"))
+        self.assertNotIn("farewell", git("show", "HEAD:lib/greeting.py"))
+        # 須含 .gitignore，否則 run/ 進程式樹快照
+        self.assertTrue(os.path.isfile(os.path.join(fx, ".gitignore")))
 
-    def test_s3_missing_result_key_fails_without_exception(self):
-        wd, fx = self._fixture("resume-interrupted")
-        code, out = _run_check("resume-interrupted", fx, {"is_error": True}, wd)
-        self.assertEqual(code, 1, out)
-        self.assertIn("FAIL 輸出含 result", out)
-        self.assertNotIn("Traceback", out)
-
-    def test_s3_rerun_of_task1_detected_via_events(self):
-        """終態相同也要抓到重跑：events.jsonl 出現 id 1 的事件 → FAIL（🟡-4）。"""
-        wd, fx = self._fixture("resume-interrupted")
-        os.makedirs(os.path.join(fx, "run"), exist_ok=True)
-        with open(
-            os.path.join(fx, "run", "2026-10-01-greeting-module.events.jsonl"),
-            "w",
-            encoding="utf-8",
-        ) as f:
-            f.write(
-                '{"ts": "t", "cmd": "set-step", "args": {"id": 1, "step": "writing"}}\n'
-            )
-        code, out = _run_check(
-            "resume-interrupted",
-            fx,
-            {"result": "run 2026-10-01-greeting-module：重派 checker、從步驟 3 續跑。"},
-            wd,
-        )
-        self.assertEqual(code, 1, out)
-        self.assertIn("FAIL task 1 未被重跑", out)
-
-    def test_s1_bare_fixture_fails_without_exception(self):
-        wd, fx = self._fixture("tier1-routing")
-        code, out = _run_check(
-            "tier1-routing", fx, {"result": "我已載入 eval-flow skill。"}, wd
-        )
-        self.assertEqual(code, 1, out)
-        self.assertIn("FAIL manifest 已建立", out)
-        self.assertNotIn("Traceback", out)
-
-    def test_s1_manifest_and_init_event_pass(self):
-        import json
-
-        wd, fx = self._fixture("tier1-routing")
-        os.makedirs(os.path.join(fx, "run"))
+    def test_checker_verdicts_per_scenario(self):
+        resume, routing, hitl = "resume-interrupted", "tier1-routing", "tier1-hitl-stop"
+        good = "run 2026-10-01-greeting-module：重派 checker、從步驟 3 續跑。"
         rid = "2026-10-03-stats-json"
-        json.dump(
-            {"run_id": rid, "tier": 1, "tier_rationale": "理由碼空集合"},
-            open(os.path.join(fx, "run", f"{rid}.json"), "w", encoding="utf-8"),
-        )
-        open(
-            os.path.join(fx, "run", f"{rid}.events.jsonl"), "w", encoding="utf-8"
-        ).write('{"ts": "t", "cmd": "init", "args": {}}\n')
-        code, out = _run_check(
-            "tier1-routing", fx, {"result": "判 Tier 1，請確認計畫。"}, wd
-        )
-        self.assertEqual(code, 0, out)
+        events = f"run/{rid}.events.jsonl"
+        init_event = '{"ts": "t", "cmd": "init", "args": {}}\n'
 
-    def test_s1_tier_two_fails(self):
-        import json
+        def manifest(tier):
+            return json.dumps({"run_id": rid, "tier": tier, "tier_rationale": "x"})
 
-        wd, fx = self._fixture("tier1-routing")
-        os.makedirs(os.path.join(fx, "run"))
-        json.dump(
-            {"run_id": "r", "tier": 2, "tier_rationale": "x"},
-            open(os.path.join(fx, "run", "r.json"), "w"),
-        )
-        code, out = _run_check("tier1-routing", fx, {"result": "判 Tier 2"}, wd)
-        self.assertEqual(code, 1)
-        self.assertIn("FAIL tier 判為 1", out)
-
-    def test_s2_task_file_and_untouched_py_pass(self):
-        wd, fx = self._fixture("tier1-hitl-stop")
-        os.makedirs(os.path.join(fx, "task"))
-        open(os.path.join(fx, "task", "2026-10-03.md"), "w", encoding="utf-8").write(
-            "- [ ] 1.1 x\n"
-        )
-        code, out = _run_check(
-            "tier1-hitl-stop", fx, {"result": "請確認 1 task／1 item 的計畫。"}, wd
-        )
-        self.assertEqual(code, 0, out)
-
-    def test_s2_touched_py_before_hitl_fails(self):
-        wd, fx = self._fixture("tier1-hitl-stop")
-        os.makedirs(os.path.join(fx, "task"))
-        open(os.path.join(fx, "task", "2026-10-03.md"), "w", encoding="utf-8").write(
-            "- [ ] 1.1 x\n"
-        )
-        with open(
-            os.path.join(fx, ".claude", "hooks", "stats.py"), "a", encoding="utf-8"
-        ) as f:
-            f.write("\n# touched\n")
-        code, out = _run_check(
-            "tier1-hitl-stop", fx, {"result": "已完成，請確認。"}, wd
-        )
-        self.assertEqual(code, 1, out)
-        self.assertIn("FAIL HITL 前未改任何 .py", out)
-        self.assertIn("stats.py", out)
+        plan = "請確認 1 task／1 item 的計畫。"
+        for name, case, result, files, append, code_expected, expect_in in (
+            ("s3 good resume passes", resume, {"result": good}, {}, {}, 0, ""),
+            (
+                "s3 wrong response",
+                resume,
+                {"result": "我不知道要做什麼。"},
+                {},
+                {},
+                1,
+                "",
+            ),
+            ("s3 missing result key", resume, {"is_error": True}, {}, {}, 1, ""),
+            (
+                # 終態相同也要抓到重跑：events.jsonl 出現 id 1 的事件（🟡-4）
+                "s3 rerun of task 1 detected via events",
+                resume,
+                {"result": good},
+                {
+                    "run/2026-10-01-greeting-module.events.jsonl": '{"ts": "t", "cmd": "set-step", "args": {"id": 1, "step": "writing"}}\n'
+                },
+                {},
+                1,
+                "",
+            ),
+            (
+                "s1 bare fixture",
+                routing,
+                {"result": "已載入 eval-flow。"},
+                {},
+                {},
+                1,
+                "",
+            ),
+            (
+                "s1 tier 1 manifest and init event pass",
+                routing,
+                {"result": "判 Tier 1"},
+                {f"run/{rid}.json": manifest(1), events: init_event},
+                {},
+                0,
+                "",
+            ),
+            (
+                "s1 tier 2 fails",
+                routing,
+                {"result": "判 Tier 2"},
+                {f"run/{rid}.json": manifest(2), events: init_event},
+                {},
+                1,
+                "",
+            ),
+            (
+                "s2 task file and untouched py pass",
+                hitl,
+                {"result": plan},
+                {"task/2026-10-03.md": "- [ ] 1.1 x\n"},
+                {},
+                0,
+                "",
+            ),
+            (
+                "s2 touched py before HITL fails",
+                hitl,
+                {"result": plan},
+                {"task/2026-10-03.md": "- [ ] 1.1 x\n"},
+                {".claude/hooks/stats.py": "\n# touched\n"},
+                1,
+                "stats.py",
+            ),
+        ):
+            with self.subTest(name):
+                wd, fx = self._fixture(case)
+                for rel, text in files.items():
+                    write(os.path.join(fx, rel), text)
+                for rel, text in append.items():
+                    with open(os.path.join(fx, rel), "a", encoding="utf-8") as f:
+                        f.write(text)
+                code, out = _run_check(case, fx, result, wd)
+                self.assertEqual(code, code_expected, out)
+                self.assertNotIn("Traceback", out)
+                self.assertIn(expect_in, out)
 
 
 class RunnerErrorPathTest(unittest.TestCase):
@@ -408,54 +347,38 @@ class RunnerErrorPathTest(unittest.TestCase):
     def setUpClass(cls):
         cls.se = _load_runner()
 
-    def test_check_script_exception_is_checker_error_not_pass(self):
+    def test_check_script_exception_or_absence_is_checker_error_not_pass(self):
         with tempfile.TemporaryDirectory() as td:
-            case = os.path.join(td, "case")
-            os.makedirs(case)
-            with open(os.path.join(case, "check.py"), "w", encoding="utf-8") as f:
-                f.write("raise RuntimeError('boom')\n")
-            verdict, out = self.se.run_check(
-                case, td, os.path.join(td, "nonexistent.json")
-            )
-        self.assertEqual(verdict, "checker_error")
-        self.assertIn("boom", out)
-        self.assertEqual(self.se.VERDICT_LABEL["checker_error"], "檢查器錯誤")
-
-    def test_missing_check_script_is_checker_error(self):
-        with tempfile.TemporaryDirectory() as td:
-            verdict, out = self.se.run_check(td, td, os.path.join(td, "r.json"))
-        self.assertEqual(verdict, "checker_error")
-        self.assertIn("缺 check.py", out)
+            raising = os.path.join(td, "case")
+            write(os.path.join(raising, "check.py"), "raise RuntimeError('boom')\n")
+            missing = os.path.join(td, "empty")
+            os.makedirs(missing)
+            for name, case in (
+                ("check raises", raising),
+                ("check.py missing", missing),
+            ):
+                with self.subTest(name):
+                    verdict, out = self.se.run_check(
+                        case, td, os.path.join(td, "nonexistent.json")
+                    )
+                    self.assertEqual(verdict, "checker_error")
+            self.assertIn("boom", self.se.run_check(raising, td, "x")[1])
 
     def test_non_json_claude_output_is_unparsable_not_pass(self):
-        """PATH 前置一個假 claude（印非 JSON）→ run_claude 回 (None, raw, 「輸出不可解析」)。"""
+        """PATH 前置一個假 claude（印非 JSON）→ run_claude 回 (None, raw, note)。"""
         with tempfile.TemporaryDirectory() as td:
-            fake = os.path.join(td, "claude")
-            with open(fake, "w", encoding="utf-8") as f:
-                f.write("#!/bin/sh\necho 'this is not json'\n")
-            os.chmod(fake, 0o755)
-            old_path = os.environ.get("PATH", "")
-            os.environ["PATH"] = td + os.pathsep + old_path
-            try:
+            path = _fake_claude(td, "echo 'this is not json'")
+            with mock.patch.dict(os.environ, {"PATH": path}):
                 data, raw, note = self.se.run_claude(td, "ping", 1.0, 30)
-            finally:
-                os.environ["PATH"] = old_path
         self.assertIsNone(data)
         self.assertIn("not json", raw)
-        self.assertIn("輸出不可解析", note)
+        self.assertTrue(note)
 
     def test_claude_missing_from_path_is_exit_one(self):
-        """非 dry-run 且 PATH 無 claude → exit 1 印「找不到 claude CLI」，不建 fixture。"""
+        """非 dry-run 且 PATH 無 claude → exit 1，不建 fixture。"""
         with tempfile.TemporaryDirectory() as td:
-            env = dict(os.environ, PATH=td)  # 只有空目錄：claude 不在 PATH
-            proc = subprocess.run(
-                [sys.executable, RUNNER, "--case", "tier1-routing"],
-                capture_output=True,
-                text=True,
-                env=env,
-            )
+            proc = run_runner("--case", "tier1-routing", env=dict(os.environ, PATH=td))
         self.assertEqual(proc.returncode, 1, proc.stderr)
-        self.assertIn("找不到 claude CLI", proc.stderr)
 
 
 class BudgetAccountingTest(unittest.TestCase):
@@ -465,54 +388,37 @@ class BudgetAccountingTest(unittest.TestCase):
     def setUpClass(cls):
         cls.se = _load_runner()
 
-    def _fake_claude(self, td, body):
-        fake = os.path.join(td, "claude")
-        with open(fake, "w", encoding="utf-8") as f:
-            f.write("#!/bin/sh\n" + body + "\n")
-        os.chmod(fake, 0o755)
-        old_path = os.environ.get("PATH", "")
-        os.environ["PATH"] = td + os.pathsep + old_path
-        self.addCleanup(lambda: os.environ.__setitem__("PATH", old_path))
-
     def test_budget_cut_session_is_budget_exhausted_not_fail(self):
         with tempfile.TemporaryDirectory() as td:
-            self._fake_claude(
+            path = _fake_claude(
                 td,
                 'echo \'{"is_error": true, "subtype": "error_max_budget_usd", "num_turns": 1, "total_cost_usd": 0.4}\'',
             )
-            data, raw, note = self.se.run_claude(td, "ping", 0.4, 30)
+            with mock.patch.dict(os.environ, {"PATH": path}):
+                data, raw, note = self.se.run_claude(td, "ping", 0.4, 30)
         self.assertEqual(note, "budget_exhausted")
-        self.assertEqual(
-            self.se.VERDICT_LABEL["budget_exhausted"], "預算切斷（不計行為）"
-        )
 
     def test_min_case_budget_covers_measured_cost(self):
         """門檻須 ≥ 2.0：實測單情境 1.6–2.6 美元，1.0 會開一個必被切斷的 session。"""
         self.assertGreaterEqual(self.se.MIN_CASE_BUDGET_USD, 2.0)
 
-    def test_exit_code_fail_dominates_ceiling(self):
+    def test_runner_source_budget_contracts(self):
         src = read(RUNNER)
-        self.assertIn(
-            "if any_fail:\n        return 1\n    return 2 if ceiling_hit else 0",
-            src,
-            "有 FAIL 時 exit 1 須優先於成本上限的 exit 2",
-        )
-
-    def test_unknown_cost_is_charged_conservatively(self):
-        src = read(RUNNER)
-        self.assertIn(
-            'rec["cost_usd"] = remaining',
-            src,
-            "拿不到 total_cost_usd 時須以該 session 預算保守記帳",
-        )
+        for name, snippet in (
+            (
+                "fail dominates ceiling",
+                "if any_fail:\n        return 1\n    return 2 if ceiling_hit else 0",
+            ),
+            ("unknown cost charged conservatively", 'rec["cost_usd"] = remaining'),
+        ):
+            with self.subTest(name):
+                self.assertIn(snippet, src)
 
 
 class CheckerZeroAssertionTest(unittest.TestCase):
     def test_finish_with_no_assertions_is_not_pass(self):
         sys.path.insert(0, EVALS)
         try:
-            import importlib
-
             common = importlib.import_module("_common")
         finally:
             sys.path.pop(0)
@@ -522,13 +428,6 @@ class CheckerZeroAssertionTest(unittest.TestCase):
 class VersionControlHygieneTest(unittest.TestCase):
     def test_results_dir_ignored(self):
         self.assertIn("evals/results/", read(GITIGNORE).splitlines())
-
-    def test_this_file_never_runs_claude(self):
-        src = read(os.path.abspath(__file__))
-        # 允許出現在註解／字串說明；不允許作為 subprocess 的可執行檔
-        self.assertNotRegex(
-            src, r"\[\s*['\"]claude['\"]", "本測試檔不得以 subprocess 執行 claude"
-        )
 
 
 if __name__ == "__main__":

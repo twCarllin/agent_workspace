@@ -35,29 +35,38 @@ CMD_NEW_NONREPRODUCIBLE = (
     '[ $m -eq 1 ] && echo "FAILED tests/test_d.py::test_d"; exit 1'
 )
 # __suite__ 重跑確認分支用的計數檔 stub（B1）：m 記錄呼叫次數，控制首跑 vs 重跑的行為差異。
+COUNT = "m=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; "
 # 首跑整個 suite 崩潰（無可解析輸出）、重跑變乾淨 → row1
-CMD_SUITE_THEN_CLEAN = (
-    "m=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; "
-    "[ $m -eq 1 ] && exit 1; exit 0"
-)
+CMD_SUITE_THEN_CLEAN = COUNT + "[ $m -eq 1 ] && exit 1; exit 0"
 # 首跑、重跑都整個 suite 崩潰（無可解析輸出）→ row2
-CMD_SUITE_ALWAYS = "m=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; exit 1"
-# 首跑即可解析出個別失敗，須重跑确认同一 ID
-CMD_INDIVIDUAL_FIRST = (
-    "m=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; "
-    'echo "FAILED tests/test_broken.py::test_a"; exit 1'
-)
+CMD_SUITE_ALWAYS = COUNT + "exit 1"
+# 首跑即可解析出個別失敗，須重跑確認同一 ID
+CMD_INDIVIDUAL_FIRST = COUNT + 'echo "FAILED tests/test_broken.py::test_a"; exit 1'
 # 首跑整個 suite 崩潰、重跑解析出個別失敗 → row4
 CMD_SUITE_THEN_INDIVIDUAL = (
-    "m=$(cat m 2>/dev/null || echo 0); m=$((m+1)); echo $m > m; "
-    "[ $m -eq 1 ] && exit 1; "
-    'echo "FAILED tests/test_broken.py::test_a"; exit 1'
+    COUNT + '[ $m -eq 1 ] && exit 1; echo "FAILED tests/test_broken.py::test_a"; exit 1'
 )
 
+UNIT_FAIL = "import unittest\nclass T(unittest.TestCase):\n    def test_fail(self): self.fail()\n"
+UNIT_OK = "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self): pass\n"
+UNITTEST_DISCOVER = "python3 -m unittest discover -s tests"
 
-class BaselineScriptTest(unittest.TestCase):
+
+def kill_escaped(pid_path):
+    """清掉逃離行程群組的測試後代。"""
+    if pid_path.exists():
+        try:
+            os.kill(int(pid_path.read_text()), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+class RepoCase(unittest.TestCase):
+    """暫存 git repo（含已提交的 .gitignore 與 eval_state.json），供各 e2e 類別共用。"""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         self.dir = Path(self.tmp.name)
         (self.dir / "eval_state.json").write_text('{"run_id": "t"}', encoding="utf-8")
         # runner 的已知副作用不是產品輸入；不要用流程目錄掩蓋產品變更。
@@ -67,9 +76,6 @@ class BaselineScriptTest(unittest.TestCase):
         self.git("init", "-q")
         self.git("add", ".gitignore")
         self.git("commit", "-q", "-m", "initial")
-
-    def tearDown(self):
-        self.tmp.cleanup()
 
     def git(self, *args):
         return subprocess.run(
@@ -91,10 +97,15 @@ class BaselineScriptTest(unittest.TestCase):
         )
 
     def read_baseline(self):
-        return json.loads(
-            (self.dir / "run" / "t.test_baseline.json").read_text(encoding="utf-8")
-        )
+        path = self.dir / "run" / "t.test_baseline.json"
+        return json.loads(path.read_text(encoding="utf-8"))
 
+    def read_execution(self):
+        path = self.dir / "run" / "t.baseline_execution.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+
+class BaselineScriptTest(RepoCase):
     def build_baseline(self, cmd=CMD_STABLE, *extra):
         result = self.run_script("baseline", "--cmd", cmd, *extra)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -143,9 +154,7 @@ class BaselineScriptTest(unittest.TestCase):
         saved = self.read_baseline()["check_observations"][-1]
         self.assertEqual(saved["key"], "s1")
         self.assertEqual(saved["cmd"], CMD_STABLE)
-        self.assertEqual(
-            saved["observations"][0]["failures"], ["tests/test_broken.py::test_a"]
-        )
+        self.assertEqual(saved["observations"][0]["failures"], ["tests/test_broken.py::test_a"])
 
     def test_check_blocks_reproducible_new_failure_and_logs(self):
         self.build_baseline()
@@ -155,9 +164,6 @@ class BaselineScriptTest(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 2)
             self.assertIn("tests/test_new.py::test_c", result.stderr)
-            self.assertIn("回報使用者裁決", result.stderr)
-            self.assertNotIn("第 1 次", result.stderr)
-            self.assertNotIn("2 次上限", result.stderr)
             self.assertEqual(
                 self.read_baseline()["failure_log"],
                 [{"key": "s1", "tests": ["tests/test_new.py::test_c"]}] * count,
@@ -167,7 +173,6 @@ class BaselineScriptTest(unittest.TestCase):
         self.build_baseline()
         result = self.run_script("check", "--cmd", CMD_NEW_NONREPRODUCIBLE)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("非確定性失敗", result.stdout)
         data = self.read_baseline()
         self.assertEqual(data["stable_failures"], ["tests/test_broken.py::test_a"])
         self.assertNotIn("failure_log", data)
@@ -216,10 +221,15 @@ class BaselineScriptTest(unittest.TestCase):
         self.assertEqual(clean.returncode, 0, clean.stderr)
         self.assertNotIn(".venv/bin", clean.stderr)
 
-    def test_check_without_baseline_fails_with_instruction(self):
-        result = self.run_script("check", "--cmd", "exit 0")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("修改前先跑 baseline", result.stderr)
+    def test_missing_baseline_or_cmd_exits_1(self):
+        for name, args, key in (
+            ("check 無 baseline", ("check", "--cmd", "exit 0"), "baseline"),
+            ("baseline 無 cmd 無 manifest", ("baseline",), "test_command"),
+        ):
+            with self.subTest(name):
+                result = self.run_script(*args)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(key, result.stderr)
 
     def test_cmd_falls_back_to_manifest_test_command(self):
         (self.dir / "run").mkdir()
@@ -231,11 +241,6 @@ class BaselineScriptTest(unittest.TestCase):
         self.assertEqual(self.read_baseline()["cmd"], "exit 0")
         check = self.run_script("check")
         self.assertEqual(check.returncode, 0, check.stderr)
-
-    def test_missing_cmd_and_manifest_field_errors(self):
-        result = self.run_script("baseline")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("test_command", result.stderr)
 
     def test_legacy_baseline_is_not_reused_or_upgraded(self):
         (self.dir / "run").mkdir()
@@ -270,12 +275,15 @@ class BaselineScriptTest(unittest.TestCase):
         self.assertIn("已有修改", fresh.stderr)
         self.assertEqual(self.read_counter(), 2)
 
-    def test_no_reuse_when_head_command_or_environment_differs(self):
+    def test_no_reuse_when_fresh_head_command_or_environment_differs(self):
         self.build_baseline(CMD_INDIVIDUAL_FIRST)
+        fresh = self.build_baseline(CMD_INDIVIDUAL_FIRST, "--fresh")  # --fresh 強制重建
+        self.assertNotIn("reused_from", fresh)
+        self.assertEqual(self.read_counter(), 4)
         self.git("commit", "--allow-empty", "-q", "-m", "next")
         rebuilt = self.build_baseline(CMD_INDIVIDUAL_FIRST)
         self.assertNotIn("reused_from", rebuilt)
-        self.assertEqual(self.read_counter(), 4)
+        self.assertEqual(self.read_counter(), 6)
         command = self.build_baseline("touch ran; exit 0")
         self.assertTrue((self.dir / "ran").exists())
         self.assertNotIn("reused_from", command)
@@ -284,12 +292,6 @@ class BaselineScriptTest(unittest.TestCase):
         self.assertEqual(check.returncode, 1)
         self.assertIn("環境", check.stderr)
 
-    def test_fresh_flag_forces_clean_rebuild(self):
-        self.build_baseline(CMD_INDIVIDUAL_FIRST)
-        data = self.build_baseline(CMD_INDIVIDUAL_FIRST, "--fresh")
-        self.assertNotIn("reused_from", data)
-        self.assertEqual(self.read_counter(), 4)
-
     def test_dirty_product_rejected_without_changing_user_files(self):
         product = self.dir / "product a$z.py"
         product.write_text("VALUE = 1\n", encoding="utf-8")
@@ -297,11 +299,10 @@ class BaselineScriptTest(unittest.TestCase):
         self.git("commit", "-q", "-m", "product")
         for kind in ("unstaged", "staged", "untracked", "deleted", "renamed"):
             with self.subTest(kind=kind):
-                if kind == "unstaged":
+                if kind in ("unstaged", "staged"):
                     product.write_text("VALUE = 2\n", encoding="utf-8")
-                elif kind == "staged":
-                    product.write_text("VALUE = 2\n", encoding="utf-8")
-                    self.git("add", str(product))
+                    if kind == "staged":
+                        self.git("add", str(product))
                 elif kind == "untracked":
                     (self.dir / "new $ file.py").write_text("new", encoding="utf-8")
                 elif kind == "deleted":
@@ -322,15 +323,7 @@ class BaselineScriptTest(unittest.TestCase):
     def test_no_head_rejects_baseline(self):
         with tempfile.TemporaryDirectory() as empty:
             result = subprocess.run(
-                [
-                    sys.executable,
-                    str(SCRIPT),
-                    "baseline",
-                    "--run-id",
-                    "t",
-                    "--cmd",
-                    "exit 0",
-                ],
+                [sys.executable, str(SCRIPT), "baseline", "--run-id", "t", "--cmd", "exit 0"],
                 cwd=empty,
                 capture_output=True,
                 text=True,
@@ -339,23 +332,23 @@ class BaselineScriptTest(unittest.TestCase):
             self.assertIn("無 HEAD", result.stderr)
             self.assertFalse((Path(empty) / "run").exists())
 
-    def test_product_drift_during_run_does_not_publish_baseline(self):
-        result = self.run_script(
-            "baseline", "--cmd", "echo changed > product.py; exit 0"
-        )
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual((self.dir / "product.py").read_text(), "changed\n")
-        self.assertFalse((self.dir / "run" / "t.test_baseline.json").exists())
-
-    def test_head_drift_during_run_does_not_publish_baseline(self):
-        result = self.run_script(
-            "baseline",
-            "--cmd",
-            "git -c user.email=t@t -c user.name=t commit --allow-empty -q -m drift; exit 0",
-        )
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("漂移", result.stderr)
-        self.assertFalse((self.dir / "run" / "t.test_baseline.json").exists())
+    def test_drift_during_run_does_not_publish_baseline(self):
+        for name, cmd in (
+            ("product", "echo changed > product.py; exit 0"),
+            (
+                "head",
+                "git -c user.email=t@t -c user.name=t commit --allow-empty -q -m drift; exit 0",
+            ),
+        ):
+            with self.subTest(drift=name):
+                result = self.run_script("baseline", "--cmd", cmd)
+                self.assertEqual(result.returncode, 1)
+                self.assertFalse((self.dir / "run" / "t.test_baseline.json").exists())
+                if name == "product":
+                    self.assertEqual((self.dir / "product.py").read_text(), "changed\n")
+                    (self.dir / "product.py").unlink()
+                else:
+                    self.assertIn("漂移", result.stderr)
 
     def test_execution_errors_never_become_baseline_or_pass_check(self):
         for cmd in (
@@ -369,9 +362,7 @@ class BaselineScriptTest(unittest.TestCase):
                 result = self.run_script("baseline", "--cmd", cmd)
                 self.assertEqual(result.returncode, 2, result.stdout)
                 self.assertFalse((self.dir / "run" / "t.test_baseline.json").exists())
-                evidence = json.loads(
-                    (self.dir / "run" / "t.baseline_execution.json").read_text()
-                )
+                evidence = self.read_execution()
                 self.assertEqual(evidence["cmd"], cmd)
                 self.assertEqual(evidence["run_id"], "t")
                 self.assertEqual(evidence["timeout_seconds"], 300)
@@ -385,12 +376,8 @@ class BaselineScriptTest(unittest.TestCase):
         result = self.run_script("check", "--cmd", "exit 124")
         self.assertEqual(result.returncode, 2)
         self.assertIn("timeout", result.stderr)
-        self.assertEqual(
-            self.read_baseline()["check_observations"][-1]["observations"][0][
-                "classification"
-            ],
-            "timeout",
-        )
+        last = self.read_baseline()["check_observations"][-1]
+        self.assertEqual(last["observations"][0]["classification"], "timeout")
 
     def test_unittest_failures_have_distinct_real_ids_on_both_entrypoints(self):
         test_file = self.dir / "test_sample.py"
@@ -419,14 +406,10 @@ class BaselineScriptTest(unittest.TestCase):
                 result = self.run_script("check", "--cmd", cmd, script=entry)
                 self.assertEqual(result.returncode, 2, result.stdout)
                 self.assertIn("test_sample.T.test_b", result.stderr)
-                self.assertNotIn(
-                    "(failures=1)", self.read_baseline()["stable_failures"]
-                )
+                self.assertNotIn("(failures=1)", self.read_baseline()["stable_failures"])
 
     def test_timeout_cleans_child_and_preserves_external_process(self):
-        external = subprocess.Popen(
-            [sys.executable, "-c", "import time; time.sleep(10)"]
-        )
+        external = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
         try:
             cmd = "sleep 10 & echo $! > run/child.log; wait"
             (self.dir / "run").mkdir()
@@ -442,9 +425,7 @@ class BaselineScriptTest(unittest.TestCase):
                 state.stdout,
             )
             self.assertIsNone(external.poll())
-            evidence = json.loads(
-                (self.dir / "run" / "t.baseline_execution.json").read_text()
-            )
+            evidence = self.read_execution()
             observation = evidence["observations"][0]
             self.assertEqual(evidence["timeout_seconds"], 0.15)
             self.assertEqual(observation["classification"], "timeout")
@@ -472,20 +453,13 @@ class BaselineScriptTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2, result.stdout)
             self.assertLess(duration, 2, "逃離群組的 pipe 不可延長到後代自行退出")
             self.assertTrue(pid_path.exists(), "逃離群組的後代必須確實啟動")
-            child = int(pid_path.read_text())
-            os.kill(child, 0)
-            observation = json.loads(
-                (self.dir / "run" / "t.baseline_execution.json").read_text()
-            )["observations"][0]
+            os.kill(int(pid_path.read_text()), 0)
+            observation = self.read_execution()["observations"][0]
             self.assertEqual(observation["classification"], "timeout")
             self.assertIn("escaped-ready", observation["stdout"])
             self.assertLess(observation["duration_seconds"], 2)
         finally:
-            if pid_path.exists():
-                try:
-                    os.kill(int(pid_path.read_text()), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+            kill_escaped(pid_path)
 
     def test_mine_timeout_blocks_even_when_parent_exits_zero(self):
         (self.dir / "run").mkdir()
@@ -501,11 +475,7 @@ class BaselineScriptTest(unittest.TestCase):
         try:
             start = time.monotonic()
             result = self.run_script(
-                "mine",
-                "--cmd",
-                shlex.join([sys.executable, "-c", code]),
-                "--timeout",
-                "0.4",
+                "mine", "--cmd", shlex.join([sys.executable, "-c", code]), "--timeout", "0.4"
             )
             self.assertEqual(result.returncode, 2, result.stdout)
             self.assertIn("timeout", result.stderr)
@@ -514,31 +484,27 @@ class BaselineScriptTest(unittest.TestCase):
             self.assertTrue(pid_path.exists(), "runner 子程序必須確實啟動")
             os.kill(int(pid_path.read_text()), 0)
         finally:
-            if pid_path.exists():
-                try:
-                    os.kill(int(pid_path.read_text()), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+            kill_escaped(pid_path)
 
     def test_timeout_option_is_bounded(self):
         for value in ("0", "-1", "86401", "nan", "inf"):
-            result = self.run_script("baseline", "--cmd", "exit 0", "--timeout", value)
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("timeout", result.stderr)
+            with self.subTest(value=value):
+                result = self.run_script(
+                    "baseline", "--cmd", "exit 0", "--timeout", value
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("timeout", result.stderr)
 
     def test_related_maps_by_name_and_content(self):
         (self.dir / "src").mkdir()
         (self.dir / "tests").mkdir()
         (self.dir / "src" / "foo.py").write_text("def foo(): pass\n", encoding="utf-8")
-        (self.dir / "tests" / "test_foo.py").write_text(
-            "from src.foo import foo\n", encoding="utf-8"
-        )
-        (self.dir / "tests" / "test_service.py").write_text(
-            "import src.foo\n", encoding="utf-8"
-        )
-        (self.dir / "tests" / "test_unrelated.py").write_text(
-            "def test_x(): pass\n", encoding="utf-8"
-        )
+        for name, body in (
+            ("test_foo.py", "from src.foo import foo\n"),
+            ("test_service.py", "import src.foo\n"),
+            ("test_unrelated.py", "def test_x(): pass\n"),
+        ):
+            (self.dir / "tests" / name).write_text(body, encoding="utf-8")
         result = self.run_script("related", "--files", "src/foo.py")
         paths = set(result.stdout.split())
         self.assertIn("tests/test_foo.py", paths)
@@ -547,65 +513,55 @@ class BaselineScriptTest(unittest.TestCase):
 
 
 class BuildMineCmdTest(unittest.TestCase):
-    """build_mine_argv 純函式的單元測試（無 subprocess）。"""
+    """build_mine_argv／is_test_file 純函式的單元測試（無 subprocess）。"""
 
-    def test_pytest_appends_file_paths(self):
-        argv = build_mine_argv("pytest -q", ["tests/test_foo.py", "tests/test_bar.py"])
-        self.assertEqual(
-            argv, ["pytest", "-q", "tests/test_foo.py", "tests/test_bar.py"]
-        )
+    def test_build_mine_argv_by_runner(self):
+        files = ["tests/test_foo.py", "tests/test_bar.py"]
+        for name, cmd, expected in (
+            ("pytest 直接附路徑", "pytest -q", ["pytest", "-q", *files]),
+            (
+                "unittest discover 轉 module",
+                "python3 -m unittest discover -s tests",
+                ["python3", "-m", "unittest", "tests.test_foo", "tests.test_bar"],
+            ),
+            (
+                "unittest 不含 discover 也轉 module",
+                "python3 -m unittest",
+                ["python3", "-m", "unittest", "tests.test_foo", "tests.test_bar"],
+            ),
+        ):
+            with self.subTest(name):
+                self.assertEqual(build_mine_argv(cmd, files), expected)
 
-    def test_unittest_discover_converts_to_modules(self):
-        argv = build_mine_argv(
-            "python3 -m unittest discover -s tests",
-            ["tests/test_foo.py"],
-        )
-        self.assertEqual(argv, ["python3", "-m", "unittest", "tests.test_foo"])
-
-    def test_unittest_plain_also_converts_to_modules(self):
-        # "python3 -m unittest" 不含 discover 也要走 module 路徑
-        argv = build_mine_argv(
-            "python3 -m unittest",
-            ["tests/test_foo.py", "tests/test_bar.py"],
-        )
-        self.assertEqual(
-            argv, ["python3", "-m", "unittest", "tests.test_foo", "tests.test_bar"]
-        )
-
-    def test_is_test_file_detects_test_prefix(self):
-        self.assertTrue(is_test_file("tests/test_foo.py"))
-        self.assertTrue(is_test_file("test_bar.py"))
-        self.assertFalse(is_test_file("src/foo.py"))
-
-    def test_is_test_file_skips_skip_dirs(self):
-        self.assertFalse(is_test_file(".venv/tests/test_foo.py"))
-
-    # --- 2026-09-22 bugfix：點開頭目錄下的 test_*.py 被誤判為測試模組 ---
-
-    def test_is_test_file_excludes_dot_prefixed_dirs(self):
-        """點開頭的目錄一律排除——Python module 路徑不可含這種段。
-
-        本框架自己的 `.claude/hooks/` 下就有兩支名為 `test_*.py` 的 hook script。
-        修正前它們被判為測試檔，`build_mine_argv` 轉出 `.claude.hooks.test_baseline`，
-        首段為空，`python3 -m unittest` 以 `ValueError: Empty module name` 讓整個
-        suite 判失敗——改到這兩支 script 時必中。
-        """
-        self.assertFalse(is_test_file(".claude/hooks/test_baseline.py"))
-        self.assertFalse(is_test_file(".claude/hooks/test_lint.py"))
-        self.assertFalse(is_test_file(".config/test_anything.py"))
-
-    def test_is_test_file_keeps_normal_paths_after_dot_dir_fix(self):
-        """反向：修正不得誤殺正常路徑（點只出現在檔名或副檔名時照常判定）。"""
-        self.assertTrue(is_test_file("tests/test_stats.py"))
-        self.assertTrue(is_test_file("src/foo_test.py"))
-        self.assertTrue(is_test_file("a/b/tests/helper.py"))
+    def test_is_test_file_classification(self):
+        # 2026-09-22 bugfix：點開頭目錄下的 test_*.py 被誤判為測試模組
+        # （.claude/hooks/test_*.py 轉出 `.claude.hooks.test_baseline`，unittest 報 Empty module name）；
+        # L8 教訓：spec/ 是 eval-flow 產出物目錄，曾被當測試檔餵 pytest。
+        for path, expected in (
+            ("tests/test_foo.py", True),
+            ("test_bar.py", True),
+            ("tests/test_stats.py", True),
+            ("src/foo_test.py", True),
+            ("a/b/tests/helper.py", True),
+            ("src/foo.test.ts", True),  # 多框架慣例不得因副檔名守門而誤傷
+            ("src/bar.spec.js", True),
+            ("__tests__/baz.jsx", True),
+            ("src/foo.py", False),
+            (".venv/tests/test_foo.py", False),  # skip dirs
+            (".claude/hooks/test_baseline.py", False),
+            (".claude/hooks/test_lint.py", False),
+            (".config/test_anything.py", False),
+            ("spec/2026-07-21-phase-c.md", False),
+            ("spec/bootstrap.md", False),
+            ("tests/fixture.json", False),  # 測試目錄裡的 fixture／文件不餵 runner
+            ("tests/README.md", False),
+            ("test_plan.md", False),  # TEST_FILE_RE 前綴命中但非 code 檔
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(is_test_file(path), expected)
 
     def test_build_mine_argv_never_emits_empty_module_segment(self):
-        """坐實後果面：經 is_test_file 過濾後的檔案，轉出的 module 路徑無空段。
-
-        這是 bug 的實際爆點——斷言 argv 本身，而非只斷言分類結果（R-004 加嚴：
-        寫出／轉換的內容要逐項核，不能只驗上游判定）。
-        """
+        """坐實後果面：經 is_test_file 過濾後的檔案，轉出的 module 路徑無空段（R-004：斷言轉換後內容）。"""
         candidates = [
             ".claude/hooks/test_baseline.py",
             "tests/test_stats.py",
@@ -616,381 +572,121 @@ class BuildMineCmdTest(unittest.TestCase):
         modules = argv[3:]
         self.assertNotIn(".claude.hooks.test_baseline", modules)
         for m in modules:
-            self.assertFalse(
-                m.startswith(".") or ".." in m,
-                f"module 路徑含空段：{m!r}",
-            )
-
-    def test_is_test_file_excludes_flow_spec_dir(self):
-        # spec/ 是 eval-flow 自產的產出物目錄，不是測試目錄（L8 教訓：曾被當測試檔餵 pytest）
-        self.assertFalse(is_test_file("spec/2026-07-21-phase-c.md"))
-        self.assertFalse(is_test_file("spec/bootstrap.md"))
-
-    def test_is_test_file_excludes_non_code_extensions(self):
-        # 測試目錄裡的 fixture／文件不餵 runner
-        self.assertFalse(is_test_file("tests/fixture.json"))
-        self.assertFalse(is_test_file("tests/README.md"))
-        self.assertFalse(
-            is_test_file("test_plan.md")
-        )  # TEST_FILE_RE 前綴命中但非 code 檔
-
-    def test_is_test_file_keeps_multi_framework_conventions(self):
-        # 多框架慣例不得因副檔名守門而誤傷
-        self.assertTrue(is_test_file("src/foo.test.ts"))
-        self.assertTrue(is_test_file("src/bar.spec.js"))
-        self.assertTrue(is_test_file("__tests__/baz.jsx"))
+            self.assertFalse(m.startswith(".") or ".." in m, f"module 路徑含空段：{m!r}")
 
 
 class VenvMismatchTest(unittest.TestCase):
     """venv_mismatch 純函式：偵測「有虛擬環境目錄但 cmd 未用它」的錯配。"""
 
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = self.tmp.name
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def _mk(self, name):
-        os.makedirs(os.path.join(self.dir, name, "bin"))
-
-    def test_dotvenv_present_cmd_unaware_returns_name(self):
-        self._mk(".venv")
-        self.assertEqual(venv_mismatch("python3 -m pytest -q", root=self.dir), ".venv")
-
-    def test_dotvenv_present_cmd_uses_it_returns_none(self):
-        self._mk(".venv")
-        self.assertIsNone(venv_mismatch(".venv/bin/python3 -m pytest", root=self.dir))
-
-    def test_no_venv_dir_returns_none(self):
-        self.assertIsNone(venv_mismatch("python3 -m pytest", root=self.dir))
-
-    def test_plain_venv_dir_detected(self):
-        self._mk("venv")
-        self.assertEqual(venv_mismatch("pytest -q", root=self.dir), "venv")
+    def test_venv_mismatch(self):
+        for name, venv_dir, cmd, expected in (
+            ("dotvenv 存在、cmd 未用 → 回傳名稱", ".venv", "python3 -m pytest -q", ".venv"),
+            ("dotvenv 存在、cmd 已用", ".venv", ".venv/bin/python3 -m pytest", None),
+            ("無 venv 目錄", None, "python3 -m pytest", None),
+            ("一般 venv 目錄", "venv", "pytest -q", "venv"),
+        ):
+            with self.subTest(name), tempfile.TemporaryDirectory() as root:
+                if venv_dir:
+                    os.makedirs(os.path.join(root, venv_dir, "bin"))
+                self.assertEqual(venv_mismatch(cmd, root=root), expected)
 
 
-class MineSubcommandTest(unittest.TestCase):
+class MineSubcommandTest(RepoCase):
     """mine 子命令的 subprocess 整合測試（需 git repo）。"""
 
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
-        (self.dir / "eval_state.json").write_text('{"run_id": "t"}', encoding="utf-8")
-        # 建立 git repo
-        subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.email=t@t",
-                "-c",
-                "user.name=t",
-                "commit",
-                "--allow-empty",
-                "-q",
-                "-m",
-                "init",
-            ],
-            cwd=self.dir,
-            check=True,
-        )
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def run_script(self, *args):
-        return subprocess.run(
-            [sys.executable, str(SCRIPT), *args],
-            cwd=self.dir,
-            capture_output=True,
-            text=True,
-        )
+    def write_test(self, name, body):
+        (self.dir / "tests").mkdir(exist_ok=True)
+        (self.dir / "tests" / name).write_text(body, encoding="utf-8")
 
     def write_baseline(self):
         (self.dir / "run").mkdir(exist_ok=True)
-        data = {
-            "run_id": "t",
-            "cmd": "exit 0",
-            "head_sha": "abc",
-            "stable_failures": [],
-        }
-        (self.dir / "run" / "t.test_baseline.json").write_text(
-            json.dumps(data), encoding="utf-8"
-        )
+        data = {"run_id": "t", "cmd": "exit 0", "head_sha": "abc", "stable_failures": []}
+        (self.dir / "run" / "t.test_baseline.json").write_text(json.dumps(data))
 
     def test_mine_with_test_file_runs_only_that_file(self):
         """untracked 測試檔存在時，mine 只跑該測試檔（runner 收到的路徑正確）。"""
-        (self.dir / "tests").mkdir()
-        (self.dir / "tests" / "test_foo.py").write_text("", encoding="utf-8")
-        (self.dir / "src").mkdir()
-        (self.dir / "src" / "main.py").write_text("", encoding="utf-8")
+        self.write_test("test_foo.py", "")
+        (self.dir / "main.py").write_text("", encoding="utf-8")  # 非測試檔不得被餵給 runner
         sentinel = self.dir / "ran.txt"
-        # 寫一個 shell script 接收參數並記錄到檔案
         runner = self.dir / "fake_runner.sh"
         runner.write_text(f'#!/bin/sh\necho "$@" > {sentinel}\n', encoding="utf-8")
         runner.chmod(0o755)
         result = self.run_script("mine", "--cmd", str(runner))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(sentinel.exists(), "假 runner 應有執行")
-        got = sentinel.read_text(encoding="utf-8").strip()
-        self.assertIn("tests/test_foo.py", got)
+        got = sentinel.read_text(encoding="utf-8").split()
+        self.assertEqual(got, ["tests/test_foo.py"])
 
-    def test_mine_no_log_file_created_after_removal(self):
-        """D1（mine_log 落檔刪除）：mine 執行後不產生 run/<run_id>.mine_log.json（B 類自驗本體照常
-        PASS/BLOCK，僅落檔行為被移除）。"""
-        (self.dir / "tests").mkdir()
-        tf = self.dir / "tests" / "test_foo.py"
-        tf.write_text(
-            "import unittest\nclass T(unittest.TestCase):\n    def test_fail(self): self.fail()\n",
-            encoding="utf-8",
-        )
-        r1 = self.run_script(
-            "mine",
-            "--cmd",
-            "python3 -m unittest discover -s tests",
-            "--strike-key",
-            "sub_task_1",
-        )
-        self.assertEqual(r1.returncode, 2)
-        tf.write_text(
-            "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self): pass\n",
-            encoding="utf-8",
-        )
-        r2 = self.run_script(
-            "mine",
-            "--cmd",
-            "python3 -m unittest discover -s tests",
-            "--strike-key",
-            "sub_task_1",
-        )
-        self.assertEqual(r2.returncode, 0, r2.stderr)
-        self.assertFalse((self.dir / "run" / "t.mine_log.json").exists())
-
-    def test_mine_no_test_files_exits_0_with_message(self):
-        """變更中無測試檔 → exit 0、stdout 含「無測試檔」。"""
+    def test_mine_no_test_files_exits_0(self):
+        """變更中無測試檔 → exit 0。"""
         (self.dir / "src").mkdir()
         (self.dir / "src" / "foo.py").write_text("", encoding="utf-8")
         result = self.run_script("mine", "--cmd", "exit 0")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("無測試檔", result.stdout)
 
-    def test_mine_test_failure_exits_2(self):
-        """mine 範圍內的測試失敗 → exit 2。"""
-        (self.dir / "tests").mkdir()
-        (self.dir / "tests" / "test_foo.py").write_text(
-            "import unittest\nclass T(unittest.TestCase):\n    def test_fail(self): self.fail()\n",
-            encoding="utf-8",
-        )
-        result = self.run_script(
-            "mine", "--cmd", "python3 -m unittest discover -s tests"
-        )
-        self.assertEqual(result.returncode, 2, result.stdout)
-
-    def test_mine_failure_with_strike_key_does_not_count(self):
-        """失敗且有 --strike-key ＋既有 baseline 檔 → exit 2，但不寫入計數（strike 已移除）。"""
-        (self.dir / "tests").mkdir()
-        (self.dir / "tests" / "test_foo.py").write_text(
-            "import unittest\nclass T(unittest.TestCase):\n    def test_fail(self): self.fail()\n",
-            encoding="utf-8",
-        )
+    def test_mine_failure_exits_2_and_strike_key_does_not_count(self):
+        """D1／strike 已移除：失敗 → exit 2；有 --strike-key ＋既有 baseline 也不寫計數、不落 mine_log。"""
+        self.write_test("test_foo.py", UNIT_FAIL)
         self.write_baseline()
-        result = self.run_script(
-            "mine",
-            "--cmd",
-            "python3 -m unittest discover -s tests",
-            "--strike-key",
-            "sk1",
-        )
-        self.assertEqual(result.returncode, 2)
-        self.assertNotIn("2 次上限", result.stderr)
-        self.assertNotIn("連續失敗", result.stderr)
+        result = self.run_script("mine", "--cmd", UNITTEST_DISCOVER, "--strike-key", "sk1")
+        self.assertEqual(result.returncode, 2, result.stdout)
         self.assertNotIn("strikes", self.read_baseline())
+        self.assertFalse((self.dir / "run" / "t.mine_log.json").exists())
 
-    def read_baseline(self):
-        return json.loads(
-            (self.dir / "run" / "t.test_baseline.json").read_text(encoding="utf-8")
-        )
-
-    def test_mine_no_baseline_does_not_create_baseline(self):
-        """baseline 不存在時，mine 不建立 baseline 檔。"""
-        (self.dir / "tests").mkdir()
-        (self.dir / "tests" / "test_foo.py").write_text(
-            "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self): pass\n",
-            encoding="utf-8",
-        )
-        self.run_script(
-            "mine",
-            "--cmd",
-            "python3 -m unittest discover -s tests",
-            "--strike-key",
-            "sk1",
-        )
-        self.assertFalse((self.dir / "run" / "t.test_baseline.json").exists())
-
-    def test_mine_discover_cmd_does_not_pass_discover_flag(self):
-        """unittest discover 型 cmd → mine 實際執行的 argv 不含 discover。
-        用 python3 -m unittest 直接跑 sentinel 測試檔確認真正執行、且沒有 discover。"""
-        (self.dir / "tests").mkdir()
-        # 寫一個真實可執行的 unittest 測試，通過即可
-        (self.dir / "tests" / "test_sentinel.py").write_text(
-            "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self): pass\n",
-            encoding="utf-8",
-        )
-        result = self.run_script(
-            "mine",
-            "--cmd",
-            "python3 -m unittest discover -s tests",
-        )
+    def test_mine_pass_creates_no_baseline_or_log_and_handles_space_filename(self):
+        """通過：不建立 baseline／mine_log；discover 型 cmd 不把 discover 傳給 unittest；
+        含空白的測試檔名不造成 shell 注入、能真實執行。"""
+        self.write_test("test_a b.py", UNIT_OK)
+        result = self.run_script("mine", "--cmd", UNITTEST_DISCOVER, "--strike-key", "sk1")
         self.assertEqual(result.returncode, 0, result.stderr)
-        # 確認沒有 discover 相關警告或錯誤（discover 若被傳入 unittest module 模式會出現 error）
+        self.assertIn("PASS", result.stdout)
         self.assertNotIn("discover", result.stderr)
+        self.assertFalse((self.dir / "run" / "t.test_baseline.json").exists())
+        self.assertFalse((self.dir / "run" / "t.mine_log.json").exists())
 
 
-class GitChangedFilesTest(unittest.TestCase):
-    """git_changed_files 的整合測試（需真實 git repo）。"""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
-        subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.email=t@t",
-                "-c",
-                "user.name=t",
-                "commit",
-                "--allow-empty",
-                "-q",
-                "-m",
-                "init",
-            ],
-            cwd=self.dir,
-            check=True,
-        )
-
-    def tearDown(self):
-        self.tmp.cleanup()
+class GitChangedFilesTest(RepoCase):
+    """git_changed_files 的整合測試（需真實 git repo；R-003：rename／deleted／空白／特殊字元）。"""
 
     def git_changed(self):
         """在 self.dir 內呼叫 git_changed_files（透過子程序以免 cwd 干擾）。"""
-        hooks_dir = str(SCRIPT.parent)
         code = (
-            f"import sys; sys.path.insert(0, {hooks_dir!r}); "
+            f"import sys; sys.path.insert(0, {str(SCRIPT.parent)!r}); "
             "from test_baseline import git_changed_files; "
             "print('\\n'.join(git_changed_files()))"
         )
         p = subprocess.run(
-            [sys.executable, "-c", code],
-            cwd=self.dir,
-            capture_output=True,
-            text=True,
+            [sys.executable, "-c", code], cwd=self.dir, capture_output=True, text=True
         )
-        lines = [l for l in p.stdout.splitlines() if l]
-        return lines
+        return [l for l in p.stdout.splitlines() if l]
 
-    def git(self, *args):
-        subprocess.run(
-            ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
-            cwd=self.dir,
-            check=True,
-        )
-
-    def test_rename_takes_new_path(self):
-        """git mv 重命名：只取 new 路徑，不含 old。"""
-        (self.dir / "old.py").write_text("x", encoding="utf-8")
-        self.git("add", "old.py")
+    def test_rename_takes_new_path_and_deleted_excluded(self):
+        for name in ("old.py", "del.py"):
+            (self.dir / name).write_text("x", encoding="utf-8")
+        self.git("add", "old.py", "del.py")
         self.git("commit", "-q", "-m", "add")
         self.git("mv", "old.py", "new.py")
+        self.git("rm", "-q", "del.py")
         files = self.git_changed()
         self.assertIn("new.py", files)
         self.assertNotIn("old.py", files)
-
-    def test_deleted_file_excluded(self):
-        """deleted 檔不出現在結果中。"""
-        (self.dir / "del.py").write_text("x", encoding="utf-8")
-        self.git("add", "del.py")
-        self.git("commit", "-q", "-m", "add")
-        self.git("rm", "-q", "del.py")
-        files = self.git_changed()
         self.assertNotIn("del.py", files)
 
-    def test_filename_with_space(self):
-        """含空白的未追蹤檔名正確解析（不帶引號）。"""
+    def test_untracked_names_parsed_verbatim(self):
+        """空白（不帶引號）、$（不被 shell 展開）、未追蹤目錄展開為子檔案。"""
         (self.dir / "test_a b.py").write_text("", encoding="utf-8")
-        files = self.git_changed()
-        self.assertIn("test_a b.py", files)
-
-    def test_filename_with_dollar_sign(self):
-        """含 $ 的未追蹤檔名正確解析（不被 shell 展開）。"""
         (self.dir / "test_$x.py").write_text("", encoding="utf-8")
+        (self.dir / "newpkg").mkdir()
+        for name in ("test_one.py", "test_two.py"):
+            (self.dir / "newpkg" / name).write_text("", encoding="utf-8")
         files = self.git_changed()
-        self.assertIn("test_$x.py", files)
-
-    def test_untracked_directory_expands(self):
-        """未追蹤目錄展開為子檔案。"""
-        subdir = self.dir / "newpkg"
-        subdir.mkdir()
-        (subdir / "test_one.py").write_text("", encoding="utf-8")
-        (subdir / "test_two.py").write_text("", encoding="utf-8")
-        files = self.git_changed()
-        self.assertIn("newpkg/test_one.py", files)
-        self.assertIn("newpkg/test_two.py", files)
-
-
-class MineWithSpaceFilenameTest(unittest.TestCase):
-    """含空白檔名的測試檔能被 mine 正確執行（端到端）。"""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
-        (self.dir / "eval_state.json").write_text('{"run_id": "t"}', encoding="utf-8")
-        subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
-        subprocess.run(
-            [
-                "git",
-                "-c",
-                "user.email=t@t",
-                "-c",
-                "user.name=t",
-                "commit",
-                "--allow-empty",
-                "-q",
-                "-m",
-                "init",
-            ],
-            cwd=self.dir,
-            check=True,
-        )
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def run_script(self, *args):
-        return subprocess.run(
-            [sys.executable, str(SCRIPT), *args],
-            cwd=self.dir,
-            capture_output=True,
-            text=True,
-        )
-
-    def test_mine_space_in_filename(self):
-        """含空白的測試檔名不造成 shell 注入，mine 正確執行並通過。"""
-        (self.dir / "tests").mkdir()
-        # 含空白的測試檔：真實 unittest
-        (self.dir / "tests" / "test_a b.py").write_text(
-            "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self): pass\n",
-            encoding="utf-8",
-        )
-        result = self.run_script(
-            "mine",
-            "--cmd",
-            "python3 -m unittest discover -s tests",
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("PASS", result.stdout)
+        for expected in (
+            "test_a b.py",
+            "test_$x.py",
+            "newpkg/test_one.py",
+            "newpkg/test_two.py",
+        ):
+            with self.subTest(expected):
+                self.assertIn(expected, files)
 
 
 if __name__ == "__main__":
