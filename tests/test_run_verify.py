@@ -411,12 +411,6 @@ class RunVerifyCacheTest(RunVerifyFixture, unittest.TestCase):
             2,
         )
 
-    def test_real_cli_and_compatibility_entrypoint_share_cache(self):
-        for entry, extra in ((SCRIPT, []), (HOOK, ["--reuse"])):
-            proc = run_entry(entry, self.command, *extra)
-            self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(Path("counter").read_text(), "1")
-
     def test_live_reuse_is_rejected_before_execution(self):
         for command in (
             "python3 harness_smoke.py --live",

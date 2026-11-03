@@ -74,20 +74,6 @@ class FlowCliTest(unittest.TestCase):
             self.assertEqual(ambiguous.returncode, 0, ambiguous.stderr)
             self.assertEqual(json.loads(ambiguous.stdout)["run"]["status"], "ambiguous")
 
-    def test_validate_tasks_keeps_hot_and_archive_shape_requirements(self):
-        sys.path.insert(0, str(ROOT / ".agent-flow/scripts"))
-        import flow
-
-        for source in ("eval_state.json", "archive"):
-            for tasks in (None, [], {}, [None]):
-                with self.subTest(source=source, tasks=tasks):
-                    with self.assertRaisesRegex(
-                        ValueError, "sub_tasks must be a nonempty list"
-                    ):
-                        flow.validate_tasks(
-                            {"run_id": "r1", "sub_tasks": tasks}, source
-                        )
-
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name)

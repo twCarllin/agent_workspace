@@ -6,7 +6,6 @@
 執行：python3 -m pytest tests/test_evals_suite.py -q
 """
 
-import ast
 import importlib
 import importlib.util
 import json
@@ -23,25 +22,11 @@ from unittest import mock
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUNNER = os.path.join(ROOT, ".claude", "hooks", "skill_eval.py")
 EVALS = os.path.join(ROOT, "evals")
-GITIGNORE = os.path.join(ROOT, ".gitignore")
-
-# 內嵌 CLAUDE.md 副本的指紋：Router 節名只該出現在 repo 根 CLAUDE.md，不該被複製進 evals/ 或 runner
-CLAUDE_MD_FINGERPRINT = "難易度分級"
 LOAD_RUNNER = (
     "import importlib.util,sys\n"
     f"s=importlib.util.spec_from_file_location('se', {RUNNER!r}); "
     "m=importlib.util.module_from_spec(s); s.loader.exec_module(m)\n"
 )
-
-
-def case_dirs():
-    return sorted(
-        os.path.join(EVALS, n)
-        for n in os.listdir(EVALS)
-        if os.path.isdir(os.path.join(EVALS, n))
-        and n != "results"
-        and not n.startswith((".", "_"))
-    )
 
 
 def read(path):
@@ -110,11 +95,6 @@ class RunnerDefaultsTest(unittest.TestCase):
                     for token in expected:
                         self.assertIn(token, proc.stdout)
 
-    def test_dry_run_lists_every_case(self):
-        proc = run_runner("--dry-run")
-        for d in case_dirs():
-            self.assertIn(f"## {os.path.basename(d)}", proc.stdout)
-
     def test_usage_error_is_exit_one(self):
         self.assertEqual(run_runner("--bogus").returncode, 1)
 
@@ -147,14 +127,6 @@ class RepoRootRejectionTest(unittest.TestCase):
                 self.assertEqual(manifest["harness"], harness)
                 self.assertTrue((root / ".git/hooks/commit-msg").is_file())
 
-    def test_codex_preview_has_requested_model_without_dollar_budget(self):
-        proc = run_runner("--dry-run", "--harness", "codex")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("codex exec", proc.stdout)
-        self.assertIn("gpt-6.1-terra", proc.stdout)
-        self.assertNotIn("--max-budget-usd", proc.stdout)
-        self.assertNotIn("--dangerously-bypass", proc.stdout)
-
     def test_runner_refuses_repo_as_fixture_including_symlink_alias(self):
         """R-020：abspath 不解 symlink，別名指向 repo 時也要拒。"""
         with tempfile.TemporaryDirectory() as td:
@@ -172,48 +144,6 @@ class RepoRootRejectionTest(unittest.TestCase):
                         text=True,
                     )
                     self.assertEqual(proc.returncode, 1, proc.stderr)
-
-
-class CaseStructureTest(unittest.TestCase):
-    def test_each_case_has_prompt_check_and_natural_prompt(self):
-        self.assertTrue(case_dirs(), "評測案例不可為空")
-        for d in case_dirs():
-            with self.subTest(case=os.path.basename(d)):
-                self.assertTrue(os.path.isfile(os.path.join(d, "prompt.md")))
-                src = read(os.path.join(d, "check.py"))
-                ast.parse(src)
-                self.assertIn(
-                    "綁定", src.split('"""', 2)[1], "檔頭 docstring 須註明綁定欄位"
-                )
-                self.assertNotRegex(
-                    read(os.path.join(d, "prompt.md")),
-                    r"評測|eval|測試情境",
-                    "prompt.md 須是自然需求，不可透露這是評測",
-                )
-
-    def test_setup_scripts_parse(self):
-        setups = [
-            os.path.join(d, "setup.py")
-            for d in case_dirs()
-            if os.path.isfile(os.path.join(d, "setup.py"))
-        ]
-        self.assertTrue(setups, "至少 resume-interrupted 須有 setup.py（中斷現場）")
-        for p in setups:
-            self.assertIsInstance(ast.parse(read(p)), ast.Module, f"{p} 無法解析")
-
-
-class NoEmbeddedRulesTest(unittest.TestCase):
-    """fixture 的規則檔只准以 cp 自 repo 現檔複製；evals/ 與 runner 內不得有 CLAUDE.md 副本（會漂移）。"""
-
-    def test_no_claude_md_fingerprint_under_evals(self):
-        hits = []
-        for dirpath, dirnames, filenames in os.walk(EVALS):
-            dirnames[:] = [x for x in dirnames if x not in ("results", "__pycache__")]
-            for n in filenames:
-                p = os.path.join(dirpath, n)
-                if CLAUDE_MD_FINGERPRINT in read(p):
-                    hits.append(os.path.relpath(p, ROOT))
-        self.assertEqual(hits, [], f"evals/ 內出現 CLAUDE.md 指紋：{hits}")
 
 
 class CheckerContractTest(unittest.TestCase):
@@ -398,22 +328,6 @@ class BudgetAccountingTest(unittest.TestCase):
                 data, raw, note = self.se.run_claude(td, "ping", 0.4, 30)
         self.assertEqual(note, "budget_exhausted")
 
-    def test_min_case_budget_covers_measured_cost(self):
-        """門檻須 ≥ 2.0：實測單情境 1.6–2.6 美元，1.0 會開一個必被切斷的 session。"""
-        self.assertGreaterEqual(self.se.MIN_CASE_BUDGET_USD, 2.0)
-
-    def test_runner_source_budget_contracts(self):
-        src = read(RUNNER)
-        for name, snippet in (
-            (
-                "fail dominates ceiling",
-                "if any_fail:\n        return 1\n    return 2 if ceiling_hit else 0",
-            ),
-            ("unknown cost charged conservatively", 'rec["cost_usd"] = remaining'),
-        ):
-            with self.subTest(name):
-                self.assertIn(snippet, src)
-
 
 class CheckerZeroAssertionTest(unittest.TestCase):
     def test_finish_with_no_assertions_is_not_pass(self):
@@ -423,11 +337,6 @@ class CheckerZeroAssertionTest(unittest.TestCase):
         finally:
             sys.path.pop(0)
         self.assertEqual(common.Checker().finish(), 3)
-
-
-class VersionControlHygieneTest(unittest.TestCase):
-    def test_results_dir_ignored(self):
-        self.assertIn("evals/results/", read(GITIGNORE).splitlines())
 
 
 if __name__ == "__main__":

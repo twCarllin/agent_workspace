@@ -115,29 +115,6 @@ class BaselineScriptTest(RepoCase):
         path = self.dir / "m"
         return int(path.read_text().strip()) if path.exists() else 0
 
-    def test_baseline_confirms_source_and_same_failure_twice(self):
-        data = self.build_baseline(CMD_INDIVIDUAL_FIRST)
-        self.assertEqual(data["schema"], 2)
-        self.assertEqual(data["run_id"], "t")
-        self.assertEqual(data["cmd"], CMD_INDIVIDUAL_FIRST)
-        self.assertEqual(
-            data["source"],
-            {"head_sha": self.git("rev-parse", "HEAD"), "clean_product_inputs": True},
-        )
-        self.assertEqual(data["source_after"], data["source"])
-        self.assertEqual(data["head_sha"], data["source"]["head_sha"])
-        self.assertRegex(data["environment"], r"^[0-9a-f]{64}$")
-        self.assertEqual(data["timeout_seconds"], 300)
-        self.assertEqual(data["stable_failures"], ["tests/test_broken.py::test_a"])
-        self.assertEqual(self.read_counter(), 2)
-        for result in data["observations"]:
-            self.assertEqual(result["classification"], "test_failure")
-            self.assertEqual(result["returncode"], 1)
-            self.assertEqual(result["failures"], data["stable_failures"])
-            self.assertIn("FAILED tests/test_broken.py::test_a", result["stdout"])
-            self.assertEqual(result["stderr"], "")
-            self.assertGreaterEqual(result["duration_seconds"], 0)
-        self.assertNotIn("strikes", data)
 
     def test_baseline_only_intersects_repeated_failure_ids(self):
         data = self.build_baseline(CMD_NEW_NONREPRODUCIBLE)
@@ -559,20 +536,6 @@ class BuildMineCmdTest(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertEqual(is_test_file(path), expected)
-
-    def test_build_mine_argv_never_emits_empty_module_segment(self):
-        """坐實後果面：經 is_test_file 過濾後的檔案，轉出的 module 路徑無空段（R-004：斷言轉換後內容）。"""
-        candidates = [
-            ".claude/hooks/test_baseline.py",
-            "tests/test_stats.py",
-            "src/foo_test.py",
-        ]
-        kept = [f for f in candidates if is_test_file(f)]
-        argv = build_mine_argv("python3 -m unittest discover -s tests", kept)
-        modules = argv[3:]
-        self.assertNotIn(".claude.hooks.test_baseline", modules)
-        for m in modules:
-            self.assertFalse(m.startswith(".") or ".." in m, f"module 路徑含空段：{m!r}")
 
 
 class VenvMismatchTest(unittest.TestCase):

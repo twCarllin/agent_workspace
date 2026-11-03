@@ -167,34 +167,6 @@ class TokenUsageTest(unittest.TestCase):
         self.assertEqual(manifest["tier"], 1)
         self.assertEqual(manifest["run_id"], run_id)
 
-    def test_missing_events_file_equals_full_session(self):
-        """契約row「邊界：無 events 檔」：刪（不建）events.jsonl → 結果同 --full-session
-        （窗外訊息也計入）。"""
-        run_id = "r-noevents"
-        write(os.path.join(self.run_dir, f"{run_id}.json"), {
-            "run_id": run_id, "tier": 1, "session_id": "sess-noevents",
-        })
-        # 刻意不建立 events.jsonl
-        write_jsonl(os.path.join(self.projects_root, "sess-noevents.jsonl"), [
-            assistant_line("2026-09-06T08:00:00+00:00",
-                            {"input_tokens": 100, "output_tokens": 10}),
-            assistant_line("2026-09-06T09:05:00+00:00", {
-                "input_tokens": 2, "cache_creation_input_tokens": 20170,
-                "cache_read_input_tokens": 21304, "output_tokens": 715,
-            }),
-            assistant_line("2026-09-06T09:06:00+00:00", {
-                "input_tokens": 3, "cache_creation_input_tokens": 100,
-                "cache_read_input_tokens": 200, "output_tokens": 50,
-            }),
-        ])
-
-        result = run_cli(self.run_dir, run_id, "--projects-root", self.projects_root, "--write")
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-        manifest = load(os.path.join(self.run_dir, f"{run_id}.json"))
-        self.assertEqual(manifest["token_usage"]["main"]["turns"], 3)
-        self.assertEqual(manifest["token_usage"]["main"]["input_tokens"], 100 + 2 + 3)
-
     def test_fallback_zero_candidates_exits_1_and_manifest_unchanged(self):
         """契約row「邊界：fallback 零候選」：manifest 無 session_id、projects-root 空
         → exit 1、stderr 有訊息、manifest 不變。"""

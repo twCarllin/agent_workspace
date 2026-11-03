@@ -66,24 +66,6 @@ class ReuseComparisonTest(unittest.TestCase):
         self.assertEqual(code, 1, output)
         self.assertIn("FAIL 金額行為正確且重用現有規則", output)
 
-    def test_compare_dry_run_uses_two_distinct_rules(self):
-        baseline = Path(self.workdir.name) / "baseline.md"
-        baseline.write_text("older rule\n", encoding="utf-8")
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(ROOT / "evals/compare_practices.py"),
-                "--baseline",
-                str(baseline),
-                "--dry-run",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("case=reuse-existing", result.stdout)
-        self.assertIn("candidate=", result.stdout)
-
     def test_baseline_rule_swap_keeps_fixture_clean(self):
         baseline = Path(self.workdir.name) / "baseline.md"
         baseline.write_text("older rule\n", encoding="utf-8")

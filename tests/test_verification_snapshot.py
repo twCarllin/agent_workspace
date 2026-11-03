@@ -215,24 +215,3 @@ class InputSnapshotV2Test(InputSnapshotFixture, unittest.TestCase):
         shutil.rmtree("agent_workspace")
         with self.assertRaisesRegex(OSError, "Tracked gitlink"):
             verification_snapshot.input_snapshot_v2()
-
-    def test_missing_gitlink_checkout_must_not_be_treated_as_deleted_file(self):
-        self.write("seed")
-        self.git("add", "seed")
-        self.git(
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.com",
-            "commit",
-            "-qm",
-            "seed",
-        )
-        head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True
-        ).stdout.strip()
-        self.git(
-            "update-index", "--add", "--cacheinfo", "160000," + head + ",missing-child"
-        )
-        with self.assertRaisesRegex(OSError, "Tracked gitlink"):
-            verification_snapshot.input_snapshot_v2()

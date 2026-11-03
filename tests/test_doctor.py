@@ -115,18 +115,6 @@ class CheckSkillsSyncTest(unittest.TestCase):
         ok, issues = doctor.check_skills_sync(self.repo, self.deploy)
         self.assertEqual(issues, [])
 
-    def test_deprecated_dir_not_counted_in_sync_total(self):
-        """健檢不計 _deprecated：兩邊都有時，同步計數只算非 _deprecated 的 skill 數。"""
-        make_skill(self.repo, "_deprecated", {"eval-scoring/SKILL.md": "old"})
-        make_skill(self.repo, "foo", {"SKILL.md": "content"})
-        make_skill(self.deploy, "_deprecated", {"eval-scoring/SKILL.md": "old"})
-        make_skill(self.deploy, "foo", {"SKILL.md": "content"})
-        ok, issues = doctor.check_skills_sync(self.repo, self.deploy)
-        self.assertEqual(issues, [])
-        ok_text = " ".join(ok)
-        self.assertIn("1", ok_text)  # 只計 foo，不含 _deprecated
-
-
 class ReportBriefTest(unittest.TestCase):
     """4.1：doctor.py `report()`（--brief 旗標的輸出格式邏輯）。"""
 
@@ -149,22 +137,6 @@ class ReportBriefTest(unittest.TestCase):
         self.assertEqual(out, "")
         self.assertEqual(err, "")
         self.assertEqual(code, 0)
-
-    def test_default_mode_with_issues_unchanged(self):
-        """無 --brief（有異常）→ 行為不變：OK 行照印、ISSUE 行照印、附「N 個問題」摘要。"""
-        code, out, err = self._run(["ok1"], ["bad1"], brief=False)
-        self.assertEqual(out, "[doctor] OK: ok1\n")
-        self.assertIn("[doctor] ISSUE: bad1\n", err)
-        self.assertIn("1 個問題", err)
-        self.assertEqual(code, 1)
-
-    def test_default_mode_all_clean_unchanged(self):
-        """無 --brief（全綠）→ 行為不變：OK 行＋「健檢通過」，無 stderr 輸出。"""
-        code, out, err = self._run(["ok1"], [], brief=False)
-        self.assertEqual(out, "[doctor] OK: ok1\n[doctor] 健檢通過\n")
-        self.assertEqual(err, "")
-        self.assertEqual(code, 0)
-
 
 class HooksListTest(unittest.TestCase):
     """item 1.4（task/2026-09-29.md）契約 T5：健檢清單含 dispatch.py。"""

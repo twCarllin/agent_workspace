@@ -26,6 +26,8 @@ description: Eval Flow step 5 本地測試 gate 的執行細節：baseline「無
 
 依 [Test Desiderata](https://testdesiderata.com/) 的十二項屬性互相衝突，本 repo 只優先四項；writer 寫測試、reviewer 審測試、lint 警示都以本節為準，不在角色檔重述。Predictive 與 Inspiring 是四項的結果，不另設檢查。
 
+寫或留一個測試前先問：「這個測試失敗時，使用者或 agent 會看到錯誤行為嗎？」答案是「不會」就不寫；既有的這類測試是刪除候選。
+
 | 屬性 | 判準 | 違反的典型樣子 |
 |---|---|---|
 | **Behavioral** | 斷言回傳值、exit code、檔案與狀態副作用、訊息的 key 或 gate id | 斷言訊息全文、欄位順序、完整輸出形狀（lint `message-literal`） |

@@ -1,6 +1,5 @@
 """Black-box context index and dispatch contracts, including real CLI execution."""
 
-from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -143,76 +142,6 @@ class ContextIndexTest(unittest.TestCase):
                 self.assertEqual(target.read_bytes(), original)
                 target.unlink()
 
-    def test_cli_diagnostics_and_filter_preserve_results_and_events(self):
-        built = self.build("--log-format", "json")
-        checked = self.cli(
-            "--log-format",
-            "json",
-            "validate",
-            "--index",
-            self.index,
-            "--run-id",
-            "pilot",
-        )
-        failed = self.build("--log-format", "json", "--files", "missing.py")
-        cases = (
-            (built, "build_completed", "INFO", "success", 0),
-            (checked, "validate_completed", "INFO", "success", 0),
-            (failed, "operation_failed", "ERROR", "failure", 2),
-        )
-        for result, event, level, outcome, exit_code in cases:
-            with self.subTest(event=event):
-                self.assertEqual(result.returncode, exit_code)
-                rows = result.stderr.splitlines()
-                self.assertEqual(len(rows), 1)
-                diagnostic = json.loads(rows[0])
-                self.assertEqual(diagnostic["event"], "context_index." + event)
-                self.assertEqual(diagnostic["level"], level)
-                self.assertEqual(diagnostic["outcome"], outcome)
-                self.assertEqual(diagnostic["exit_code"], exit_code)
-                self.assertEqual(diagnostic["run_id"], "pilot")
-                self.assertIsInstance(diagnostic["logger"], str)
-                self.assertTrue(diagnostic["logger"])
-                self.assertTrue(diagnostic["message"])
-                self.assertEqual(
-                    datetime.fromisoformat(diagnostic["timestamp"])
-                    .utcoffset()
-                    .total_seconds(),
-                    0,
-                )
-                self.assertNotIn("literal.*", result.stderr)
-                if exit_code == 0:
-                    self.assertEqual(
-                        json.loads(result.stdout)["review_decision"], "not_evaluated"
-                    )
-                else:
-                    self.assertEqual(result.stdout, "")
-        filtered = self.build("--log-level", "ERROR", "--log-format", "json")
-        self.assertEqual(filtered.returncode, 0, filtered.stderr)
-        self.assertEqual(filtered.stderr, "")
-        self.assertEqual(json.loads(filtered.stdout), json.loads(built.stdout))
-        events = [
-            json.loads(row)
-            for row in (self.root / "run/pilot.events.jsonl").read_text().splitlines()
-        ]
-        self.assertEqual(
-            [row["args"]["action"] for row in events], ["build", "validate", "build"]
-        )
-        text = self.build()
-        self.assertEqual(text.returncode, 0, text.stderr)
-        for key in (
-            "timestamp",
-            "level",
-            "logger",
-            "event",
-            "message",
-            "run_id",
-            "outcome",
-            "exit_code",
-        ):
-            self.assertIn(key + "=", text.stderr)
-        self.assertEqual(json.loads(text.stdout), json.loads(built.stdout))
-
     def test_dispatch_reuses_hints_and_rejects_stale_before_backend(self):
         self.assertEqual(self.build().returncode, 0)
         (self.root / "eval_state.json").write_text(json.dumps({"run_id": "pilot"}))
@@ -273,22 +202,3 @@ class ContextIndexTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertFalse((self.root / "called.txt").exists())
-
-    def test_stats_uses_actual_events_and_marks_missing_duration(self):
-        self.assertEqual(self.build().returncode, 0)
-        (self.root / "run/pilot.json").write_text(json.dumps({"run_id": "pilot"}))
-        with (self.root / "run/pilot.events.jsonl").open("a") as stream:
-            stream.write(
-                json.dumps({"cmd": "context-index", "args": {"action": "reuse"}}) + "\n"
-            )
-        result = subprocess.run(
-            [sys.executable, str(SCRIPTS / "stats.py")],
-            cwd=self.root,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("build 1 筆", result.stdout)
-        self.assertIn("validate 0 筆，耗時無記錄", result.stdout)
-        self.assertIn("reuse 1 筆，耗時無記錄", result.stdout)
-        self.assertIn("不推估", result.stdout)

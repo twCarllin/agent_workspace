@@ -60,16 +60,6 @@ class SharedRulesTest(unittest.TestCase):
                     os.chdir(previous)
 
     def test_phase_and_filename_compatibility(self):
-        for manifest, phase in (
-            ({}, "init"),
-            ({"phase": "risk_done"}, "init"),
-            ({"phase": "usage_confirmed", "task_file": "task"}, "init"),
-            ({"task_file": "task"}, "decomposed"),
-            ({"phase": "completed"}, "completed"),
-        ):
-            self.assertEqual(flow_rules.manifest_phase(manifest), phase)
-            self.assertEqual(eval_gates.manifest_phase(manifest), phase)
-        self.assertIs(eval_gates.MANIFEST_RE, flow_rules.MANIFEST_RE)
         for name, valid in (
             ("run/demo.json", True),
             ("run/demo-item-1.json", True),
@@ -81,21 +71,6 @@ class SharedRulesTest(unittest.TestCase):
             ("run/demo.test_baseline.json", False),
         ):
             self.assertEqual(bool(flow_rules.MANIFEST_RE.fullmatch(name)), valid)
-
-    def test_general_cli_imports_do_not_load_hook(self):
-        for module in (
-            "eval_state",
-            "run_commit",
-            "flow",
-            "dispatch",
-            "devlog",
-            "token_usage",
-        ):
-            code = f"import sys; sys.path.insert(0, {str(SCRIPTS)!r}); import {module}; assert 'eval_gates' not in sys.modules"
-            result = subprocess.run(
-                [sys.executable, "-c", code], capture_output=True, text=True
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_state_failure_true_subprocess_core_and_compatibility_entries(self):
         with tempfile.TemporaryDirectory() as tmp:

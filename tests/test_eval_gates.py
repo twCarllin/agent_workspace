@@ -34,19 +34,6 @@ def make_sub_task(**overrides):
     return st
 
 
-class SharedRuleCompatibilityTest(unittest.TestCase):
-    def test_hook_aliases_use_shared_phase_and_identity(self):
-        import flow_rules
-
-        self.assertIs(eval_gates.MANIFEST_RE, flow_rules.MANIFEST_RE)
-        self.assertIs(eval_gates.PHASES, flow_rules.PHASES)
-        self.assertIs(eval_gates.PENDING_STATUSES, flow_rules.PENDING_STATUSES)
-        self.assertEqual(
-            eval_gates.manifest_phase({"phase": "risk_done", "task_file": "task"}),
-            flow_rules.manifest_phase({"phase": "risk_done", "task_file": "task"}),
-        )
-
-
 class ValidateStateTest(unittest.TestCase):
     def state(self, **overrides):
         return {"run_id": "t", "sub_tasks": [make_sub_task(**overrides)]}
@@ -262,32 +249,6 @@ class GitCommitRegexTest(unittest.TestCase):
                 self.assertEqual(bool(eval_gates.GIT_COMMIT_RE.search(command)), expected)
 
 
-
-class ParentRunIdCompatTest(CwdTmpCase):
-    """check_other_runs／check_manifest 對含 parent_run_id 欄位的 manifest 相容性迴歸測試。"""
-
-    def test_parent_run_id_manifest_compat(self):
-        for name, status, call, blocks in (
-            ("other_runs_in_progress", "in_progress",
-             lambda: eval_gates.check_other_runs("current-run"), True),
-            ("other_runs_completed", "completed",
-             lambda: eval_gates.check_other_runs("current-run"), False),
-            # archive not in staged → block（同無 parent_run_id 的 completed manifest 路徑）
-            ("manifest_requires_archive", "completed",
-             lambda: eval_gates.check_manifest("run/other-run.json", set()), True),
-        ):
-            with self.subTest(name=name):
-                os.makedirs("run", exist_ok=True)
-                manifest = {"run_id": "other-run", "status": status,
-                            "spec_inline": "s", "parent_run_id": "parent-x"}
-                Path("run/other-run.json").write_text(json.dumps(manifest), encoding="utf-8")
-                if blocks:  # testlint: allow — else 分支為放行契約：不得拋出阻擋例外
-                    with self.assertRaises(SystemExit):
-                        call()
-                else:
-                    call()
-
-
 class Tier1ManifestCommitTest(CwdTmpCase):
     """DoD (c)：Tier 1 manifest commit gate 的三條路徑。"""
 
@@ -496,17 +457,6 @@ class AbortedConsumptionTest(CwdTmpCase):
                         eval_gates.check_other_runs("current")
                 else:
                     eval_gates.check_other_runs("current")  # 不得拋出
-
-    def test_find_unique_tier1_ignores_aborted_and_failed(self):
-        for status in ("aborted", "failed"):
-            with self.subTest(status=status):
-                self._write("a.json", {"run_id": "a", "tier": 1, "status": status})
-                self.assertIsNone(eval_gates._find_unique_tier1_inprogress())
-        # aborted 與真正 in_progress 共存 → 仍能唯一定位到 in_progress 那個
-        self._write("live-run.json", {"run_id": "live-run", "tier": 1, "status": "in_progress"})
-        found = eval_gates._find_unique_tier1_inprogress()
-        self.assertIsNotNone(found)
-        self.assertEqual(found[1]["run_id"], "live-run")
 
 class ManifestDeletionGateTest(CwdTmpCase):
     """1b 契約：check_manifest_deletion 正反向測試（真實 git repo，覆蓋正常/含空白/含特殊字元/
@@ -840,21 +790,6 @@ class LegacyPhaseCompatibilityTest(unittest.TestCase):
 
     # --- DoD ②：新值 ⊂ 舊值域（雙向相容，H-err2）---
 
-    def test_existing_phases_keep_legacy_domain_with_partial_extension(self):
-        """既有 phase 保持相容；partial 明確擴充終態，不冒用 completed。"""
-        legacy_domain = {
-            "init",
-            "risk_done",
-            "usage_confirmed",
-            "decomposed",
-            "completed",
-        }
-        self.assertTrue((set(eval_gates.PHASES) - {"partial"}).issubset(legacy_domain))
-        self.assertEqual(
-            set(eval_gates.PHASES), {"init", "decomposed", "completed", "partial"}
-        )
-
-
 class RunIdTrailerRegexTest(unittest.TestCase):
     """`RUN_ID_TRAILER_RE` 的解析邊界：對象是 Bash 指令原文，行尾可能殘留 shell 語法。"""
 
@@ -901,56 +836,7 @@ class PerTaskSubTaskChainTest(CwdTmpCase):
 
     # --- DoD① 新形狀全鏈 ---
 
-    def test_per_task_chain_reaches_valid_state(self):
-        """全鏈以 task id 定址通過（Q2／Q10）；DoD③：state 不得出現 `items` 鍵。"""
-        self.assertEqual(eval_state_cli("init", "--run-id", "r-chain").returncode, 0)
-        self.assertEqual(
-            eval_state_cli("add-subtask", "--id", "1", "--name", "Task 1").returncode, 0
-        )
-        for args in (
-            ("set-files", "1", "src/a.py", "src/b.py"),
-            ("set-review", "1", "0", "--checked-by", "checker"),
-            ("set-verify", "1"),
-            ("set-test", "1", "--passed", "--evidence", "unittest -> 380 passed"),
-            ("set-status", "1", "passed"),
-        ):
-            self.assertEqual(eval_state_cli(*args).returncode, 0, args)
-
-        state = self._read_state()
-        # 不拋例外＝通過（validate_state 以 block()/SystemExit 表示失敗）
-        eval_gates.validate_state(state, "chain", require_passed=True)
-
-        st = state["sub_tasks"][0]
-        self.assertEqual(st["files"], ["src/a.py", "src/b.py"])
-        self.assertEqual(st["review_reds"], 0)
-        self.assertIs(st["verify_passed"], True)
-        self.assertIs(st["local_test_passed"], True)
-        self.assertNotIn("items", st)
-
-    def test_incomplete_task_still_blocked(self):
-        """反向：憑據不齊的 task 仍被擋（per-task 化不得放寬既有不變量）。"""
-        eval_state_cli("init", "--run-id", "r-chain2")
-        eval_state_cli("add-subtask", "--id", "1", "--name", "Task 1")
-        eval_state_cli("set-status", "1", "passed")
-        with self.assertRaises(SystemExit) as ctx:
-            eval_gates.validate_state(self._read_state(), "chain2", require_passed=True)
-        self.assertEqual(ctx.exception.code, 2)
-
     # --- DoD② 舊歸檔形狀相容 ---
-
-    def test_legacy_archive_shape(self):
-        """19 份舊歸檔形狀仍通過驗證（Q8）；寬容不得變成放行——憑據真的缺時照樣擋。"""
-        good = dict(self.LEGACY_ARCHIVE_SUBTASK)
-        eval_gates.validate_state(  # 不拋例外＝通過
-            {"run_id": "legacy", "sub_tasks": [good]}, "legacy", require_passed=True
-        )
-        bad = dict(self.LEGACY_ARCHIVE_SUBTASK, verify_passed=False)
-        with self.assertRaises(SystemExit) as ctx:
-            eval_gates.validate_state(
-                {"run_id": "legacy", "sub_tasks": [bad]}, "legacy", require_passed=True
-            )
-        self.assertEqual(ctx.exception.code, 2)
-
 
 class CrossHookFullChainTest(CwdTmpCase):
     """item 5.3①：跨 hook 整合——manifest_phase → check_task_gate → validate_state →

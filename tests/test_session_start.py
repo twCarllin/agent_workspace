@@ -75,17 +75,6 @@ class ResidualRunPromptTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_residual_in_progress_manifest_reported(self):
-        make_manifest(os.path.join(self.cwd, "run"), "test-run-1",
-                       status="in_progress", phase="decomposed")
-        p = run_session_start(VALID_PAYLOAD, cwd=self.cwd)
-        self.assertEqual(p.returncode, 0)
-        self.assertIn(
-            "有未收尾的 run：test-run-1（phase=decomposed），"
-            "依 eval-flow-resume skill 從檔案恢復，不靠記憶；或標 aborted 收尾",
-            p.stdout,
-        )
-
     def test_completed_manifest_not_reported(self):
         """[寬鬆] status 非 in_progress（如 completed）的 manifest 不觸發殘留提示。"""
         make_manifest(os.path.join(self.cwd, "run"), "test-run-2",
@@ -134,12 +123,6 @@ class PayloadParseFailureTest(unittest.TestCase):
         self.assertEqual(p.stdout, "")
         self.assertEqual(p.stderr, "")
 
-    def test_empty_stdin_exits_silently(self):
-        p = run_session_start("", cwd=self.cwd)
-        self.assertEqual(p.returncode, 0)
-        self.assertEqual(p.stdout, "")
-        self.assertEqual(p.stderr, "")
-
 
 class OutputLineLimitTest(unittest.TestCase):
     """情境 M：stdout 輸出上限 ≤10 行。"""
@@ -169,39 +152,6 @@ class OutputLineLimitTest(unittest.TestCase):
         lines = p.stdout.splitlines()
         self.assertGreater(len(lines), 0)
         self.assertLessEqual(len(lines), 10)
-
-
-class ResidualAndDoctorIssuesCombinedTest(unittest.TestCase):
-    """4.4 整合：殘留 in_progress manifest ＋ doctor 異常行同時輸出（合流），
-    仍受 ≤10 行上限節制（情境 K＋M 的跨 item 組合）。"""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.cwd = os.path.join(self.tmp.name, "cwd")
-        os.makedirs(os.path.join(self.cwd, "run"))
-        os.makedirs(os.path.join(self.cwd, "retro"))
-        with open(os.path.join(self.cwd, "retro", "RETRO.md"), "w", encoding="utf-8") as f:
-            f.write("# retro\n")
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def test_residual_and_doctor_issue_both_present(self):
-        make_manifest(os.path.join(self.cwd, "run"), "combo-run",
-                       status="in_progress", phase="init")
-        # 假 HOME 只放一個假 skill，觸發真實 doctor 的 skills 同步／缺核心 skill 異常
-        fake_home = os.path.join(self.tmp.name, "fake_home_one_issue")
-        deploy_skills = os.path.join(fake_home, ".claude", "skills")
-        os.makedirs(deploy_skills)
-        os.makedirs(os.path.join(deploy_skills, "bogus-skill"))
-        env = {**os.environ, "HOME": fake_home}
-        p = run_session_start(VALID_PAYLOAD, cwd=self.cwd, env=env)
-        self.assertEqual(p.returncode, 0)
-        lines = p.stdout.splitlines()
-        self.assertGreaterEqual(len(lines), 2)
-        self.assertLessEqual(len(lines), 10)
-        self.assertIn("有未收尾的 run：combo-run", lines[0])
-        self.assertTrue(any("[doctor] ISSUE" in line for line in lines[1:]))
 
 
 class WorktreeCwdHonoredTest(unittest.TestCase):

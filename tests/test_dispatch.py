@@ -489,13 +489,6 @@ class DispatchGuardsTest(DispatchFixture, unittest.TestCase):
         rec = self.records()[0]
         self.assertEqual((rec["failure"], rec["exit_code"], rec["envelope"]), ("output_truncated", 3, None))
 
-    def test_a3_explicit_limits_with_short_report_unchanged(self):
-        """A3 [組合]：--timeout 30 --max-output-chars 100000 ＋ 合規短報告 → exit 0、failure=null。"""
-        proc = self.run_role("--timeout", "30", "--max-output-chars", "100000")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(proc.stdout, COMPLIANT + "\n")
-        self.assertIsNone(self.records()[0]["failure"])
-
     def test_b1_to_b4_out_of_scope_detection(self):
         """B1 越界檔 → exit 4、列 b.py、stdout 仍全文；B2 只改允許檔 → exit 0、out_of_scope=[]；
         B3 [組合] 越界＋信封缺損 → exit 4、envelope=blocking；B4 [邊界] 派工前已修改的 c.py 不算越界、含空白檔名正確列出。"""

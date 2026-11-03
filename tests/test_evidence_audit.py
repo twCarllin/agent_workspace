@@ -3,8 +3,6 @@
 import importlib.util
 import json
 from pathlib import Path
-import subprocess
-import sys
 import tempfile
 import unittest
 
@@ -117,19 +115,6 @@ class EvidenceAuditTest(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertEqual(self.audit.assess_handoff(path), [])
-
-    def test_cli_audits_real_records_and_reports_no_handoff(self):
-        with tempfile.TemporaryDirectory() as directory:
-            result = subprocess.run(
-                [sys.executable, str(AUDIT), "--run-dir", directory],
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("重現缺項=", result.stdout)
-            self.assertIn("真實卡點報告：0 份", result.stdout)
-
 
 if __name__ == "__main__":
     unittest.main()

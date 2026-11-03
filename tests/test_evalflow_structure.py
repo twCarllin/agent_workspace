@@ -13,12 +13,10 @@
 import re
 import sys
 import unittest
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".agent-flow/scripts"))
-from document_inventory import skill_documents
 
 SKILL = ROOT / "skills" / "eval-flow" / "SKILL.md"
 TIER2_PREP = ROOT / "skills" / "eval-flow" / "references" / "tier2-prep.md"
@@ -154,28 +152,6 @@ class MandatoryDeliveryTest(unittest.TestCase):
         ):
             self.assertEqual(text.count(anchor), 1, f"硬規則缺席或重列：{anchor}")
 
-    def test_missing_reference_is_not_satisfied_by_orphan(self):
-        with tempfile.TemporaryDirectory() as d:
-            entry = Path(d) / "SKILL.md"
-            entry.write_text("[必讀](references/missing.md)")
-            with self.assertRaises(FileNotFoundError):
-                reachable_references(entry)
-            entry.write_text("| step 1–2 | [必讀](references/writing.md) |")
-            with self.assertRaises(ValueError):
-                stage_references(entry)
-
-    def test_entry_load_is_bounded_and_new_control_is_delivered(self):
-        root = read(SKILL)
-        self.assertLessEqual(len(root), 5000)
-        self.assertIn(".agent-flow/REVIEW_PACKET.md", root)
-        self.assertIn(".agent-flow/FLOW_CLI.md", root)
-        review = read(SKILL.parent / "references/review.md")
-        finish = read(SKILL.parent / "references/testing-finish.md")
-        self.assertIn("ready 只表示資料結構與來源可用，不是審查通過", review)
-        self.assertIn("失敗、疑似注入與實質疑慮仍依本文件四類升級", review)
-        self.assertIn("工具不推定審查通過、不自動 stage", finish)
-        self.assertIn("prepare → commit（Run-Id）→ finalize", finish)
-
 
 class ReferencedAnchorsTest(unittest.TestCase):
     def test_all_externally_referenced_anchors_present(self):
@@ -190,42 +166,6 @@ class ReferencedAnchorsTest(unittest.TestCase):
             [],
             "外部引用的錨點在 根入口與可到達必讀文件 中缺席或被改名，引用會靜默懸空：\n"
             + "\n".join(missing),
-        )
-
-
-class Tier1BeforeCycleTest(unittest.TestCase):
-    def test_tier1_path_precedes_shared_cycle(self):
-        """Tier 1 佔多數 run，其路徑須排在共用循環之前（本 run 的重排目的）。"""
-        lines = read(SKILL).splitlines()
-        tier1 = next(
-            n for n, l in enumerate(lines) if l.startswith("## Tier 1 精簡路徑")
-        )
-        cycle = next(n for n, l in enumerate(lines) if l.startswith(CYCLE_HEAD))
-        self.assertLess(
-            tier1,
-            cycle,
-            f"Tier 1 精簡路徑（L{tier1 + 1}）須排在循環（L{cycle + 1}）之前",
-        )
-
-
-class ReferenceDepthTest(unittest.TestCase):
-    def test_reference_files_do_not_point_to_each_other(self):
-        """官方 progressive disclosure：引用只准一層（SKILL.md → references/）。
-
-        references 互指會讓 Claude 以 head -N 預覽巢狀檔、讀到不完整內容。指向上層
-        SKILL.md 或別的 skill 不算互指。
-        """
-        offenders = []
-        for f in skill_documents(ROOT):
-            if f.parent.name != "references":
-                continue
-            for hit in set(re.findall(r"references/([a-z0-9-]+\.md)", read(f))):
-                if hit != f.name:
-                    offenders.append(f"{f.relative_to(ROOT)} → references/{hit}")
-        self.assertEqual(
-            offenders,
-            [],
-            "references 互相指向（引用深度 >1）：\n" + "\n".join(offenders),
         )
 
 

@@ -141,13 +141,17 @@ class RetroSelectTest(unittest.TestCase):
         這條讓 EXCLUDED_FROM_ANCHOR_SCAN 成為承重常數——HISTORY.md 的存在目的正是記載已
         消失的機制，把它算進 codebase 會讓每個退役錨點都「仍存在」、鮮度檢查整條失效。
         """
-        with open(os.path.join(self.dir, "HISTORY.md"), "w", encoding="utf-8") as f:
-            f.write("- 2026-07-01｜x｜舊機制留痕：這個符號不存在於任何檔案 已於某 run 移除\n")
-        subprocess.run(["git", "add", "HISTORY.md"], cwd=self.dir, check=True, capture_output=True)
-        proc = self.run_select(".claude/hooks/eval_gates.py")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("R-104", self.retire_section(proc.stdout))
-        self.assertNotIn("R-104", self.chosen_section(proc.stdout))
+        for rel in ("HISTORY.md", "usage/2026-07-17-y.md"):
+            with self.subTest(path=rel):
+                path = os.path.join(self.dir, rel)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write("舊機制留痕：這個符號不存在於任何檔案 已於某 run 移除\n")
+                subprocess.run(["git", "add", "-A"], cwd=self.dir, check=True, capture_output=True)
+                proc = self.run_select(".claude/hooks/eval_gates.py")
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn("R-104", self.retire_section(proc.stdout))
+                self.assertNotIn("R-104", self.chosen_section(proc.stdout))
 
     def test_anchor_check_falls_back_outside_git_repo(self):
         """非 git repo（git grep 不可用）→ 退回 os.walk 掃描，錨點判定仍成立。"""
@@ -200,17 +204,6 @@ class RetroSelectTest(unittest.TestCase):
         proc = self.run_select("tests/test_retro_select.py")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertNotIn("R-109", self.chosen_section(proc.stdout))
-
-    def test_dead_anchor_recorded_only_in_usage_dir_still_dead(self):
-        """🟡-4 回歸鎖：錨點只出現在 usage/（CLAUDE.md 明列的冷溯源）→ 仍判已消失。"""
-        os.makedirs(os.path.join(self.dir, "usage"), exist_ok=True)
-        with open(os.path.join(self.dir, "usage", "2026-07-17-y.md"), "w", encoding="utf-8") as f:
-            f.write("舊情境報告提到 這個符號不存在於任何檔案 這個機制\n")
-        subprocess.run(["git", "add", "-A"], cwd=self.dir, check=True, capture_output=True)
-        proc = self.run_select(".claude/hooks/eval_gates.py")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("R-104", self.retire_section(proc.stdout))
-        self.assertNotIn("R-104", self.chosen_section(proc.stdout))
 
     def test_retro_path_with_space_and_glob_chars(self):
         """🟡-6／N2 回歸鎖：`--retro` 路徑含空白與 `[`／`*` → pathspec 須用 literal。

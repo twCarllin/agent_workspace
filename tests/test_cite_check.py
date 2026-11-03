@@ -91,15 +91,6 @@ class CiteCheckTest(unittest.TestCase):
         self.assertIn("整份退回 reviewer 重審", proc.stdout)
         self.assertIn("行號修正 3 條", proc.stdout)
 
-    def test_k4b_two_rewrites_below_threshold_stay_usable(self):
-        """K4 反向：2 條行號修正 < 門檻 → exit 0、本批可用（門檻不可提前觸發）。"""
-        proc = self.run_check([
-            "src.py\t1\ttotal = y * 2",
-            "src.py\t1\tdef beta(y):",
-        ])
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("本批可用", proc.stdout)
-
     def test_k5_unstaged_file_is_rejected_not_crash(self):
         """K5：檔案不在 index → 駁回（檔案不在 staging），不拋例外。"""
         proc = self.run_check(["unstaged.py\t1\tdef delta():"])

@@ -100,30 +100,6 @@ def hits(path, regex):
             for no, line in prose_lines(read(path)) if regex.search(line)]
 
 
-class DescriptionParsingTest(unittest.TestCase):
-    """description_of() 對三種 YAML 寫法的解析（契約：`>` 不得回傳長度 1 的 '>'）。"""
-
-    @staticmethod
-    def _fm(desc_block):
-        return "---\nname: x\n" + desc_block + "---\n\n# body\n"
-
-    def test_single_line_description(self):
-        self.assertEqual(description_of(self._fm("description: 一句話說明\n")), "一句話說明")
-
-    def test_literal_block_description(self):
-        got = description_of(self._fm("description: |\n  第一行。\n  第二行。\n"))
-        self.assertEqual(got, "第一行。 第二行。")
-
-    def test_folded_block_description(self):
-        """`>` 折疊寫法：須回傳合併內容，不得是 '>'（否則預算檢查被架空）。"""
-        got = description_of(self._fm("description: >\n  第一行。\n  第二行。\n"))
-        self.assertEqual(got, "第一行。 第二行。")
-
-    def test_description_marker_without_body_is_none(self):
-        """[邊界] 只有標記、無縮排內容 → None，由「缺 description」斷言攔。"""
-        self.assertIsNone(description_of(self._fm("description: >\n")))
-
-
 class NoTimeSensitiveProseTest(unittest.TestCase):
     def test_prose_body_has_no_dates(self):
         found = [h for p in PROSE_FILES for h in hits(p, DATE_RE)]

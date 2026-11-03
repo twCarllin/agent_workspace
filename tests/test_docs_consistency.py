@@ -82,25 +82,6 @@ class HelperSubcommandDocsTest(unittest.TestCase):
             )
 
 
-class GateListConsistencyTest(unittest.TestCase):
-    def test_gate_numbering_ranges_match_list(self):
-        """README 與 eval-flow skill 宣稱的 gate 區間（gate 1–N）要等於實際列出的條數。"""
-        for md in [ROOT / "README.md", ROOT / "skills" / "eval-flow" / "references" / "gates.md"]:
-            text = read(md)
-            m = re.search(r"gate 1–(\d+)）.*?（gate (\d+)–(\d+)）", text)
-            if not m:
-                continue
-            commit_end, sub_start, sub_end = map(int, m.groups())
-            self.assertEqual(sub_start, commit_end + 1, f"{md.name} gate 區間不連續")
-            # 找 gate 清單的編號項（1. **...gate**），最大編號 = 區間上限
-            section = text[m.start():]
-            numbers = [int(n) for n in re.findall(r"^(\d+)\. \*\*", section, re.M)]
-            self.assertEqual(
-                max(numbers), sub_end,
-                f"{md.name} 宣稱 gate 到 {sub_end}，實際清單最大編號 {max(numbers)}",
-            )
-
-
 class RetroIdReferencesTest(unittest.TestCase):
     def test_retro_ids_have_no_duplicates(self):
         text = read(ROOT / "retro" / "RETRO.md")

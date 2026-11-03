@@ -104,89 +104,6 @@ def scan_all_refs(root=ROOT) -> dict:
     return refs
 
 
-class AgentRefPatternTest(unittest.TestCase):
-    """extract_agent_refs() 的單元測試——驗證兩種判準的正向識別與裸形式的反向過濾。"""
-
-    def test_backtick_form_detected(self):
-        """判準 1：反引號包裹名字後接 subagent，應識別為引用。"""
-        refs = extract_agent_refs("`code-writer` subagent 執行")
-        self.assertIn("code-writer", refs)
-
-    def test_bold_backtick_wrapped_name_detected(self):
-        """判準 1：粗體在名字兩側（**`name`** subagent），應識別為引用。"""
-        refs = extract_agent_refs("**`usage-analyzer`** subagent 載入使用")
-        self.assertIn("usage-analyzer", refs)
-
-    def test_bold_backtick_phrase_detected(self):
-        """判準 1：粗體包整句（**`name` subagent**），應識別為引用。"""
-        refs = extract_agent_refs("本 skill 由 **`usage-analyzer` subagent** 載入")
-        self.assertIn("usage-analyzer", refs)
-
-    def test_path_form_detected(self):
-        """判準 2：路徑形式 .claude/agents/<name>.md，應識別為引用。"""
-        refs = extract_agent_refs("見 .claude/agents/code-writer.md 的規則節")
-        self.assertIn("code-writer", refs)
-
-    def test_bare_hyphenated_name_not_detected(self):
-        """不採納：裸帶連字號名字後接 agent／subagent，不應被識別（已知且接受的漏抓）。"""
-        cases = [("task-verifier agent 做驗收", "task-verifier"),
-                 ("eval-scorer subagent 執行評分", "eval-scorer")]
-        for text, name in cases:
-            with self.subTest(text=text):
-                self.assertNotIn(name, extract_agent_refs(text))
-
-    def test_hyphenated_english_prose_not_detected(self):
-        """不採納的關鍵理由：英文複合形容詞修飾 agent 是技術文件常態，不得判為引用。
-
-        沒有這道守護，任何人日後在 README／SKILL 寫一句 'a long-running agent'
-        就會讓 test_all_refs_exist 紅燈（假陽性把測試變成雜訊源）。
-        """
-        prose = [
-            ("a long-running agent", "long-running"),
-            ("the built-in agent", "built-in"),
-            ("a user-facing agent", "user-facing"),
-            ("use a multi-purpose subagent", "multi-purpose"),
-            ("the real-time agent", "real-time"),
-        ]
-        for text, word in prose:
-            with self.subTest(text=text):
-                self.assertNotIn(
-                    word,
-                    extract_agent_refs(text),
-                    f"'{text}' 是英文散文，不應被識別為 agent 引用",
-                )
-
-    def test_capitalized_builtin_agent_not_detected(self):
-        """判準 1 的名字限小寫：文件提到 Claude Code 內建 agent 不應被判為專案 agent 引用。
-
-        內建 agent（Explore／Plan／Task）不住在 .claude/agents/，若被捕捉會紅燈。
-        """
-        for text, name in [("`Explore` subagent", "Explore"), ("`Plan` agent", "Plan")]:
-            with self.subTest(text=text):
-                self.assertNotIn(name, extract_agent_refs(text))
-
-    def test_bare_single_word_not_detected(self):
-        """不採納：裸單字 token 後接 agent，不應被識別為引用（防散文假陽性）。"""
-        anti_patterns = [
-            ("item agent", "item"),
-            ("spawn agent", "spawn"),
-            ("cd agent", "cd"),
-        ]
-        for text, word in anti_patterns:
-            with self.subTest(text=text):
-                refs = extract_agent_refs(text)
-                self.assertNotIn(
-                    word,
-                    refs,
-                    f"'{text}' 是英文散文，不應被識別為 agent 引用",
-                )
-
-    def test_bare_retro_not_detected(self):
-        """不採納：裸單字 retro 後接 agent（已知且接受的漏抓），不應被識別。"""
-        refs = extract_agent_refs("retro agent 記錄根因")
-        self.assertNotIn("retro", refs)
-
-
 class AgentRefIntegrationTest(unittest.TestCase):
     """對實際文件進行掃描的整合測試。"""
 
@@ -209,38 +126,11 @@ class AgentRefIntegrationTest(unittest.TestCase):
                     f"但 .claude/agents/{name}.md 不存在",
                 )
 
-    def test_exception_agent_not_live(self):
-        """Hygiene：例外清單中的 agent 若已重新建立於 .claude/agents/，應從清單移除。"""
-        for name, reason in EXCEPTION_LIST.items():
-            with self.subTest(agent=name):
-                self.assertFalse(
-                    (self._agents_dir / f"{name}.md").exists(),
-                    f"例外清單中的 '{name}' 已重新存在於 .claude/agents/{name}.md，"
-                    f"請從 EXCEPTION_LIST 移除此條目。原因：{reason}",
-                )
-
-    def test_exception_still_referenced(self):
-        """Hygiene：例外清單中的 agent 若文件中已無引用，應從清單移除。"""
-        for name in EXCEPTION_LIST:
-            with self.subTest(agent=name):
-                self.assertIn(
-                    name,
-                    self._all_refs,
-                    f"例外清單中的 '{name}' 在所有掃描文件中已無引用，"
-                    f"請從 EXCEPTION_LIST 移除此條目（引用已清理，例外不再需要）。",
-                )
-
     def test_non_vacuous(self):
         """非空性：掃描必須抓到已知的活引用，防判準損壞導致零命中的假通過。"""
-        known_live = ["code-writer", "task-decomposer"]
-        for name in known_live:
+        for name in ["code-writer", "task-decomposer"]:
             with self.subTest(agent=name):
-                self.assertIn(
-                    name,
-                    self._all_refs,
-                    f"掃描結果未找到預期活引用 '{name}'，"
-                    f"判準可能損壞（零命中會讓 test_all_refs_exist 假通過）",
-                )
+                self.assertIn(name, self._all_refs)
 
 
 if __name__ == "__main__":

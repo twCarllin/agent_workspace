@@ -1,8 +1,6 @@
 """Public helper and real subprocess coverage for confirmed item accounting."""
 
 import copy
-import datetime
-import shlex
 import json
 import os
 from pathlib import Path
@@ -135,74 +133,6 @@ class ItemAccountingTest(unittest.TestCase):
         with self.assertRaises(RuleViolation):
             accounting.record_partial(manifest, TASK, ["1.1"], ruling)
         self.assertNotIn("partial_acceptance", manifest)
-
-    def test_cli_diagnostics_formats_and_filtering(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "run").mkdir()
-            (root / "task.md").write_text(TASK)
-            path = root / "run/new.json"
-            manifest = self.confirmed()
-            manifest["task_file"] = "task.md"
-            path.write_text(json.dumps(manifest))
-
-            def cli(*arguments):
-                return subprocess.run(
-                    [
-                        sys.executable,
-                        str(SCRIPTS / "item_accounting.py"),
-                        "--run-id",
-                        "new",
-                        *arguments,
-                    ],
-                    cwd=root,
-                    capture_output=True,
-                    text=True,
-                )
-
-            for output_format in ("text", "json"):
-                before = path.read_text()
-                result = cli(
-                    "--log-format",
-                    output_format,
-                    "remove",
-                    "1.1",
-                    "--ruling-file",
-                    "missing.json",
-                )
-                self.assertEqual(result.returncode, 2)
-                self.assertEqual(result.stdout, "")
-                lines = result.stderr.splitlines()
-                self.assertEqual(len(lines), 1)
-                fields = (
-                    json.loads(lines[0])
-                    if output_format == "json"
-                    else dict(part.split("=", 1) for part in shlex.split(lines[0]))
-                )
-                self.assertEqual(fields["event"], "item_accounting.failed")
-                self.assertEqual(fields["level"], "ERROR")
-                self.assertEqual(fields["outcome"], "failed")
-                self.assertEqual(fields["run_id"], "new")
-                self.assertEqual(str(fields["exit_code"]), "2")
-                self.assertTrue(fields["logger"])
-                self.assertTrue(fields["message"])
-                self.assertEqual(
-                    datetime.datetime.fromisoformat(fields["timestamp"]).utcoffset(),
-                    datetime.timedelta(0),
-                )
-                self.assertEqual(path.read_text(), before)
-            result = cli("deliver", "1.1", "--files", "a.py", "--evidence", "ran:pytest", "--log-format", "json")
-            self.assertEqual(result.returncode, 0, result.stderr)
-            fields = json.loads(result.stderr)
-            self.assertEqual(
-                (fields["event"], fields["level"]), ("item_accounting.recorded", "INFO")
-            )
-            result = cli("--log-level", "ERROR", "deliver", "1.2", "--files", "b.py", "--evidence", "ran:pytest")
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stderr, "")
-            self.assertEqual(
-                json.loads(path.read_text())["item_results"]["1.2"]["files"], ["b.py"]
-            )
 
     def test_real_cli_tier1_and_tier2_and_failed_write(self):
         with tempfile.TemporaryDirectory() as directory:

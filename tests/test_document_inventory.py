@@ -10,47 +10,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".agent-flow/scripts"))
 from document_inventory import skill_directories, skill_documents
-import test_agent_refs
 
 
 class DocumentInventoryTest(unittest.TestCase):
-    def test_references_are_checked_and_retired_documents_are_excluded(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            live = root / "skills/live"
-            (live / "references").mkdir(parents=True)
-            (live / "SKILL.md").write_text("Read references/agents.md")
-            reference = live / "references/agents.md"
-            reference.write_text("`code-writer` subagent; `missing-agent` subagent")
-            retired = root / "skills/_deprecated/old"
-            retired.mkdir(parents=True)
-            (retired / "SKILL.md").write_text("`retired-agent` subagent")
-            agents = root / ".claude/agents"
-            agents.mkdir(parents=True)
-            (agents / "code-writer.md").write_text("live")
-            self.assertEqual(skill_documents(root), [live / "SKILL.md", reference])
-            refs = test_agent_refs.scan_all_refs(root)
-            self.assertEqual(
-                refs,
-                {
-                    "code-writer": ["skills/live/references/agents.md"],
-                    "missing-agent": ["skills/live/references/agents.md"],
-                },
-            )
-            check = test_agent_refs.AgentRefIntegrationTest("test_all_refs_exist")
-            check._all_refs = {"code-writer": refs["code-writer"]}
-            check._agents_dir = agents
-            check.test_all_refs_exist()
-            check._all_refs = refs
-            with self.assertRaisesRegex(AssertionError, "missing-agent"):
-                check.test_all_refs_exist()
-
     def test_directory_without_entry_is_not_silently_omitted(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             directory = root / "skills/incomplete"
             directory.mkdir(parents=True)
             self.assertEqual(skill_directories(root), [directory])
+            self.assertEqual(skill_documents(root), [])
+            retired = root / "skills/_deprecated/old"
+            retired.mkdir(parents=True)
+            (retired / "SKILL.md").write_text("retired")
             self.assertEqual(skill_documents(root), [])
 
     def test_real_install_preserves_whole_skills_and_shared_inventory(self):

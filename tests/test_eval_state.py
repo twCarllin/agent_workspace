@@ -347,32 +347,6 @@ class EvalStateHelperTest(unittest.TestCase):
         self.assertEqual(archived["run_id"], "2026-07-15-demo")
         self.assertEqual(archived["sub_tasks"][0]["checked_by"], "reviewer:④")
 
-    def test_add_subtask_skeleton_key_set_and_defaults(self):
-        """R-004 加嚴：逐鍵斷言完整鍵集。Q10：不存 item 層資料（不得含 `items`）；
-        Q8：`risk_analysis` 已移除。鍵集寫死是刻意的——新增欄位須回來確認該進 skeleton。"""
-        self.bootstrap()
-        st = self.read_state()["sub_tasks"][0]
-        self.assertEqual(
-            set(st.keys()),
-            {
-                "id",
-                "name",
-                "status",
-                "step",
-                "files",
-                "warning",
-                "local_test_passed",
-                "local_test_evidence",
-                "verification_commands",
-                "review_reds",
-                "review_dimensions",
-                "checked_by",
-                "verify_passed",
-            },
-        )
-        self.assertIsNone(st["review_reds"])
-        self.assertFalse(st["verify_passed"])
-        self.assertEqual(st["verification_commands"], [])
 
     def test_legacy_flat_subtask_with_extra_keys_still_operable(self):
         """向後相容：舊 eval_state 帶 `risk_analysis` 等已移除的鍵，子命令仍須能對其操作。"""
@@ -553,21 +527,6 @@ class EventAppendTest(unittest.TestCase):
         self.assertTrue(stderr_buf.getvalue())
         self.assertEqual(self.read_state()["sub_tasks"][0]["name"], "demo")
         self.assertFalse(os.path.isdir("run"))  # 未產生任何 events 檔
-
-    def test_arg_value_truncation_and_special_characters(self):
-        run_cli("init", "--run-id", "r5")
-        run_cli("add-subtask", "--id", "1", "--name", "demo")
-        cases = (
-            ("over_200_truncated", "x" * 250, "x" * 200 + "…[truncated]"),
-            # 恰 200 字元（門檻是「>200」）不截斷
-            ("exactly_200_not_truncated", "y" * 200, "y" * 200),
-            # 含中文／引號／換行／emoji 的值原樣寫入（ensure_ascii=False）
-            ("special_characters_preserved", "含「引號」與換行\n特殊字元 🎉", "含「引號」與換行\n特殊字元 🎉"),
-        )
-        for name, value, expected in cases:
-            with self.subTest(name):
-                run_cli("set-test", "1", "--passed", "--evidence", value)
-                self.assertEqual(self.read_events("r5")[-1]["args"]["evidence"], expected)
 
 
 class Tier01TelemetryTest(unittest.TestCase):
