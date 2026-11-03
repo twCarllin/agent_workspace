@@ -34,6 +34,8 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 
 - 恢復時需要派工，依 eval-flow `references/dispatch-control.md`「派工上下文」：同任務、同角色優先續用原 agent；無法續用才建立新 agent，Codex 明確給 `fork_turns: "none"`。交接只附規格、允許檔案、驗收與約束、有效證據及剩餘問題，不傳完整對話。此條不改本檔的審查與證據判定。
 - **已 `passed` 的 sub_task 一律不重跑**、其 staged 變更不動
+- **判定完成度須三源交叉**：狀態檔（manifest／`eval_state.json`）、工作樹與 staging（`git status`、`git diff`、`git diff --cached`）、`git log` 互相核對。狀態檔只在步驟結束時更新，中斷時可能落後於實際產出——狀態說未完成但 code 已存在，是常見情況，不是錯誤
+- **禁止只憑狀態檔做破壞性操作**：三源不一致時，不可 `git checkout`／`restore`／`reset`／`stash`／刪檔來「還原」到狀態檔描述的現場；停下來列出差異，請使用者裁決
 - **hook gates 照常生效**：恢復不是繞過 gate 的理由，被擋就依 stderr 訊息補狀態
 - **未證明完成的步驟不可跳過**：`step` 只保證「走到了這一步」，不保證完成；先核對實際證據，再重做缺席或失效的部分
 - 恢復後的第一件事：把你從檔案讀出的「run 現況摘要」（run_id、phase、各 sub_task 狀態、接下來要做什麼）回報使用者，再開始動作
