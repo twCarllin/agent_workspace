@@ -61,6 +61,7 @@ EXCLUDE_PATHS = (
     "/retro",
     "/run",
     "/task",
+    "/verify",
     "/eval_state.json",
 )
 
