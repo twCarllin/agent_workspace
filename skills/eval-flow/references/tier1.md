@@ -40,6 +40,7 @@
    自查由 `eval_state.py review-run <id> 0 --checked-by self --evidence '<完成度與驗證範圍>' --passed` 記錄；
    須已有目前來源的有效成功驗證且無審查原因。來源變更或測試失敗後不可沿用。
    自查不代表可以跳過測試、偽造結果、覆蓋他人變更或擴張外部授權。
+   執行 `finish` 前，依 `.agent-flow/FLOW_CLI.md`「唯讀下一步建議」預設查詢一次，先處理仍缺的證據；已有有效判斷時可省略。
 
 ### 舊 run 相容路徑
 

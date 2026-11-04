@@ -52,6 +52,22 @@ python3 .agent-flow/scripts/flow.py watch --run-id <id> --timeout 30 --interval 
 
 操作順序：先確認需求與計畫授權，再完成 task、驗證、審查與 item 對帳。收尾前由呼叫端確認提交訊息與範圍；恢復提交時須核對實際 commit。`next` 只依現有資料提供單一建議，不補造授權或審查結果。
 
+Tier 1／2 在**接手既有 run**及**準備收尾**時預設查詢一次；同一現場已有有效判斷與證據時可省略。正常實作中不逐步查詢；Tier 0 不使用。gate 錯誤已有明確修法時直接處理，仍不清楚才查。查詢後只在狀態或來源有實際改變時重查，不輪詢等候建議改變。
+
+依 `action` 定位工作：`plan` 補核需求與計畫；`resume_task` 核對 task 的實際產出；`verify`／`review`／`items` 補適用證據；`blocked` 處理所列缺口；`finalize` 核對既有 commit 後收尾；`finish` 確認範圍與提交訊息；`done` 結束本 run。`state` 仍須核對：failed／aborted 的 done 不表示成功，partial 不表示全部完成。步驟記錄不證明程序存活或工作完成。`command: null` 表示需判斷或缺必要參數，不自行補造授權、審查或交付證據。
+
+建議命令交由主 flow 核對適用範圍與權限後執行，不建立自動執行迴圈。驗證命令的 `--reuse` 仍受既有本地／環境限制；拒絕重用時按原錯誤與驗證政策處理。next 缺失或出錯時使用原有流程，並回報限制；不降低 gate、不重設狀態、不因工具建議跳過需求判斷或必要審查。
+
+#### 其他專案試用
+
+在目標專案沒有 agent 寫入時，從本模板執行 `./init.sh --harness both --target <專案絕對路徑> --dry-run` 檢查更新，再執行相同命令移除 `--dry-run`。只使用單一 harness 的專案改用 `codex` 或 `claude`。安裝器遇到自訂檔案衝突時先處理差異，不強制覆寫。更新後重新載入 skill；安裝完成不表示客戶端 hook 已生效。
+
+接著在**目標專案工作目錄**執行 `python3 .agent-flow/scripts/flow.py next --run-id <既有id>`。尚無 run 的新任務先照 Router 分級與初始化；Tier 0 不為試用建立 run。保留既有 run 的 tier、政策與證據，不把更新當成開始新 run。
+
+若專案正在執行，可等交接停止寫入後，在目標目錄以 `python3 <本模板絕對路徑>/.agent-flow/scripts/flow.py next --run-id <既有id>` 做一次唯讀試用；這不會安裝或更新該專案的 skill。接手仍依 eval-flow-resume 核對狀態檔、工作樹／staging 與 Git 歷史。
+
+前三個真實任務的交付回報簡記：查詢時機、建議是否符合現場、有無減少查找或無效命令。無證據時不估算省下的時間或用量；沿用既有回報，不新增 gate 或必填欄位。
+
 ## Tier 1 初始化與審查
 
 新 `init-run` 記 `tier1_policy: "adaptive-v1"`。適用判斷與問題觸發條件見

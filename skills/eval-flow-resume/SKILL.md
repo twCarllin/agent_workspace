@@ -16,6 +16,8 @@ description: Eval Flow 中斷恢復的確定性程序：從 run manifest 與 eva
 3. 找到多個 in_progress 的 run → 列給使用者選，不自行挑
 4. 一個都沒有 → 無可恢復，回報後結束
 
+定位並選定 run 後，在原工作目錄依 `.agent-flow/FLOW_CLI.md`「唯讀下一步建議」預設查詢一次，再按下列恢復程序核對；同一現場已有有效查詢及證據時可省略。工具缺失或出錯時，回報限制並繼續原有三源核對，不因缺少建議而建立新 run 或重設現場。handoff 前須確認原 agent 與會寫入相同現場的子程序已停止寫入。
+
 若 manifest 為 `ready_to_commit`：先讀 `pre_commit_head`，查目前 HEAD 的 commit message。若 HEAD 已變且有唯一匹配的 `Run-Id`，執行 `python3 .agent-flow/scripts/run_commit.py finalize <run_id>`；若 HEAD 未變，檢查 staging 和驗證快照後提交，再 finalize。HEAD 已變但 trailer 不匹配時停止並回報，不推測歸屬。
 
 ## adaptive Tier 1 的恢復

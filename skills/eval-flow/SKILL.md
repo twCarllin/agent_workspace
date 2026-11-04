@@ -23,6 +23,10 @@ description: Tier 1／2 實作流程。新 Tier 1 依授權開始、自選方法
 
 初次先執行 `flow.py preflight --harness <目前 harness>` 檢查環境；manifest 已存在時才加 `--run-id <id>`；未知項目不能當成已通過。新 adaptive Tier 1 初始化與收尾依 `references/tier1.md` 的命令路徑；Tier 2、舊 run 或需手動操作狀態欄位時才讀「資料格式與操作規則」。
 
+## 下一步查詢
+
+Tier 1／2 在接手與準備收尾時，預設依 `.agent-flow/FLOW_CLI.md`「唯讀下一步建議」查詢一次；同一現場已有有效判斷與證據時可省略。Tier 0 不增加查詢。此入口只協助定位，不替代本 skill 的適用流程與 gate。
+
 ## Tier 1 精簡路徑
 
 初始化與寫 code 前必讀 [Tier 1 路徑](references/tier1.md)，依 manifest 政策選新路徑或舊 run 相容路徑。
