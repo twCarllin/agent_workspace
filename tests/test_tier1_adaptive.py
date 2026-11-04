@@ -110,6 +110,10 @@ class AdaptiveTier1Test(unittest.TestCase):
             "source.py",
             "--evidence",
             "ran:pytest",
+            "--observed",
+            "使用者看到結果",
+            "--observed-evidence",
+            "ran:real entry ok",
             entry=SCRIPTS / "item_accounting.py",
         )
         (self.root / "task.md").write_text("## Task 1: demo\n- [ ] 1.1 changed\n")
@@ -122,6 +126,10 @@ class AdaptiveTier1Test(unittest.TestCase):
             "source.py",
             "--evidence",
             "ran:pytest",
+            "--observed",
+            "使用者看到結果",
+            "--observed-evidence",
+            "ran:real entry ok",
             ok=False,
             entry=SCRIPTS / "item_accounting.py",
         )
@@ -224,6 +232,10 @@ class AdaptiveTier1Test(unittest.TestCase):
             "source.py",
             "--evidence",
             "ran:pytest",
+            "--observed",
+            "使用者看到結果",
+            "--observed-evidence",
+            "ran:real entry ok",
             entry=SCRIPTS / "item_accounting.py",
         )
 

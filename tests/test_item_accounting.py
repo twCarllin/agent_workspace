@@ -182,6 +182,10 @@ class ItemAccountingTest(unittest.TestCase):
                 "a.py",
                 "--evidence",
                 "ran:pytest",
+                "--observed",
+                "使用者看到結果",
+                "--observed-evidence",
+                "ran:real entry ok",
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             result = cli(
@@ -292,3 +296,70 @@ class ItemAccountingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ObservedEvidenceGateTest(unittest.TestCase):
+    """2026.11.05.1 起交付必附使用者可觀察結果與真實入口證據；舊版 manifest 不受影響。"""
+
+    def test_real_cli_requires_observed_and_existing_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "run").mkdir()
+            (root / "task.md").write_text(TASK)
+            environment = dict(os.environ, CLAUDE_CODE_SESSION_ATTENDED="1")
+
+            def cli(script, *arguments):
+                return subprocess.run(
+                    [sys.executable, str(SCRIPTS / script), *arguments],
+                    cwd=root,
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                )
+
+            init = cli(
+                "eval_state.py", "init-run", "--run-id", "obs", "--harness", "codex",
+                "--spec-inline", "spec", "--tier-rationale", "simple",
+                "--test-command", "true", "--task-file", "task.md",
+            )
+            self.assertEqual(init.returncode, 0, init.stderr)
+            self.assertEqual(
+                cli("eval_state.py", "hitl-confirm", "obs", "--note", "ok").returncode, 0
+            )
+            base = ("item_accounting.py", "--run-id", "obs", "deliver", "1.1",
+                    "--files", "a.py", "--evidence", "ran:pytest")
+            missing = cli(*base)
+            self.assertEqual(missing.returncode, 2)
+            self.assertIn("--observed", missing.stderr)
+            no_file = cli(*base, "--observed", "看到表格", "--observed-evidence", "file:run/none.png")
+            self.assertEqual(no_file.returncode, 2)
+            self.assertIn("證據檔不存在", no_file.stderr)
+            bad = cli(*base, "--observed", "看到表格", "--observed-evidence", "guess:x")
+            self.assertEqual(bad.returncode, 2)
+            manifest = json.loads((root / "run/obs.json").read_text())
+            self.assertEqual(manifest["item_results"], {})
+            (root / "run/shot.png").write_bytes(b"png")
+            for evidence in ("file:run/shot.png", "pending-manual:開列表頁看欄位"):
+                ok = cli(*base, "--observed", "看到表格", "--observed-evidence", evidence)
+                self.assertEqual(ok.returncode, 0, ok.stderr)
+                result = json.loads((root / "run/obs.json").read_text())["item_results"]["1.1"]
+                self.assertEqual(result["observed"], "看到表格")
+                self.assertEqual(result["observed_evidence"], evidence)
+
+    def test_validate_results_enforces_observed_only_for_new_versions(self):
+        old = dict(tier=1, item_accounting_required=True, hitl_confirmed_at="t",
+                   status="in_progress", framework_version="2026.10.19.1")
+        accounting.confirm_plan(old, TASK)
+        accounting.record_result(old, TASK, "1.1", "delivered", files=["a.py"], evidence="ran:x")
+        accounting.record_result(old, TASK, "1.2", "delivered", files=["b.py"], evidence="ran:x")
+        self.assertEqual(accounting.validate_results(old), [])
+        new = dict(old, framework_version="2026.11.05.1", item_results=copy.deepcopy(old["item_results"]))
+        with self.assertRaises(RuleViolation):
+            accounting.validate_results(new)
+        with self.assertRaises(RuleViolation):
+            accounting.record_result(new, TASK, "1.1", "delivered", files=["a.py"], evidence="ran:x")
+        accounting.record_result(new, TASK, "1.1", "delivered", files=["a.py"], evidence="ran:x",
+                                 observed="看到結果", observed_evidence="ran:curl /list -> 200 含新欄位")
+        accounting.record_result(new, TASK, "1.2", "delivered", files=["b.py"], evidence="ran:x",
+                                 observed="看到頁面", observed_evidence="pending-manual:開頁面捲到底")
+        self.assertEqual(accounting.validate_results(new), [])

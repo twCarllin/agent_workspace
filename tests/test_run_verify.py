@@ -461,3 +461,16 @@ class RunVerifyCacheTest(RunVerifyFixture, unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VerifyScopeTest(RunVerifyFixture, unittest.TestCase):
+    def test_scope_is_full_only_when_command_equals_manifest_test_command(self):
+        self.write_manifest(test_command=PASS_CMD)
+        self.assertEqual(run_cli("--run-id", "r1", "--cmd", PASS_CMD), 0)
+        self.assertEqual(self.last_record()["scope"], "full")
+        self.assertEqual(run_cli("--run-id", "r1", "--cmd", "python3 -c 'print(1)'"), 0)
+        self.assertEqual(self.last_record()["scope"], "related")
+        shutil.rmtree("run", ignore_errors=True)
+        self.write_manifest()
+        self.assertEqual(run_cli("--run-id", "r1", "--cmd", PASS_CMD), 0)
+        self.assertEqual(self.last_record()["scope"], "related")

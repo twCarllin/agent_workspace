@@ -292,6 +292,10 @@ class FlowCliTest(unittest.TestCase):
                 "code.py",
                 "--evidence",
                 "ran:python3 -c pass",
+                "--observed",
+                "使用者看到結果",
+                "--observed-evidence",
+                "ran:real entry ok",
             ],
             cwd=self.repo,
             capture_output=True,
@@ -720,6 +724,55 @@ class FlowCliTest(unittest.TestCase):
         result = self.finish()
         self.assertEqual(result.returncode, 2)
         self.assertEqual(before, self.git("rev-parse", "HEAD"))
+
+
+    def test_status_separates_full_suite_and_pending_manual(self):
+        self.manifest.update(
+            verification_commands=[
+                {"command": "python3 -c pass", "scope": "full", "exit_code": 2},
+                {"command": "python3 -m unittest tests.test_x", "scope": "related", "exit_code": 0},
+            ],
+            item_results={
+                "1.1": {"status": "delivered", "files": ["code.py"], "evidence": "ran:x",
+                        "observed": "看到列表", "observed_evidence": "pending-manual:開列表頁捲到底"},
+                "1.2": {"status": "delivered", "files": ["code.py"], "evidence": "ran:x",
+                        "observed": "看到回應", "observed_evidence": "ran:curl -> 200"},
+            },
+        )
+        self.save()
+        result = self.cli("status", "--run-id", "r1", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        value = json.loads(result.stdout)
+        self.assertEqual(value["full_suite"], 2)
+        self.assertEqual(value["pending_manual"], [{"item": "1.1", "steps": "開列表頁捲到底"}])
+        self.assertEqual(value["latest_verification"]["exit_code"], 0)
+        text = self.cli("status", "--run-id", "r1").stdout
+        self.assertIn("full_suite: 2 / pending_manual: 1", text)
+        self.manifest["verification_commands"] = self.manifest["verification_commands"][1:]
+        self.manifest["item_results"] = {}
+        self.save()
+        value = json.loads(self.cli("status", "--run-id", "r1", "--json").stdout)
+        self.assertEqual((value["full_suite"], value["pending_manual"]), (None, []))
+
+
+
+    def test_scope_accepts_symlink_entries_but_not_directories(self):
+        (self.repo / "pkg").mkdir()
+        (self.repo / "pkg" / "x.py").write_text("")
+        (self.repo / "link").symlink_to("pkg")
+        self.git("add", "link", "pkg/x.py")
+        self.git("reset", "-q", "code.py")
+        sys.path.insert(0, str(CLI.parent))
+        import flow
+        with self.assertRaises(ValueError):
+            flow.scope_check(["pkg", "link"])
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        try:
+            flow.scope_check(["link", "pkg/x.py"])
+        finally:
+            os.chdir(cwd)
+
 
 
 if __name__ == "__main__":

@@ -130,7 +130,18 @@ def main():
         print("[run-verify] --reuse 只適用 schema 2 本地驗證", file=sys.stderr)
         sys.exit(2)
     started = time.monotonic()
-    record = {"command": args.cmd, "reused": False, "executed": False}
+    full_command = manifest.get("test_command")
+    record = {
+        "command": args.cmd,
+        "scope": (
+            "full"
+            if isinstance(full_command, str)
+            and full_command.strip() == args.cmd.strip()
+            else "related"
+        ),
+        "reused": False,
+        "executed": False,
+    }
     before = None
     if schema2:
         record.update(

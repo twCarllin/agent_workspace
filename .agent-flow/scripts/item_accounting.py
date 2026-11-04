@@ -10,7 +10,12 @@ from pathlib import Path, PurePosixPath
 import re
 import sys
 
-from flow_rules import RuleViolation, plan_timestamp, requires_item_accounting
+from flow_rules import (
+    RuleViolation,
+    plan_timestamp,
+    requires_item_accounting,
+    requires_observed,
+)
 
 
 def require(condition, message):
@@ -89,6 +94,22 @@ def validate_evidence(evidence):
     )
 
 
+OBSERVED_EVIDENCE_RE = re.compile(r"^(ran:\S.*|file:\S+|pending-manual:\S.*)$")
+
+
+def validate_observed(observed, observed_evidence):
+    """使用者可觀察結果一句＋真實入口證據：ran:<命令與輸出摘要>／file:<截圖或輸出檔>／pending-manual:<人工確認步驟>。"""
+    require(nonempty(observed), "缺 --observed：寫一句使用者會看到什麼")
+    require(
+        isinstance(observed_evidence, str)
+        and bool(OBSERVED_EVIDENCE_RE.match(observed_evidence.strip())),
+        "--observed-evidence 格式須為 ran:<命令與結果>、file:<路徑> 或 pending-manual:<人工確認步驟>",
+    )
+    value = observed_evidence.strip()
+    if value.startswith("file:"):
+        require(os.path.isfile(value[5:]), f"證據檔不存在：{value[5:]}")
+
+
 def validate_files(files):
     require(isinstance(files, list) and bool(files), "交付 files 不可為空")
     require(all(nonempty(path) for path in files), "交付檔案路徑不可為空")
@@ -150,6 +171,8 @@ def validate_results(manifest, files=None, allow_pending=False):
         status = result.get("status")
         if status == "delivered":
             validate_files(result.get("files"))
+            if requires_observed(manifest):
+                validate_observed(result.get("observed"), result.get("observed_evidence"))
             if files is not None:
                 require(
                     set(result["files"]) <= set(files),
@@ -178,6 +201,8 @@ def record_result(
     evidence=None,
     reason=None,
     ruling=None,
+    observed=None,
+    observed_evidence=None,
 ):
     items = validate_plan(manifest, task_text)
     require(item_id in {item["id"] for item in items}, "未確認的 item")
@@ -186,6 +211,11 @@ def record_result(
         validate_files(files)
         validate_evidence(evidence)
         result = dict(status=status, files=files, evidence=evidence.strip())
+        if requires_observed(manifest) or observed or observed_evidence:
+            validate_observed(observed, observed_evidence)
+            result.update(
+                observed=observed.strip(), observed_evidence=observed_evidence.strip()
+            )
     elif status == "pending":
         require(nonempty(reason), "待裁示理由不可為空")
         result = dict(status=status, reason=reason)
@@ -273,6 +303,12 @@ def main():
         required=True,
         help="existing:<檔:函式> | ran:<命令> | new:<函式>|<既有測試為何不夠>",
     )
+    deliver.add_argument("--observed", help="一句：使用者會看到什麼")
+    deliver.add_argument(
+        "--observed-evidence",
+        dest="observed_evidence",
+        help="ran:<真實入口命令與結果> | file:<截圖或輸出檔> | pending-manual:<人工確認步驟>",
+    )
     pending = commands.add_parser("pending", parents=[log_options])
     pending.add_argument("item_id")
     pending.add_argument("--reason", required=True)
@@ -325,6 +361,8 @@ def main():
                     evidence=getattr(args, "evidence", None),
                     reason=getattr(args, "reason", None),
                     ruling=ruling,
+                    observed=getattr(args, "observed", None),
+                    observed_evidence=getattr(args, "observed_evidence", None),
                 )
         manifest_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

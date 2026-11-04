@@ -180,3 +180,7 @@
 ### skills/eval-flow/references/tier2-prep.md
 
 - 2026-10-09｜2026-10-09-spec-fact-sources｜tier2-prep.md:前置 0 事實句附來源｜出生證：10k-analysis 一次 run 的 Spec 以推論寫「insurance_other_cost 一律取絕對值」「ROA／ROE 沿用工業平均規則」，與資料及程式事實矛盾，循環中才發現（5 家勾稽失敗、追加 item）
+
+## 2026-11-05 新增（run 2026-11-05-observed-acceptance：使用者可觀察驗收）
+
+- 2026-11-05｜外部 agent 反饋＋pstack 對照｜skills/test-strategy/SKILL.md:依變更選擇驗證｜每 item 交付必附「使用者會看到什麼」與真實入口證據（ran／file／pending-manual），由 item_accounting 機械擋；run_verify 記 scope、flow status 分開顯示全套結果與待人工確認；新增 verification-recipe skill（每專案一次配方，不進測試）

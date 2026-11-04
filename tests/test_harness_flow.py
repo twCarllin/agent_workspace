@@ -155,6 +155,10 @@ class HarnessFlowTest(unittest.TestCase):
                     "test_answer.py",
                     "--evidence",
                     "ran:pytest",
+                    "--observed",
+                    "使用者看到結果",
+                    "--observed-evidence",
+                    "ran:real entry ok",
                 )
                 self.assertEqual(delivered.returncode, 0, delivered.stderr)
                 reviewed = call(

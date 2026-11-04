@@ -14,6 +14,7 @@ MANIFEST_RE = re.compile(
 PHASES = ["init", "decomposed", "completed", "partial"]
 PENDING_STATUSES = {"in_progress", "ready_to_commit", "paused"}
 ITEM_ACCOUNTING_VERSION = "2026.10.19.1"
+OBSERVED_VERSION = "2026.11.05.1"
 
 
 def adaptive_tier1(manifest):
@@ -59,6 +60,22 @@ def requires_item_accounting(manifest):
         manifest.get("item_accounting_required") is True
         or parts >= tuple(int(part) for part in ITEM_ACCOUNTING_VERSION.split("."))
         or "item_plan" in manifest
+    )
+
+
+def version_parts(manifest):
+    version = str(manifest.get("framework_version", ""))
+    return (
+        tuple(int(part) for part in version.split("."))
+        if re.fullmatch(r"\d+(?:\.\d+)+", version)
+        else ()
+    )
+
+
+def requires_observed(manifest):
+    """2026.11.05.1 起：每個交付 item 須記使用者可觀察結果與真實入口證據。"""
+    return requires_item_accounting(manifest) and version_parts(manifest) >= tuple(
+        int(part) for part in OBSERVED_VERSION.split(".")
     )
 
 

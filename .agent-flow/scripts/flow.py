@@ -202,6 +202,13 @@ def status(run_id=None):
     current = [task for task in tasks if task.get("status") != "passed"]
     commands = manifest.get("verification_commands", [])
     latest_verification = commands[-1] if commands else None
+    full_runs = [c for c in commands if c.get("scope") == "full"]
+    full_suite = full_runs[-1].get("exit_code") if full_runs else None
+    pending_manual = [
+        dict(item=item_id, steps=result["observed_evidence"][len("pending-manual:"):].strip())
+        for item_id, result in sorted((manifest.get("item_results") or {}).items())
+        if str(result.get("observed_evidence", "")).startswith("pending-manual:")
+    ]
     recorded = manifest.get("status")
     next_action = (
         "partial delivery accepted; undelivered items: "
@@ -234,6 +241,8 @@ def status(run_id=None):
         last_event=events[-1] if events else None,
         last_dispatch=dispatch[-1] if dispatch else None,
         latest_verification=latest_verification,
+        full_suite=full_suite,
+        pending_manual=pending_manual,
         review_evidence=dict(
             checked_by=manifest.get("checked_by"),
             review_kind=(
@@ -379,6 +388,7 @@ def emit(value, as_json=False):
             f"last dispatch: {json.dumps(value['last_dispatch'], ensure_ascii=False)}\n"
             f"review: {json.dumps(value['review_evidence'], ensure_ascii=False)}\n"
             f"verification: {json.dumps(value['latest_verification'], ensure_ascii=False)}\n"
+            f"full_suite: {value.get('full_suite')} / pending_manual: {len(value.get('pending_manual') or [])}\n"
             f"next: {value['next_action']}",
             flush=True,
         )
@@ -439,7 +449,7 @@ def scope_check(files):
             or ".." in Path(path).parts
             or str(Path(path)) != path
             or path.startswith("-")
-            or Path(path).is_dir()
+            or (Path(path).is_dir() and not Path(path).is_symlink())
         ):
             raise ValueError(f"invalid file scope: {path}")
     staged = set(

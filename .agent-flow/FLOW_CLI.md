@@ -157,11 +157,13 @@ adaptive Tier 1 由 `start-run` 依已授權需求建立，或有決策時用真
 
 ```sh
 python3 .agent-flow/scripts/item_accounting.py --run-id <id> confirm-plan
-python3 .agent-flow/scripts/item_accounting.py --run-id <id> deliver 1.1 --files src/file.py --evidence "existing:tests/test_file.py:test_x"
+python3 .agent-flow/scripts/item_accounting.py --run-id <id> deliver 1.1 --files src/file.py --evidence "existing:tests/test_file.py:test_x" --observed "使用者在列表頁看到新欄位" --observed-evidence "file:run/<id>.verify/list.png"
 python3 .agent-flow/scripts/item_accounting.py --run-id <id> pending 1.2 --reason '待使用者裁示'
 python3 .agent-flow/scripts/item_accounting.py --run-id <id> remove 1.2 --ruling-file ruling.json
 python3 .agent-flow/scripts/item_accounting.py --run-id <id> partial --items 1.2 --ruling-file ruling.json
 ```
+
+2026.11.05.1 起 `deliver` 必附 `--observed`（一句使用者會看到什麼）與 `--observed-evidence`：`ran:<真實入口命令與結果>`、`file:<存在的截圖或輸出檔>`、或 `pending-manual:<人工確認步驟>`。`file:` 路徑不存在即拒絕。`flow.py status` 的 `pending_manual` 列出待人工確認 item，`full_suite` 顯示最後一次全套測試（命令等於 manifest `test_command`）的 exit code；run 完成不等於全套通過。
 
 裁示 JSON 須有 `actor: "user"`、原文 `text`、含時區的 ISO 時間 `at`、來源 `source`。
 `pending` 使 run 暫停；只有使用者裁示可移除 item 或接受部分交付。
