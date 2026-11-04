@@ -29,3 +29,5 @@
 - 2026-10-09［skills/task-decomposition（測試同步段）｜.claude/agents/task-decomposer］疏忽：skill 要拆分者執行 `test_baseline.py related`，但 task-decomposer 沒有 Bash；只加 Bash 不夠，因為 headless dispatch 用 acceptEdits 會拒 Bash，本 repo 能過只靠版控外的 settings.local.json。修法：改由主 flow 執行並把結果附進派工 prompt，角色工具不變
 
 - 2026-10-13［.agent-flow/scripts/test_baseline.py］架構限制：baseline 在修改後工作區執行卻以 HEAD 標成既有失敗，unittest 摘要又被當成案例 ID，使新增失敗被扣除；來源、重現確認與執行錯誤分類缺少驗證。修改前通過、修改後失敗的真實 CLI 重放已確認兩入口拒絕補建且阻擋新失敗；同模組再次命中，加嚴 R-010 的來源與消費驗證。↑RETRO
+- 2026-11-04［.agent-flow/scripts/dispatch.py］驗證盲點：派工越界僅比較 dirty 路徑集合，已 dirty 檔被再次覆寫仍落在相同集合而漏報；真實子程序回歸涵蓋 tracked、untracked、index 與 rename，並驗未碰 dirty 不誤報。同分類再次命中；既有端到端驗證約束 R-005 涵蓋本例，補實際執行回歸，不新增約束。 ↑RETRO
+- 2026-11-04［.agent-flow/scripts/harness_adapter.py］驗證盲點：Codex resume 的 edits 旗標置於子命令後，CLI 0.166.0 拒絕 --sandbox；以真實 CLI 子程序確認移到 resume 前可解析，並以真實 thread 實測續用。同分類再次命中；R-005 的真實端到端執行約束涵蓋，新增實際 CLI 相容回歸，不新增約束。 ↑RETRO
