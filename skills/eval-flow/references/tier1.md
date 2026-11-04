@@ -19,6 +19,7 @@
   與實際證據。不先派 checker；原因只增不減，不因後續測試綠燈改回自查。
 - **主 flow 自查**：需求明確、變更可還原、驗證涵蓋主要行為，且無獨立審查原因時使用。
   自查是執行者檢查，不宣稱獨立審查；不以欄位齊全代表需求已滿足。
+- **具體疑點**：按問題選用系統調查、設計比較、影響分析、對抗驗證或結構修正方法；需要委派時附問題原文，選對應角色。保留結論與證據位置，不固定派角色；既有 HITL 與審查判斷不變。
 
 1. **精簡初始化**：執行 `git status --porcelain`，確認本次範圍。既有變更可保留且不需覆寫時繼續；只有歸屬不明或必須覆寫時才提問。再執行 `flow.py preflight --harness <codex|claude>`；`hook_trust: unknown` 表示無原生執行證據，不表示已啟用，也不阻止已授權的本地工作。完成 Router 分級後，執行 `eval_state.py init-run --run-id <id> --harness <codex|claude> --spec-inline '<需求>' --tier-rationale '<理由碼與理由>' --test-command '<全套測試>' --task-file task/<當天日期>.md`；保存使用者需求、
    分級理由、驗證命令與 task 路徑。不建 `eval_state.json`。

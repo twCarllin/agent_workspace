@@ -18,6 +18,10 @@
 - **Gate（硬性）**：manifest 的 `spec_path` 未寫入前，**不可進入前置 1（分拆 task）**。沒有被記錄的 Spec，等於整條 pipeline 沒有輸入來源
 - 各後續步驟一律用 `eval_state.json.run_id` 定位 `run/<run_id>.json`，從 manifest 讀 `spec_path` / `usage_report_path`，**不重組日期 / 檔名**
 
+## 必做：理解、設計與影響
+
+分拆前主 flow 必須完成系統理解、設計及影響分析，將各項決策摘要與可重查的證據位置寫入 Spec。有效的既有調查可重用，記錄來源及仍適用的依據；不足部分補查，無法確認則標示未知。依具體問題決定主 flow 執行或派相應角色，不固定派七個角色；派工時附問題原文及適用契約、限制與證據位置。既有授權和 HITL 規則不變。
+
 ## 具名問題觸發：usage-analyzer／impact-analyzer（選配，非預設步驟）
 
 `usage-analyzer` 與 `impact-analyzer` 不是 Tier 2 的預設前置步驟，由**具名問題觸發**：

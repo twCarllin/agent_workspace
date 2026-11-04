@@ -13,6 +13,7 @@ exit：0＝全部斷言符合；1＝任一斷言不符合／使用錯誤／環�
 
 **不進 pytest 預設套件**：每次執行是付費且非確定性的真實 agent run。首跑分數是量測、不是回歸基線。
 """
+
 import argparse
 import datetime
 import json
@@ -21,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import harness_adapter
@@ -43,7 +45,10 @@ MIN_CASE_BUDGET_USD = 2.0
 # fixture 要從 repo 複製的規則檔／目錄（評測載入的是這些的現況）。
 # .gitignore 與 retro/ 是 Game day 首跑補的：缺 .gitignore 時 prepare gate 把 untracked run/ 算進程式樹快照、
 # 恢復者得自己改 .git/info/exclude 才能 commit；缺 retro/RETRO.md 時知識前置落空。兩者都是真實部署會有的檔。
-FIXTURE_SOURCES = (".gitignore", "retro")  # adapters and skills come from install_harness.py
+FIXTURE_SOURCES = (
+    ".gitignore",
+    "retro",
+)  # adapters and skills come from install_harness.py
 # 複製 .claude 時排除：worktree 與 cache 不屬規則
 COPY_IGNORE = shutil.ignore_patterns("worktrees", "__pycache__", "*.pyc")
 
@@ -84,8 +89,10 @@ def read_prompt(case_dir):
         return f.read().strip()
 
 
-def claude_argv(prompt, budget_usd, permissions='inherit'):
-    return harness_adapter.build_argv('claude', budget_usd=budget_usd, permissions=permissions)
+def claude_argv(prompt, budget_usd, permissions="inherit"):
+    return harness_adapter.build_argv(
+        "claude", budget_usd=budget_usd, permissions=permissions
+    )
 
 
 def assert_not_repo(path):
@@ -108,50 +115,101 @@ def build_fixture(case_dir, workdir, harness="claude"):
             shutil.copytree(s, d, ignore=COPY_IGNORE, symlinks=True)
         else:
             shutil.copy2(s, d)
-    subprocess.run([sys.executable, os.path.join(ROOT, "install_harness.py"),
-                    "--target", fixture, "--harness", harness], check=True, capture_output=True, text=True)
+    subprocess.run(
+        [
+            sys.executable,
+            os.path.join(ROOT, "install_harness.py"),
+            "--target",
+            fixture,
+            "--harness",
+            harness,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     # Build the synthetic commit history before installing the commit gate.
-    for cmd in (["git", "init", "-q"],
-                ["git", "config", "user.email", "skill-eval@local"],
-                ["git", "config", "user.name", "skill-eval"],
-                ["git", "add", "-A"],
-                ["git", "commit", "-q", "-m", "fixture baseline"]):
+    for cmd in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "skill-eval@local"],
+        ["git", "config", "user.name", "skill-eval"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-q", "-m", "fixture baseline"],
+    ):
         subprocess.run(cmd, cwd=fixture, check=True, capture_output=True)
     setup = os.path.join(case_dir, "setup.py")
     if os.path.isfile(setup):
-        r = subprocess.run([sys.executable, setup, fixture], cwd=fixture, capture_output=True, text=True,
-                           env={**os.environ, "AGENT_FLOW_HARNESS": harness})
+        r = subprocess.run(
+            [sys.executable, setup, fixture],
+            cwd=fixture,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "AGENT_FLOW_HARNESS": harness},
+        )
         if r.returncode != 0:
-            raise RuntimeError(f"setup.py 失敗（exit {r.returncode}）：{r.stderr.strip()[-400:]}")
-    subprocess.run([sys.executable, os.path.join(ROOT, "install_harness.py"),
-                    "--target", fixture, "--git-hook-only"], check=True, capture_output=True)
+            raise RuntimeError(
+                f"setup.py 失敗（exit {r.returncode}）：{r.stderr.strip()[-400:]}"
+            )
+    subprocess.run(
+        [
+            sys.executable,
+            os.path.join(ROOT, "install_harness.py"),
+            "--target",
+            fixture,
+            "--git-hook-only",
+        ],
+        check=True,
+        capture_output=True,
+    )
     return fixture
 
 
-def run_harness(harness, fixture, prompt, budget_usd, timeout, permissions='inherit', model=None):
-    argv = harness_adapter.build_argv(harness, budget_usd=budget_usd if harness == 'claude' else None,
-                                     permissions=permissions, model=model)
+def run_harness(
+    harness, fixture, prompt, budget_usd, timeout, permissions="inherit", model=None
+):
+    argv = harness_adapter.build_argv(
+        harness,
+        budget_usd=budget_usd if harness == "claude" else None,
+        permissions=permissions,
+        model=model,
+    )
     try:
-        proc = subprocess.run(argv, input=prompt, cwd=fixture, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(
+            argv,
+            input=prompt,
+            cwd=fixture,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
     except subprocess.TimeoutExpired:
         return None, "", f"超時（{timeout} 秒）"
     except OSError as e:
         return None, "", f"無法啟動 {harness}：{e}"
     data = harness_adapter.parse_result(harness, proc.stdout, proc.returncode)
-    if data['budget_exhausted']:
-        return data, proc.stdout, 'budget_exhausted'
-    if data['is_error']:
-        return None, proc.stdout, f"輸出不可解析／工具失敗：{data['error']}；{proc.stderr.strip()[-200:]}"
-    return data, proc.stdout, ''
+    if data["budget_exhausted"]:
+        return data, proc.stdout, "budget_exhausted"
+    if data["is_error"]:
+        return (
+            None,
+            proc.stdout,
+            f"輸出不可解析／工具失敗：{data['error']}；{proc.stderr.strip()[-200:]}",
+        )
+    return data, proc.stdout, ""
 
 
 def run_claude(fixture, prompt, budget_usd, timeout):
     """Compatibility helper; live execution uses the selected harness."""
-    return run_harness('claude', fixture, prompt, budget_usd, timeout)
+    return run_harness("claude", fixture, prompt, budget_usd, timeout)
 
 
 # verdict → 人讀標籤（DoD 措辭）：pass／fail／checker_error（check.py 本身出錯，不當通過、繼續下一情境）
-VERDICT_LABEL = {"pass": "PASS", "fail": "FAIL", "checker_error": "檢查器錯誤", "budget_exhausted": "預算切斷（不計行為）"}
+VERDICT_LABEL = {
+    "pass": "PASS",
+    "fail": "FAIL",
+    "checker_error": "檢查器錯誤",
+    "budget_exhausted": "預算切斷（不計行為）",
+}
 
 
 def run_check(case_dir, fixture, result_path):
@@ -160,11 +218,18 @@ def run_check(case_dir, fixture, result_path):
     if not os.path.isfile(check):
         return "checker_error", "缺 check.py"
     try:
-        r = subprocess.run([sys.executable, check, fixture, result_path],
-                           cwd=case_dir, capture_output=True, text=True, timeout=120)
+        r = subprocess.run(
+            [sys.executable, check, fixture, result_path],
+            cwd=case_dir,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
     except subprocess.TimeoutExpired:
         return "checker_error", "check.py 超時"
-    out = (r.stdout or "") + (("\n[stderr] " + r.stderr.strip()) if r.stderr.strip() else "")
+    out = (r.stdout or "") + (
+        ("\n[stderr] " + r.stderr.strip()) if r.stderr.strip() else ""
+    )
     # 例外也是 exit 1：未捕捉的例外與 FAIL 同碼（實測），得看 stderr 才分得出「斷言不符」與「檢查器壞了」
     if "Traceback (most recent call last)" in (r.stderr or ""):
         return "checker_error", f"check.py 拋例外\n{out}"
@@ -176,40 +241,74 @@ def run_check(case_dir, fixture, result_path):
 
 
 def selected_model(harness):
-    with open(os.path.join(ROOT, '.agent-flow/harnesses/models.json'), encoding='utf-8') as stream:
-        profile = json.load(stream)[harness]['code-writer']
-    if harness == 'codex':
-        return profile['model']
-    return next((line.split(':', 1)[1].strip() for line in profile['frontmatter'].splitlines()
-                 if line.startswith('model:')), None)
+    with open(
+        os.path.join(ROOT, ".agent-flow/harnesses/models.json"), encoding="utf-8"
+    ) as stream:
+        profile = json.load(stream)[harness]["code-writer"]
+    if harness == "codex":
+        return profile["model"]
+    return next(
+        (
+            line.split(":", 1)[1].strip()
+            for line in profile["frontmatter"].splitlines()
+            if line.startswith("model:")
+        ),
+        None,
+    )
 
 
 def print_plan(cases, args):
-    print(f"[skill-eval] dry-run：{len(cases)} 個情境；runs={args.runs} max_cost_usd={args.max_cost_usd} "
-          f"timeout={args.timeout}s harness={args.harness}（不呼叫 {args.harness}）")
+    print(
+        f"[skill-eval] dry-run：{len(cases)} 個情境；runs={args.runs} max_cost_usd={args.max_cost_usd} "
+        f"timeout={args.timeout}s harness={args.harness}（不呼叫 {args.harness}）"
+    )
     for c in cases:
         prompt = read_prompt(c)
         head = prompt.splitlines()[0] if prompt else ""
         has_setup = os.path.isfile(os.path.join(c, "setup.py"))
         print(f"\n## {os.path.basename(c)}")
-        print(f"  fixture: <tmp>/skill-eval-<id>/fixture（共用安裝器產生 {args.harness} 設定；"
-              f"{'有' if has_setup else '無'} setup.py）")
-        print(f"  argv: {' '.join(harness_adapter.build_argv(args.harness, model=args.model, permissions=args.permissions, budget_usd=args.max_cost_usd if args.harness == 'claude' else None)[:-1])} \"{head[:60]}…\"")
+        print(
+            f"  fixture: <tmp>/skill-eval-<id>/fixture（共用安裝器產生 {args.harness} 設定；"
+            f"{'有' if has_setup else '無'} setup.py）"
+        )
+        print(
+            f"  argv: {' '.join(harness_adapter.build_argv(args.harness, model=args.model, permissions=args.permissions, budget_usd=args.max_cost_usd if args.harness == 'claude' else None)[:-1])} \"{head[:60]}…\""
+        )
         print(f"  check: python3 check.py <fixture> <result.json>")
 
 
 def main():
     ap = _ArgParser(description="eval-flow 行為評測 runner（不進 pytest 預設套件）")
-    ap.add_argument("--dry-run", action="store_true", help="只印執行計畫，不呼叫 CLI、不建 fixture")
+    ap.add_argument(
+        "--dry-run", action="store_true", help="只印執行計畫，不呼叫 CLI、不建 fixture"
+    )
     ap.add_argument("--case", help="只跑指定情境（evals/ 下的目錄名）")
-    ap.add_argument("--runs", type=int, default=DEFAULT_RUNS, help=f"每情境執行次數（預設 {DEFAULT_RUNS}）")
-    ap.add_argument("--max-cost-usd", type=float, default=DEFAULT_MAX_COST_USD,
-                    help=f"累計成本上限，觸及即停（預設 {DEFAULT_MAX_COST_USD}）")
-    ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SEC, help="單次 claude 執行秒數上限")
-    ap.add_argument("--keep-fixture", action="store_true", help="保留 fixture 目錄供人工檢視")
-    ap.add_argument('--harness', choices=harness_adapter.HARNESSES, default='claude')
-    ap.add_argument('--permissions', choices=harness_adapter.PERMISSIONS, default='inherit')
-    ap.add_argument('--model', help='Explicit model; omitted uses the project profile')
+    ap.add_argument(
+        "--runs",
+        type=int,
+        default=DEFAULT_RUNS,
+        help=f"每情境執行次數（預設 {DEFAULT_RUNS}）",
+    )
+    ap.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=DEFAULT_MAX_COST_USD,
+        help=f"累計成本上限，觸及即停（預設 {DEFAULT_MAX_COST_USD}）",
+    )
+    ap.add_argument(
+        "--timeout",
+        type=int,
+        default=DEFAULT_TIMEOUT_SEC,
+        help="單次 claude 執行秒數上限",
+    )
+    ap.add_argument(
+        "--keep-fixture", action="store_true", help="保留 fixture 目錄供人工檢視"
+    )
+    ap.add_argument("--harness", choices=harness_adapter.HARNESSES, default="claude")
+    ap.add_argument(
+        "--permissions", choices=harness_adapter.PERMISSIONS, default="inherit"
+    )
+    ap.add_argument("--model", help="Explicit model; omitted uses the project profile")
     args = ap.parse_args()
     args.model = args.model or selected_model(args.harness)
     if args.runs < 1:
@@ -223,13 +322,18 @@ def main():
         return 0
 
     if args.timeout <= 0:
-        fail('--timeout 須 >0')
+        fail("--timeout 須 >0")
     if shutil.which(args.harness) is None:
         fail(f"找不到 {args.harness} CLI（不在 PATH）")
-    if args.harness == 'codex':
-        print('[skill-eval] Codex CLI 不提供美元預算限制；成本記 unknown，以 runs/timeout 限制執行。', file=sys.stderr)
+    if args.harness == "codex":
+        print(
+            "[skill-eval] Codex CLI 不提供美元預算限制；成本記 unknown，以 runs/timeout 限制執行。",
+            file=sys.stderr,
+        )
 
-    provenance = collect(cases[0], __file__, args.harness, args.permissions, args.timeout)
+    provenance = collect(
+        cases[0], __file__, args.harness, args.permissions, args.timeout
+    )
     provenance["case_files_sha256"] = {
         os.path.basename(case): {
             name: digest(os.path.join(case, name))
@@ -241,7 +345,6 @@ def main():
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
     stamp = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    results_path = os.path.join(RESULTS_DIR, f"{stamp}.json")
     records = []
     total_cost = 0.0
     any_fail = False
@@ -252,12 +355,34 @@ def main():
         prompt = read_prompt(case_dir)
         for i in range(1, args.runs + 1):
             remaining = args.max_cost_usd - total_cost
-            if args.harness == 'claude' and remaining < MIN_CASE_BUDGET_USD:
+            if args.harness == "claude" and remaining < MIN_CASE_BUDGET_USD:
                 ceiling_hit = True
                 break
             workdir = tempfile.mkdtemp(prefix="skill-eval-")
-            rec = {"case": name, "run": i, "verdict": None, "cost_usd": None, "turns": None,
-                   "session_id": None, "harness": args.harness, "model": args.model, "permissions": args.permissions, "note": "", "fixture": workdir if args.keep_fixture else None}
+            rec = {
+                "case": name,
+                "run": i,
+                "verdict": None,
+                "cost_usd": None,
+                "turns": None,
+                "session_id": None,
+                "harness": args.harness,
+                "model": args.model,
+                "permissions": args.permissions,
+                "note": "",
+                "fixture": workdir if args.keep_fixture else None,
+                "prompt": prompt,
+                "duration_seconds": None,
+                "duration_source": None,
+                "native_stdout": None,
+                "native_stdout_source": None,
+                "agent_usage": None,
+                "usage_source": None,
+                "main_flow_tokens": None,
+                "writer_tokens": None,
+                "all_agent_tokens": None,
+                "dispatch_correction_seconds": None,
+            }
             try:
                 fixture = build_fixture(case_dir, workdir, args.harness)
             except (RuntimeError, subprocess.CalledProcessError, OSError) as e:
@@ -269,35 +394,70 @@ def main():
                 if not args.keep_fixture:
                     shutil.rmtree(workdir, ignore_errors=True)
                 continue
-            data, raw, note = run_harness(args.harness, fixture, prompt, remaining, args.timeout, args.permissions, args.model)
+            started = time.monotonic()
+            data, raw, note = run_harness(
+                args.harness,
+                fixture,
+                prompt,
+                remaining,
+                args.timeout,
+                args.permissions,
+                args.model,
+            )
+            rec["duration_seconds"] = time.monotonic() - started
+            rec["duration_source"] = "runner monotonic clock"
+            rec["native_stdout"] = raw or None
+            rec["native_stdout_source"] = f"{args.harness} CLI stdout" if raw else None
+            rec["agent_usage"] = data.get("usage") or None if data else None
+            rec["usage_source"] = f"{args.harness} CLI" if rec["agent_usage"] else None
             result_path = os.path.join(workdir, "result.json")
             with open(result_path, "w", encoding="utf-8") as f:
-                f.write(raw if data is None else json.dumps(data, ensure_ascii=False, indent=2))
+                f.write(
+                    raw
+                    if data is None
+                    else json.dumps(
+                        {
+                            **data,
+                            "native_stdout": raw or None,
+                            "native_stdout_source": rec["native_stdout_source"],
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
             # 成本記帳：拿不到 total_cost_usd（超時／不可解析／缺鍵）時保守記該 session 的預算上限，
             # 否則失敗路徑記 $0、下一情境又拿到完整 remaining，累計上限形同虛設
             cost = data.get("total_cost_usd") if isinstance(data, dict) else None
-            if args.harness == 'codex':
-                rec['cost_usd'] = None
-                rec['cost_unknown'] = True
+            if args.harness == "codex":
+                rec["cost_usd"] = None
+                rec["cost_unknown"] = True
             elif isinstance(cost, (int, float)):
                 rec["cost_usd"] = cost
             else:
                 rec["cost_usd"] = remaining
                 rec["cost_unknown"] = True
             total_cost += rec["cost_usd"] or 0
-            cost_label = "unknown" if rec["cost_usd"] is None else f"${rec['cost_usd']:.2f}"
+            cost_label = (
+                "unknown" if rec["cost_usd"] is None else f"${rec['cost_usd']:.2f}"
+            )
             if data is None:
                 rec["verdict"] = "fail"
                 rec["note"] = note
                 any_fail = True
-                print(f"[skill-eval] {name} run {i}: FAIL — {note}（成本狀態：{cost_label}）")
+                print(
+                    f"[skill-eval] {name} run {i}: FAIL — {note}（成本狀態：{cost_label}）"
+                )
             elif note == "budget_exhausted":
                 rec["verdict"] = "budget_exhausted"
                 rec["turns"] = data.get("num_turns")
                 rec["session_id"] = data.get("session_id")
-                rec["note"] = f"session 被 --max-budget-usd {remaining:.2f} 切斷（subtype={data.get('subtype')}），不計行為"
+                rec["note"] = (
+                    f"session 被 --max-budget-usd {remaining:.2f} 切斷（subtype={data.get('subtype')}），不計行為"
+                )
                 ceiling_hit = True
-                print(f"\n## {name} run {i}: {VERDICT_LABEL['budget_exhausted']}  cost={cost_label}  累計=${total_cost:.2f}")
+                print(
+                    f"\n## {name} run {i}: {VERDICT_LABEL['budget_exhausted']}  cost={cost_label}  累計=${total_cost:.2f}"
+                )
             else:
                 rec["turns"] = data.get("num_turns")
                 rec["session_id"] = data.get("session_id")
@@ -306,32 +466,69 @@ def main():
                 rec["check_output"] = out
                 if verdict != "pass":
                     any_fail = True
-                print(f"\n## {name} run {i}: {VERDICT_LABEL[verdict]}  cost={cost_label}  "
-                      f"turns={rec['turns']}  成本狀態={'unknown' if rec.get('cost_unknown') else 'known'}")
+                print(
+                    f"\n## {name} run {i}: {VERDICT_LABEL[verdict]}  cost={cost_label}  "
+                    f"turns={rec['turns']}  成本狀態={'unknown' if rec.get('cost_unknown') else 'known'}"
+                )
                 print(out.rstrip())
             records.append(rec)
             if not args.keep_fixture:
                 shutil.rmtree(workdir, ignore_errors=True)
-            if args.harness == 'claude' and total_cost >= args.max_cost_usd:
+            if args.harness == "claude" and total_cost >= args.max_cost_usd:
                 ceiling_hit = True
                 break
         if ceiling_hit:
             break
 
-    with open(results_path, "w", encoding="utf-8") as f:
-        json.dump({"stamp": stamp, "runs": args.runs, "max_cost_usd": args.max_cost_usd,
-                   "harness": args.harness, "model": args.model, "permissions": args.permissions,
-                   "provenance": provenance,
-                   "total_cost_usd": round(total_cost, 4) if args.harness == "claude" else None, "ceiling_hit": ceiling_hit,
-                   "records": records}, f, ensure_ascii=False, indent=2)
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=RESULTS_DIR,
+        prefix=f"{stamp}-",
+        suffix=".json",
+        delete=False,
+    ) as f:
+        results_path = f.name
+        json.dump(
+            {
+                "stamp": stamp,
+                "runs": args.runs,
+                "max_cost_usd": args.max_cost_usd,
+                "harness": args.harness,
+                "model": args.model,
+                "permissions": args.permissions,
+                "provenance": provenance,
+                "total_cost_usd": (
+                    round(total_cost, 4) if args.harness == "claude" else None
+                ),
+                "ceiling_hit": ceiling_hit,
+                "records": records,
+            },
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
     done = len(records)
-    total_label = f"${total_cost:.2f}（上限 ${args.max_cost_usd:.2f}）" if args.harness == "claude" else "unknown（Codex CLI 不提供美元成本）"
-    print(f"\n[skill-eval] 完成 {done} 次執行，累計 {total_label}"
-          f"→ {os.path.relpath(results_path, ROOT)}")
+    total_label = (
+        f"${total_cost:.2f}（上限 ${args.max_cost_usd:.2f}）"
+        if args.harness == "claude"
+        else "unknown（Codex CLI 不提供美元成本）"
+    )
+    print(
+        f"\n[skill-eval] 完成 {done} 次執行，累計 {total_label}"
+        f"→ {os.path.relpath(results_path, ROOT)}"
+    )
     if ceiling_hit:
-        skipped = [os.path.basename(c) for c in cases if not any(r["case"] == os.path.basename(c) for r in records)]
-        print(f"[skill-eval] 成本上限觸及（剩餘不足單情境最低 ${MIN_CASE_BUDGET_USD:.2f}）：未跑情境 {skipped or '無'}；"
-              f"本輪為部分結果", file=sys.stderr)
+        skipped = [
+            os.path.basename(c)
+            for c in cases
+            if not any(r["case"] == os.path.basename(c) for r in records)
+        ]
+        print(
+            f"[skill-eval] 成本上限觸及（剩餘不足單情境最低 ${MIN_CASE_BUDGET_USD:.2f}）：未跑情境 {skipped or '無'}；"
+            f"本輪為部分結果",
+            file=sys.stderr,
+        )
     # exit 優先序：有 FAIL → 1（部分結果不可蓋掉失敗）；只觸上限 → 2；全過 → 0
     if any_fail:
         return 1

@@ -12,6 +12,9 @@
 | retro | claude-sonnet-5-5 | 歸因提煉為中等推理量，不需最強檔（2026-09-29 由 sonnet-4-6 升級，與 writer 同檔） |
 | task-decomposer | claude-sonnet-5-5 | 拆解＝規劃判斷密集，拆錯整條 flow 重跑；2026-09-29 由 opus-4-8 改（使用者裁決） |
 | task-verifier | claude-sonnet-5-5 | checker（Tier 1 審查層預設位）——憑據逐條核對；2026-09-29 由 haiku-4-5 升級（使用者裁決；實測 haiku 首輪曾 1 turn 無憑據交付）；假放行率為回退依據（v3 回退機制見 retro/BUGLOG.md） |
+| system-investigator | claude-sonnet-5-5 | 沿用既有角色模型配置 |
+| design-architect | claude-sonnet-5-5 | 沿用既有角色模型配置 |
+| adversarial-verifier | claude-sonnet-5-5 | 沿用既有角色模型配置 |
 | usage-analyzer | claude-sonnet-5-5 | 情境盤點＝判斷密集；2026-09-29 由 opus-4-8 改（使用者裁決） |
 
 ## Codex 政策表
@@ -26,6 +29,9 @@
 | task-decomposer | gpt-6.1-terra | low | 2026-10-28 使用者指定：將原 Sol 角色改為 Terra，推理強度維持 low |
 | usage-analyzer | gpt-6.1-terra | low | 2026-10-28 使用者指定：將原 Sol 角色改為 Terra，推理強度維持 low |
 | impact-analyzer | gpt-6.1-terra | low | 2026-10-28 使用者指定：將原 Sol 角色改為 Terra，推理強度維持 low |
+| system-investigator | gpt-6.1-terra | low | 沿用既有角色模型配置 |
+| design-architect | gpt-6.1-terra | low | 沿用既有角色模型配置 |
+| adversarial-verifier | gpt-6.1-terra | low | 沿用既有角色模型配置 |
 | retro | gpt-6.1-terra | low | 2026-10-28 使用者指定：將原 Sol 角色改為 Terra，推理強度維持 low |
 
 - 改 Codex code-writer model 時，把舊值加入 `.agent-flow/harnesses/legacy.json` 的 `codex_default_models`；下游執行 `./init` 時，安裝器才會把舊的 `default_subagent_model` 改為新值，其他值保留

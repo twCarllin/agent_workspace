@@ -6,6 +6,7 @@
 執行：python3 -m unittest tests.test_agent_refs -v
 掃描來源：skills/*/SKILL.md、skills/*/references/*.md、.claude/agents/*.md、CLAUDE.md、README.md。
 """
+
 import re
 import sys
 import unittest
@@ -91,9 +92,11 @@ def extract_agent_refs(text: str) -> set:
 def scan_all_refs(root=ROOT) -> dict:
     """掃描所有來源檔案，回傳 {agent_name: [來源檔相對路徑, ...]} 的字典。"""
     refs: dict = {}
-    files = (skill_documents(root)
-             + list((root / ".claude" / "agents").glob("*.md"))
-             + [root / "CLAUDE.md", root / "README.md"])
+    files = (
+        skill_documents(root)
+        + list((root / ".claude" / "agents").glob("*.md"))
+        + [root / "CLAUDE.md", root / "README.md"]
+    )
     for f in files:
         if not f.exists():
             continue
@@ -131,6 +134,24 @@ class AgentRefIntegrationTest(unittest.TestCase):
         for name in ["code-writer", "task-decomposer"]:
             with self.subTest(agent=name):
                 self.assertIn(name, self._all_refs)
+
+    def test_engineering_skills_resolve_from_both_repo_entries(self):
+        for name in (
+            "system-investigation",
+            "design-comparison",
+            "impact-analysis",
+            "adversarial-verification",
+            "structural-correction",
+        ):
+            with self.subTest(skill=name):
+                source = ROOT / "skills" / name / "SKILL.md"
+                for entry in (".agents/skills", ".claude/skills"):
+                    path = ROOT / entry / name
+                    self.assertTrue(path.is_symlink())
+                    self.assertEqual((path / "SKILL.md").resolve(), source.resolve())
+                    self.assertEqual(
+                        (path / "SKILL.md").read_bytes(), source.read_bytes()
+                    )
 
 
 if __name__ == "__main__":

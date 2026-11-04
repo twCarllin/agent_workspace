@@ -24,13 +24,18 @@ COMPLIANT = "\n".join(
     [STAMP, "", "## 完成度", "全部完成", "## 憑據", "測試通過", "Self-check: 通過"]
 )
 FAKE_EXE = """#!/usr/bin/env python3
-import json, os, sys, time
+import json, os, subprocess, sys, time
 data = sys.stdin.read()
 with open(os.environ["FAKE_CALLS"], "a", encoding="utf-8") as f:
     f.write(json.dumps({"exe": %r, "argv": sys.argv[1:], "stdin": data, "pid": os.getpid()}) + "\\n")
 for path in [p for p in os.environ.get("FAKE_TOUCH", "").split("|") if p]:
     with open(path, "a", encoding="utf-8") as f:
         f.write("changed by fake worker\\n")
+if os.environ.get("FAKE_REWRITE"):
+    with open(os.environ["FAKE_REWRITE"], "w", encoding="utf-8") as f:
+        f.write("entirely different content\\n" * 30)
+if os.environ.get("FAKE_GIT_ADD"):
+    subprocess.run(["git", "add", "--", os.environ["FAKE_GIT_ADD"]], check=True)
 if os.environ.get("FAKE_SLEEP"):
     time.sleep(float(os.environ["FAKE_SLEEP"]))
 sys.stdout.write(os.environ.get("FAKE_STDOUT", ""))
@@ -134,7 +139,17 @@ class DispatchFixture:
         ) as f:
             json.dump(m, f)
 
-    def dispatch(self, *args, stdout="", exit_code=0, touch=(), sleep=None, input=None):
+    def dispatch(
+        self,
+        *args,
+        stdout="",
+        exit_code=0,
+        touch=(),
+        sleep=None,
+        input=None,
+        git_add=None,
+        rewrite=None,
+    ):
         env = {
             **os.environ,
             "PATH": self.bin + os.pathsep + os.environ.get("PATH", ""),
@@ -145,6 +160,10 @@ class DispatchFixture:
         }
         if sleep is not None:
             env["FAKE_SLEEP"] = str(sleep)
+        if git_add is not None:
+            env["FAKE_GIT_ADD"] = git_add
+        if rewrite is not None:
+            env["FAKE_REWRITE"] = rewrite
         return subprocess.run(
             [sys.executable, DISPATCH, *args],
             cwd=self.dir,
@@ -158,7 +177,9 @@ class DispatchFixture:
         """以預設 prompt 檔派工；stdout 缺省為合規 claude JSON。"""
         if stdout is None:
             stdout = claude_json()
-        return self.dispatch(role, "--prompt-file", self.prompt, *args, stdout=stdout, **kw)
+        return self.dispatch(
+            role, "--prompt-file", self.prompt, *args, stdout=stdout, **kw
+        )
 
     def write_codex_toml(self):
         directory = Path(self.dir) / ".codex" / "agents"
@@ -275,21 +296,61 @@ class DispatchTest(DispatchFixture, unittest.TestCase):
         )
         for name, role, backend, perms, flag, mode, recorded in (
             ("唯讀角色預設", "task-verifier", "claude", None, None, None, "inherit"),
-            ("寫入角色預設 edits", "code-writer", "claude", None, None, "acceptEdits", "edits"),
-            ("寫入角色明示 inherit", "code-writer", "claude", "inherit", None, None, "inherit"),
-            ("claude unrestricted", "task-verifier", "claude", "unrestricted", unrestricted[0], None, "unrestricted"),
-            ("codex unrestricted", "task-verifier", "codex", "unrestricted", unrestricted[1], None, "unrestricted"),
+            (
+                "寫入角色預設 edits",
+                "code-writer",
+                "claude",
+                None,
+                None,
+                "acceptEdits",
+                "edits",
+            ),
+            (
+                "寫入角色明示 inherit",
+                "code-writer",
+                "claude",
+                "inherit",
+                None,
+                None,
+                "inherit",
+            ),
+            (
+                "claude unrestricted",
+                "task-verifier",
+                "claude",
+                "unrestricted",
+                unrestricted[0],
+                None,
+                "unrestricted",
+            ),
+            (
+                "codex unrestricted",
+                "task-verifier",
+                "codex",
+                "unrestricted",
+                unrestricted[1],
+                None,
+                "unrestricted",
+            ),
         ):
             with self.subTest(name):
-                args = ["--backend", backend] + (["--permissions", perms] if perms else [])
+                args = ["--backend", backend] + (
+                    ["--permissions", perms] if perms else []
+                )
                 if backend == "codex":
                     self.write_codex_toml()
                 out = codex_jsonl() if backend == "codex" else claude_json()
                 proc = self.run_role(*args, role=role, stdout=out)
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 argv = self.calls_made()[-1]["argv"]
-                self.assertEqual([f for f in unrestricted if f in argv], [flag] if flag else [])
-                got_mode = argv[argv.index("--permission-mode") + 1] if "--permission-mode" in argv else None
+                self.assertEqual(
+                    [f for f in unrestricted if f in argv], [flag] if flag else []
+                )
+                got_mode = (
+                    argv[argv.index("--permission-mode") + 1]
+                    if "--permission-mode" in argv
+                    else None
+                )
                 self.assertEqual(got_mode, mode)
                 self.assertEqual(self.records()[-1]["permissions"], recorded)
 
@@ -314,13 +375,18 @@ class DispatchTest(DispatchFixture, unittest.TestCase):
         """C4 [組合]：--resume sid ＋ 只缺戳記行 → argv 含 --resume sid；exit 0；留痕 resumed／advisory。"""
         no_stamp = "\n".join(["不是戳記行", "", "## 內容", "x", "Self-check: 通過"])
         proc = self.run_role(
-            "--resume", "sess-prev", role="code-writer", stdout=claude_json(result=no_stamp)
+            "--resume",
+            "sess-prev",
+            role="code-writer",
+            stdout=claude_json(result=no_stamp),
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         argv = self.calls_made()[0]["argv"]
         self.assertEqual(argv[argv.index("--resume") + 1], "sess-prev")
         rec = self.records()[0]
-        self.assertEqual((rec["resumed"], rec["envelope"], rec["exit_code"]), (True, "advisory", 0))
+        self.assertEqual(
+            (rec["resumed"], rec["envelope"], rec["exit_code"]), (True, "advisory", 0)
+        )
 
     def test_c5_child_failures_exit_3_and_unknown_role_exit_1(self):
         """C5 [邊界]：子程序 exit 1／stdout 非 JSON／is_error → exit 3、留痕 exit_code=3（exit 1 者 failure=child_error）；
@@ -368,7 +434,9 @@ class DispatchTest(DispatchFixture, unittest.TestCase):
         self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", argv)
         self.assertEqual(argv[argv.index("-m") + 1], "gpt-6-luna")
         self.assertEqual(argv[argv.index("-c") + 1], "model_reasoning_effort=high")
-        self.assertTrue(call["stdin"].startswith("Codex role adapter: checker 指令全文"))
+        self.assertTrue(
+            call["stdin"].startswith("Codex role adapter: checker 指令全文")
+        )
         self.assertTrue(call["stdin"].endswith(PROMPT_TEXT))
         self.assertEqual(self.record_core(), REC_CODEX)
 
@@ -394,7 +462,9 @@ class DispatchTest(DispatchFixture, unittest.TestCase):
     def test_k4_codex_resume(self):
         """K4 [組合]：--backend codex --resume tid → argv 以 exec resume tid 開頭且含 --json。"""
         self.write_codex_toml()
-        proc = self.run_role("--backend", "codex", "--resume", "thread-prev", stdout=codex_jsonl())
+        proc = self.run_role(
+            "--backend", "codex", "--resume", "thread-prev", stdout=codex_jsonl()
+        )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         argv = self.calls_made()[0]["argv"]
         self.assertEqual(argv[:3], ["exec", "resume", "thread-prev"])
@@ -408,7 +478,9 @@ class DispatchTest(DispatchFixture, unittest.TestCase):
         self.assertIn("task-verifier.toml", proc.stderr)
         self.assertEqual(self.calls_made(), [])
         self.write_codex_toml()
-        proc = self.run_role("--backend", "codex", stdout=codex_jsonl(with_message=False))
+        proc = self.run_role(
+            "--backend", "codex", stdout=codex_jsonl(with_message=False)
+        )
         self.assertEqual(proc.returncode, 3)
         self.assertIn("agent_message", proc.stderr)
 
@@ -427,7 +499,9 @@ class DispatchTest(DispatchFixture, unittest.TestCase):
 
     def write_retro(self):
         os.makedirs(os.path.join(self.dir, "retro"), exist_ok=True)
-        with open(os.path.join(self.dir, "retro", "RETRO.md"), "w", encoding="utf-8") as f:
+        with open(
+            os.path.join(self.dir, "retro", "RETRO.md"), "w", encoding="utf-8"
+        ) as f:
             f.write(self.RETRO_FIXTURE)
 
     def test_r1_code_writer_prompt_gets_selected_retro_entries(self):
@@ -442,7 +516,9 @@ class DispatchTest(DispatchFixture, unittest.TestCase):
         self.assertIn("R-101", stdin)
         for absent in ("R-103", "R-104", "R-105"):
             self.assertNotIn(absent, stdin)
-        self.assertEqual(self.records()[0]["retro"], {"selected": ["R-101"], "retire": ["R-104"]})
+        self.assertEqual(
+            self.records()[0]["retro"], {"selected": ["R-101"], "retire": ["R-104"]}
+        )
 
     def test_r2_missing_retro_file_is_fail_open(self):
         """R2：無 retro/RETRO.md → 仍派工（exit 依信封）、該節寫原因、留痕空清單。"""
@@ -458,7 +534,9 @@ class DispatchTest(DispatchFixture, unittest.TestCase):
         """[邊界] --resume 修正輪不重複前置；task-verifier 的 stdin 與 prompt 檔逐位元相同；兩者留痕 retro=null。"""
         self.init_git(tracked=("eval_gates.py",))
         self.write_retro()
-        self.run_role("--files", "eval_gates.py", "--resume", "sess-abc", role="code-writer")
+        self.run_role(
+            "--files", "eval_gates.py", "--resume", "sess-abc", role="code-writer"
+        )
         self.run_role()
         calls = self.calls_made()
         self.assertEqual([c["stdin"] for c in calls], [PROMPT_TEXT, PROMPT_TEXT])
@@ -476,22 +554,30 @@ class DispatchGuardsTest(DispatchFixture, unittest.TestCase):
         self.assertIn("timeout", proc.stderr)
         self.assertEqual(proc.stdout, "")
         rec = self.records()[0]
-        self.assertEqual((rec["failure"], rec["exit_code"], rec["envelope"]), ("timed_out", 3, None))
+        self.assertEqual(
+            (rec["failure"], rec["exit_code"], rec["envelope"]), ("timed_out", 3, None)
+        )
         with self.assertRaises(ProcessLookupError):
             os.kill(self.calls_made()[0]["pid"], 0)
 
     def test_a2_output_over_limit_is_truncated(self):
         """A2：報告 > --max-output-chars 100 → exit 3；stdout 以前 100 字元開頭、不含第 101 個；留痕 output_truncated。"""
-        proc = self.run_role("--max-output-chars", "100", stdout=claude_json(result="x" * 250))
+        proc = self.run_role(
+            "--max-output-chars", "100", stdout=claude_json(result="x" * 250)
+        )
         self.assertEqual(proc.returncode, 3)
         self.assertTrue(proc.stdout.startswith("x" * 100 + "\n"))
         self.assertNotIn("x" * 101, proc.stdout)
         rec = self.records()[0]
-        self.assertEqual((rec["failure"], rec["exit_code"], rec["envelope"]), ("output_truncated", 3, None))
+        self.assertEqual(
+            (rec["failure"], rec["exit_code"], rec["envelope"]),
+            ("output_truncated", 3, None),
+        )
 
     def test_b1_to_b4_out_of_scope_detection(self):
         """B1 越界檔 → exit 4、列 b.py、stdout 仍全文；B2 只改允許檔 → exit 0、out_of_scope=[]；
-        B3 [組合] 越界＋信封缺損 → exit 4、envelope=blocking；B4 [邊界] 派工前已修改的 c.py 不算越界、含空白檔名正確列出。"""
+        B3 [組合] 越界＋信封缺損 → exit 4、envelope=blocking；B4 [邊界] 派工前已修改的 c.py 不算越界、含空白檔名正確列出。
+        """
         self.init_git()
         for name, touch, result, preexisting, rc, oos, envelope in (
             ("B1", ("a.py", "b.py"), COMPLIANT, False, 4, ["b.py"], "ok"),
@@ -502,17 +588,62 @@ class DispatchGuardsTest(DispatchFixture, unittest.TestCase):
             with self.subTest(name):
                 self.reset_git()
                 if preexisting:
-                    with open(os.path.join(self.dir, "c.py"), "a", encoding="utf-8") as f:
+                    with open(
+                        os.path.join(self.dir, "c.py"), "a", encoding="utf-8"
+                    ) as f:
                         f.write("pre-existing edit\n")
                 proc = self.run_role(
-                    "--files", "a.py", role="code-writer", stdout=claude_json(result=result), touch=touch
+                    "--files",
+                    "a.py",
+                    role="code-writer",
+                    stdout=claude_json(result=result),
+                    touch=touch,
                 )
                 self.assertEqual(proc.returncode, rc, proc.stderr)
                 self.assertEqual(proc.stdout, result + "\n")
                 rec = self.records()[-1]
-                self.assertEqual((rec["out_of_scope"], rec["exit_code"], rec["envelope"]), (oos, rc, envelope))
+                self.assertEqual(
+                    (rec["out_of_scope"], rec["exit_code"], rec["envelope"]),
+                    (oos, rc, envelope),
+                )
                 for path in oos:
                     self.assertIn(path, proc.stderr)
+
+    def test_existing_dirty_changes_across_real_subprocess(self):
+        self.init_git(tracked=("a.py", "c.py", "old.py"))
+        for case in ("tracked", "untracked", "index", "rename", "rename_rewrite"):
+            with self.subTest(case=case):
+                self.reset_git()
+                project = Path(self.dir)
+                if case == "untracked":
+                    (project / "outside.py").write_text("before\n")
+                    outside = "outside.py"
+                elif case in ("rename", "rename_rewrite"):
+                    subprocess.run(
+                        ["git", "mv", "old.py", "new.py"], cwd=self.dir, check=True
+                    )
+                    outside = "new.py"
+                else:
+                    (project / "c.py").write_text("before\n")
+                    outside = "c.py"
+                if case == "index":
+                    subprocess.run(["git", "add", "c.py"], cwd=self.dir, check=True)
+                    (project / "c.py").write_text("unstaged\n")
+                proc = self.run_role(
+                    "--files",
+                    "a.py",
+                    role="code-writer",
+                    touch=(
+                        ("a.py", outside)
+                        if case not in ("index", "rename_rewrite")
+                        else ("a.py",)
+                    ),
+                    git_add=outside if case in ("index", "rename_rewrite") else None,
+                    rewrite=outside if case == "rename_rewrite" else None,
+                )
+                self.assertEqual(proc.returncode, 4, proc.stderr)
+                self.assertEqual(self.records()[-1]["out_of_scope"], [outside])
+                self.assertIn(outside, proc.stderr)
 
     def test_b5_no_files_flag_and_non_git_dir(self):
         """B5 [邊界]：無 --files → out_of_scope=null；非 git 目錄給 --files → 略過檢查、exit 依信封、out_of_scope=null。"""
@@ -536,7 +667,11 @@ class DispatchGuardsTest(DispatchFixture, unittest.TestCase):
                     with open(prompt_arg, "w", encoding="utf-8") as f:
                         f.write(content)
                 proc = self.dispatch(
-                    "task-verifier", "--prompt-file", prompt_arg, stdout=claude_json(), input=""
+                    "task-verifier",
+                    "--prompt-file",
+                    prompt_arg,
+                    stdout=claude_json(),
+                    input="",
                 )
                 self.assertEqual(proc.returncode, 1)
                 self.assertEqual(self.calls_made(), [])

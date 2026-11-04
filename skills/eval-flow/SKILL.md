@@ -65,6 +65,10 @@ description: Tier 1／2 實作流程。新 Tier 1 依授權開始、自選方法
 
 派工前必讀 [派工與證據控制](references/dispatch-control.md) 的「派工機制」與「Subagent 呼叫原則」節，使用角色契約與目前 session 已授權模式。續作、修正與重取的 session 選擇依該文件「修正輪與 session 邊界」；越界與信封退件依原規則處置。
 
+修正 session 仍有效時依該規則續用；無效時建立新 session，記錄失效原因與新 session 證據，交接目前修改、未解問題、修正次數及契約原文。派工必須把適用契約、教訓與約束原文放入 prompt 硬性約束區，不能只指向檔案。
+
+工程方法依問題選用：`system-investigation` 追執行路徑並區分歷史證據與推論；`design-comparison` 先定使用契約與邊界，必要時同標準比較；`impact-analysis` 追跨邊界消費端並實證關鍵安全前提；`adversarial-verification` 對真實程式重現反例；`structural-correction` 對重複錯誤先尋求結構約束，再考慮測試及文件。按需載入，角色與模型沿用既有政策。
+
 ## Model 指派原則
 
 模型設定或派工選擇時，必讀 [派工與證據控制](references/dispatch-control.md) 同名節；可執行設定的唯一來源是 `.agent-flow/harnesses/models.json`，不同平台不共用模型 ID。

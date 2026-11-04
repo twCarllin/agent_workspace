@@ -13,7 +13,7 @@
 - `--files`：本 item 允許變更的檔案清單（repo 相對路徑）。role 為 code-writer 且無 `--resume` 時，另依此清單
   以 retro_select 篩選 `retro/RETRO.md`，把選中條目附加到 prompt 末尾的硬性約束節（主 flow 不讀 RETRO.md、不貼條目）；
   RETRO.md 不存在或推不出模組名片段 → 該節寫一句原因、stderr 一句，exit code 不受影響。派工前後各取一次 `git status --porcelain -z`，
-  「派工後有、派工前無」且不在清單內的路徑＝越界 → stderr 列出、留痕 `out_of_scope`、exit 4（報告仍印出）。
+  狀態或內容在派工期間改變且不在清單內的路徑＝越界 → stderr 列出、留痕 `out_of_scope`、exit 4（報告仍印出）。
   未給＝不檢查；非 git repo＝不檢查（fail-open，stderr 一句）
 - `--timeout`：子程序秒數上限（預設 1200）；超時終止 → 留痕 `failure="timed_out"`、exit 3
 - `--max-output-chars`：報告字元上限（預設 60000）；超量 → stdout 只印前 n 字元＋截斷末行、留痕
@@ -39,8 +39,10 @@ run_id 解析沿用 run_evidence 既有基準（R-009）：eval_state.json → �
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
+import stat
 import subprocess
 import sys
 import time
@@ -258,33 +260,72 @@ def retro_prefix(files, root="."):
 
 
 def git_status_paths():
-    """`git status --porcelain -z` 的路徑集合（R-003：NUL 分割，rename／copy 兩段路徑都收；
-    不以空白 split）。非 git repo 等失敗回 None（呼叫端 fail-open）。"""
+    """收集 dirty 路徑的狀態、索引及工作樹快照；無法讀取時回 None。"""
     try:
+        root = os.fsdecode(
+            subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"], capture_output=True, check=True
+            ).stdout.rstrip(b"\n")
+        )
         out = subprocess.run(
-            ["git", "status", "--porcelain", "-z"], capture_output=True, check=True
+            ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
+            cwd=root,
+            capture_output=True,
+            check=True,
         ).stdout
+        index = subprocess.run(
+            ["git", "ls-files", "--stage", "-z"],
+            cwd=root,
+            capture_output=True,
+            check=True,
+        ).stdout
+        index_entries = {}
+        for entry in index.split(b"\0"):
+            if entry:
+                metadata, path = entry.split(b"\t", 1)
+                index_entries.setdefault(os.fsdecode(path), []).append(metadata)
+        tokens = out.split(b"\0")
+        statuses = {}
+        i = 0
+        while i < len(tokens):
+            entry = tokens[i]
+            i += 1
+            if len(entry) < 4:
+                continue
+            xy, path = entry[:2], os.fsdecode(entry[3:])
+            statuses[path] = xy
+            if (b"R" in xy or b"C" in xy) and i < len(tokens):
+                statuses[os.fsdecode(tokens[i])] = b"D " if b"R" in xy else b"  "
+                i += 1
+        snapshot = {}
+        for path, status in statuses.items():
+            full_path = os.path.join(root, path)
+            try:
+                info = os.lstat(full_path)
+            except FileNotFoundError:
+                worktree = None
+            else:
+                if stat.S_ISREG(info.st_mode):
+                    with open(full_path, "rb") as file:
+                        contents = hashlib.sha256(file.read()).digest()
+                elif stat.S_ISLNK(info.st_mode):
+                    contents = os.fsencode(os.readlink(full_path))
+                else:
+                    contents = None
+                worktree = (info.st_mode, contents)
+            snapshot[path] = (status, tuple(index_entries.get(path, ())), worktree)
+        return snapshot
     except (OSError, subprocess.CalledProcessError):
         return None
-    tokens = out.split(b"\0")
-    paths = set()
-    i = 0
-    while i < len(tokens):
-        entry = tokens[i]
-        i += 1
-        if len(entry) < 4:
-            continue
-        xy, path = entry[:2], entry[3:]
-        paths.add(os.fsdecode(path))
-        if (b"R" in xy or b"C" in xy) and i < len(tokens):
-            paths.add(os.fsdecode(tokens[i]))  # rename／copy：下一個 token 是原路徑
-            i += 1
-    return paths
 
 
 def out_of_scope_changes(before, after, allowed):
-    """派工後新出現的變更路徑中，不在 allowed 清單者（排序後回傳）。"""
-    return sorted(p for p in (after - before) if p not in allowed)
+    """回傳快照不同且不在允許清單的路徑。"""
+    return sorted(
+        p
+        for p in before.keys() | after.keys()
+        if before.get(p) != after.get(p) and p not in allowed
+    )
 
 
 def append_record(run_id, record):

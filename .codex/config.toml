@@ -21,3 +21,12 @@ config_file = "agents/usage-analyzer.toml"
 
 [agents.task-verifier]
 config_file = "agents/task-verifier.toml"
+
+[agents.system-investigator]
+config_file = "agents/system-investigator.toml"
+
+[agents.design-architect]
+config_file = "agents/design-architect.toml"
+
+[agents.adversarial-verifier]
+config_file = "agents/adversarial-verifier.toml"

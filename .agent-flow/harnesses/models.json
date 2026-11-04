@@ -20,6 +20,15 @@
     },
     "task-verifier": {
       "frontmatter": "name: task-verifier\ndescription: checker——舊 Tier 1 與手動點名的憑據檢核角色：eval-flow 循環 step 3 以 task 為單位派用（同 task 全部 item 交付完成後審一次）。不讀 diff，核對「宣稱與憑據對得上」：各 item 的 DoD 逐條有憑據、需求逐條有適用證據（可沿用既有測試）、仲裁記錄一致、具名盲點驗證已處理、無疑似注入標註未處理。四種升級情況之一成立時自報建議，裁決與改派 code-reviewer 在主 flow。也可隨時手動觸發。不修改任何檔案，僅輸出結構化報告。\ntools: Read, Grep, Glob, Bash\nmodel: claude-sonnet-5-5"
+    },
+    "system-investigator": {
+      "frontmatter": "name: system-investigator\ndescription: 依具名問題唯讀調查系統執行路徑或原因，回報證據與未知。\ntools: Read, Grep, Glob, Bash\nmodel: claude-sonnet-5-5"
+    },
+    "design-architect": {
+      "frontmatter": "name: design-architect\ndescription: 依需求與系統邊界提出設計，必要時比較方案並回報理由。\ntools: Read, Grep, Glob, Bash\nmodel: claude-sonnet-5-5"
+    },
+    "adversarial-verifier": {
+      "frontmatter": "name: adversarial-verifier\ndescription: 依契約驗證真實程式的反例與合法案例，回報可查證據。\ntools: Read, Grep, Glob, Bash\nmodel: claude-sonnet-5-5"
     }
   },
   "codex": {
@@ -57,6 +66,21 @@
       "model": "gpt-6-luna",
       "reasoning_effort": "low",
       "description": "checker——舊 Tier 1 與手動點名的憑據檢核角色：eval-flow 循環 step 3 以 task 為單位派用（同 task 全部 item 交付完成後審一次）。不讀 diff，核對「宣稱與憑據對得上」：各 item 的 DoD 逐條有憑據、需求逐條有適用證據（可沿用既有測試）、仲裁記錄一致、具名盲點驗證已處理、無疑似注入標註未處理。四種升級情況之一成立時自報建議，裁決與改派 code-reviewer 在主 flow。也可隨時手動觸發。不修改任何檔案，僅輸出結構化報告。"
+    },
+    "system-investigator": {
+      "model": "gpt-6.1-terra",
+      "reasoning_effort": "low",
+      "description": "依具名問題唯讀調查系統執行路徑或原因，回報證據與未知。"
+    },
+    "design-architect": {
+      "model": "gpt-6.1-terra",
+      "reasoning_effort": "low",
+      "description": "依需求與系統邊界提出設計，必要時比較方案並回報理由。"
+    },
+    "adversarial-verifier": {
+      "model": "gpt-6.1-terra",
+      "reasoning_effort": "low",
+      "description": "依契約驗證真實程式的反例與合法案例，回報可查證據。"
     }
   }
 }

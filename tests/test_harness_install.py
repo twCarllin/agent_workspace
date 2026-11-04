@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -58,6 +59,45 @@ class HarnessInstallTest(unittest.TestCase):
                     if p.is_file() and ".git" not in p.parts
                 }
                 self.assertEqual(first, second)
+                for skill in (
+                    "system-investigation",
+                    "design-comparison",
+                    "impact-analysis",
+                    "adversarial-verification",
+                    "structural-correction",
+                ):
+                    expected = (ROOT / "skills" / skill / "SKILL.md").read_text()
+                    self.assertEqual(
+                        (project / ".agents/skills" / skill / "SKILL.md").read_text(),
+                        expected,
+                    )
+                    if harness in ("claude", "both"):  # testlint: allow
+                        self.assertEqual(
+                            (
+                                project / ".claude/skills" / skill / "SKILL.md"
+                            ).read_text(),
+                            expected,
+                        )
+                for role in (
+                    "system-investigator",
+                    "design-architect",
+                    "adversarial-verifier",
+                ):
+                    if harness in ("claude", "both"):  # testlint: allow
+                        self.assertTrue(
+                            (project / f".claude/agents/{role}.md").is_file()
+                        )
+                    if harness in ("codex", "both"):  # testlint: allow
+                        config = tomllib.loads(
+                            (project / ".codex/config.toml").read_text()
+                        )
+                        self.assertTrue(
+                            (
+                                project
+                                / ".codex"
+                                / config["agents"][role]["config_file"]
+                            ).is_file()
+                        )
                 for name in ("CLAUDE.md", "AGENTS.md"):
                     self.assertIn("Project convention", (project / name).read_text())
                 self.assertEqual(
@@ -313,6 +353,14 @@ class HarnessInstallTest(unittest.TestCase):
             (project / ".claude/agents").mkdir(parents=True)
             custom = project / ".claude/agents/code-writer.md"
             custom.write_text("Custom role\n")
+            custom_new = project / ".claude/agents/system-investigator.md"
+            custom_new.write_text("Custom investigator\n")
+            (project / ".codex/agents").mkdir(parents=True)
+            codex_custom = project / ".codex/agents/design-architect.toml"
+            codex_custom.write_text('model = "custom"\n')
+            custom_skill = project / ".agents/skills/structural-correction/SKILL.md"
+            custom_skill.parent.mkdir(parents=True)
+            custom_skill.write_text("Custom skill\n")
             settings = {
                 "env": {"USER_VALUE": "keep"},
                 "hooks": {
@@ -342,6 +390,9 @@ class HarnessInstallTest(unittest.TestCase):
             self.assertEqual(commands.count("echo user hook"), 1)
             self.assertEqual(sum("eval_gates.py" in c for c in commands), 1)
             self.assertEqual(custom.read_text(), "Custom role\n")
+            self.assertEqual(custom_new.read_text(), "Custom investigator\n")
+            self.assertEqual(codex_custom.read_text(), 'model = "custom"\n')
+            self.assertEqual(custom_skill.read_text(), "Custom skill\n")
             self.assertTrue((project / ".codex/hooks.json").exists())
 
     def test_codex_config_preserves_custom_roles_and_uses_relative_paths(self):
@@ -553,6 +604,23 @@ class HarnessInstallTest(unittest.TestCase):
                     codex["model_reasoning_effort"], values["reasoning_effort"]
                 )
                 self.assertNotIn("model:", common)
+
+    def test_installed_role_skill_references_resolve(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            self.install(project, "--harness", "both")
+            for role in (
+                "system-investigator",
+                "design-architect",
+                "impact-analyzer",
+                "adversarial-verifier",
+                "retro",
+            ):
+                text = (project / ".agent-flow/roles" / f"{role}.md").read_text()
+                refs = re.findall(r"`(\.agents/skills/[a-z-]+/SKILL\.md)`", text)
+                self.assertTrue(refs, role)
+                for ref in refs:
+                    self.assertTrue((project / ref).is_file(), f"{role}: {ref}")
 
     def test_known_legacy_claude_router_is_replaced_but_custom_content_is_preserved(
         self,
