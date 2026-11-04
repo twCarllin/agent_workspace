@@ -5,6 +5,8 @@ import hashlib
 import json
 import os
 import subprocess
+import tempfile
+import shutil
 
 from flow_rules import (
     RuleViolation,
@@ -115,7 +117,7 @@ def review_contract_snapshot(manifest):
     ).hexdigest()
 
 
-def review_source_snapshot(manifest):
+def review_source_snapshot(manifest, readonly=False):
     """Bind actual files, including pure documentation, independently of HEAD."""
     names = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
@@ -139,9 +141,41 @@ def review_source_snapshot(manifest):
                     digest.update(chunk)
         else:
             raise RuleViolation(f"無法綁定自查來源：{path}")
-    tree = subprocess.run(
-        ["git", "write-tree"], check=True, capture_output=True, text=True
-    ).stdout.strip()
+    if readonly:
+        git_dir = subprocess.run(
+            ["git", "rev-parse", "--absolute-git-dir"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        object_dir = subprocess.run(
+            ["git", "rev-parse", "--git-path", "objects"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        index = os.environ.get("GIT_INDEX_FILE", os.path.join(git_dir, "index"))
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_index = os.path.join(directory, "index")
+            shutil.copyfile(index, isolated_index)
+            env = os.environ.copy()
+            env["GIT_INDEX_FILE"] = isolated_index
+            env["GIT_OBJECT_DIRECTORY"] = directory
+            alternatives = json.dumps(os.path.abspath(object_dir), ensure_ascii=False)
+            if env.get("GIT_ALTERNATE_OBJECT_DIRECTORIES"):
+                alternatives += os.pathsep + env["GIT_ALTERNATE_OBJECT_DIRECTORIES"]
+            env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = alternatives
+            tree = subprocess.run(
+                ["git", "write-tree"],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=env,
+            ).stdout.strip()
+    else:
+        tree = subprocess.run(
+            ["git", "write-tree"], check=True, capture_output=True, text=True
+        ).stdout.strip()
     return {
         "source_digest": digest.hexdigest(),
         "index_tree": tree,
@@ -149,7 +183,7 @@ def review_source_snapshot(manifest):
     }
 
 
-def validate_review(manifest, source):
+def validate_review(manifest, source, readonly=False):
     """All completion paths use the same self-review authorization and binding."""
     if manifest.get("checked_by") == "self":
         validate_self_review(manifest)
@@ -160,7 +194,7 @@ def validate_review(manifest, source):
             "snapshot_kind": latest.get("snapshot_kind"),
             "plan_recorded_at": plan_timestamp(manifest),
         }
-        expected.update(review_source_snapshot(manifest))
+        expected.update(review_source_snapshot(manifest, readonly=readonly))
         binding = manifest.get("self_review_snapshot")
         if not isinstance(binding, dict) or any(
             binding.get(key) != value for key, value in expected.items()

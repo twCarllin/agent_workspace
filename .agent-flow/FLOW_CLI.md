@@ -32,6 +32,7 @@ Claude 執行 `claude --version` 與 `claude auth status`，只記錄版本與�
 ## 查看進度
 
 ```sh
+python3 .agent-flow/scripts/flow.py next --run-id <id>
 python3 .agent-flow/scripts/flow.py status --run-id <id>
 python3 .agent-flow/scripts/flow.py status --run-id <id> --json
 python3 .agent-flow/scripts/flow.py watch --run-id <id> --timeout 30 --interval 1
@@ -44,6 +45,12 @@ python3 .agent-flow/scripts/flow.py watch --run-id <id> --timeout 30 --interval 
 主 flow 回報狀態時，分開說明程序是否存活、最後已觀測進展與受阻原因，只使用目前可取得的證據。沒有新輸出不足以判定卡死，程序存活也不足以證明工作有進展；原因無證據時記未知。timeout 只表示相應操作的等待上限已到，是否終止須另有證據。例如「最後收到工具開始事件，已等待 40 秒；未收到完成事件，等待原因未知」。本規則不表示 `status/watch` 已具備程序探測能力，也不要求新增心跳、輪詢或必填欄位；既有停止條件照常適用。
 
 `watch` 只在狀態改變時輸出，達到時間上限或 run 結束時退出。可用 Ctrl+C 停止監看。監看不會暫停工作，也不修改證據。
+
+### 唯讀下一步建議
+
+`python3 .agent-flow/scripts/flow.py next --run-id <id>` 輸出 JSON；可省略 ID 以選取唯一活動 run，`--json` 亦可使用。結果固定包含 `run_id`、`state`、`action`、`command`、`reason` 和 `blockers`。`command` 是參數陣列或 null；建議不執行驗證、審查或提交，也不代表提交 gate 已通過。選取或輸入錯誤的退出碼為 2。
+
+操作順序：先確認需求與計畫授權，再完成 task、驗證、審查與 item 對帳。收尾前由呼叫端確認提交訊息與範圍；恢復提交時須核對實際 commit。`next` 只依現有資料提供單一建議，不補造授權或審查結果。
 
 ## Tier 1 初始化與審查
 
@@ -114,7 +121,7 @@ python3 .agent-flow/scripts/flow.py finish --run-id <id> \
 
 明確加上 `--push` 才推送至目前分支的 `origin` 遠端；不使用 force。完成後 push 失敗，可重跑帶 `--push` 的指令。同一 Git repository（含 worktree）同時只允許一個 finish；程序中斷留下的鎖須先核對程序已停止再處理。
 
-本版提供 `activation/preflight/status/watch/review-packet/worktree-link/finish`；初始化與審查記錄使用上述 `eval_state.py` 入口。需求分級沿用 Router，工作暫停與恢復沿用 eval-flow-resume。
+本版提供 `activation/preflight/next/status/watch/review-packet/worktree-link/finish`；初始化與審查記錄使用上述 `eval_state.py` 入口。需求分級沿用 Router，工作暫停與恢復沿用 eval-flow-resume。
 
 ## 已追蹤的活動日誌
 

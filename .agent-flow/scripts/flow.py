@@ -249,6 +249,123 @@ def status(run_id=None):
     )
 
 
+def next_step(run_id=None):
+    path, manifest = select_run(run_id)
+    run_id = manifest["run_id"]
+    state_name = manifest.get("status")
+    result = dict(
+        run_id=run_id,
+        state=state_name,
+        action=None,
+        command=None,
+        reason="",
+        blockers=[],
+    )
+
+    def advise(action, reason, command=None, blockers=None):
+        result.update(
+            action=action, reason=reason, command=command, blockers=blockers or []
+        )
+        return result
+
+    if state_name in TERMINAL:
+        missing = (
+            manifest.get("partial_acceptance", {}).get("item_ids", [])
+            if state_name == "partial"
+            else []
+        )
+        return advise(
+            "done", "Run 已結束", blockers=[f"未交付 item: {item}" for item in missing]
+        )
+    if state_name not in ("in_progress", "ready_to_commit"):
+        return advise(
+            "blocked", "Run 已暫停或狀態未知", blockers=[f"status: {state_name}"]
+        )
+    if state_name == "ready_to_commit":
+        if matching_commit(manifest):
+            return advise(
+                "finalize",
+                "已找到符合的 commit",
+                [sys.executable, str(SCRIPTS / "run_commit.py"), "finalize", run_id],
+            )
+        if head() != manifest.get("pre_commit_head"):
+            return advise(
+                "blocked",
+                "準備後 HEAD 已改變且 commit 不匹配",
+                blockers=["HEAD 不匹配"],
+            )
+    try:
+        flow_rules.validate_manifest_basic(manifest, path, allow_in_progress=True)
+        run_evidence.check_item_plan(manifest)
+    except flow_rules.RuleViolation as error:
+        return advise("plan", "計畫資料不足", blockers=[str(error)])
+    state = None
+    hot = Path("eval_state.json")
+    archive = Path(f"run/{run_id}.eval.json")
+    if hot.exists():
+        state = read(hot)
+        if state.get("run_id") != run_id:
+            return advise(
+                "blocked", "熱狀態屬於其他 run", blockers=["eval_state run_id mismatch"]
+            )
+    elif archive.exists():
+        state = read(archive)
+        if state.get("run_id") != run_id:
+            return advise(
+                "blocked", "歸檔屬於其他 run", blockers=["archive run_id mismatch"]
+            )
+    elif manifest.get("tier") in (2, "2"):
+        return advise("plan", "缺少 task 狀態", blockers=["缺少熱狀態或歸檔"])
+    if state is not None:
+        tasks = state.get("sub_tasks")
+        if not isinstance(tasks, list) or not tasks:
+            return advise("plan", "缺少 task", blockers=["sub_tasks 為空或格式錯誤"])
+        for task in tasks:
+            if task.get("status") != "passed":
+                return advise(
+                    "resume_task",
+                    f"繼續 task {task.get('id')}，記錄步驟: {task.get('step')}",
+                )
+    try:
+        run_evidence.validate_evidence_snapshot(manifest, path)
+    except flow_rules.RuleViolation as error:
+        command = manifest.get("test_command")
+        argv = (
+            [
+                sys.executable,
+                str(SCRIPTS / "run_verify.py"),
+                "--run-id",
+                run_id,
+                "--cmd",
+                command,
+                "--reuse",
+            ]
+            if isinstance(command, str) and command.strip()
+            else None
+        )
+        return advise("verify", "需要有效驗證快照", argv, [str(error)])
+    try:
+        run_evidence.validate_review(manifest, path, readonly=True)
+        if state is None:
+            flow_rules.validate_credentials(manifest, path)
+        else:
+            flow_rules.validate_state(
+                state, str(hot if hot.exists() else archive), require_passed=True
+            )
+    except flow_rules.RuleViolation as error:
+        return advise("review", "需要審查或 task 憑據", blockers=[str(error)])
+    staged = set(
+        git("diff", "--cached", "--name-only", "-z", "--no-renames").split("\0")
+    ) - {""}
+    try:
+        run_evidence.check_items(manifest, staged)
+    except flow_rules.RuleViolation as error:
+        return advise("items", "需要完成 item 對帳", blockers=[str(error)])
+    return advise(
+        "finish", "確認提交訊息與範圍後再收尾；此建議不代表 commit gate 已放行"
+    )
+
+
 def emit(value, as_json=False):
     if as_json:
         print(json.dumps(value, ensure_ascii=False, sort_keys=True), flush=True)
@@ -484,6 +601,9 @@ def main(argv=None):
         if name == "watch":
             sub.add_argument("--timeout", type=float, default=30)
             sub.add_argument("--interval", type=float, default=1)
+    next_parser = commands.add_parser("next")
+    next_parser.add_argument("--run-id")
+    next_parser.add_argument("--json", action="store_true")
     link = commands.add_parser("worktree-link")
     link.add_argument("--root", default=".")
     end = commands.add_parser("finish")
@@ -535,6 +655,11 @@ def main(argv=None):
         if args.command == "finish":
             finish(args)
             return 0
+        if args.command == "next":
+            print(
+                json.dumps(next_step(args.run_id), ensure_ascii=False, sort_keys=True)
+            )
+            return 0
         if args.command == "status":
             emit(status(args.run_id), args.json)
             return 0
@@ -558,7 +683,12 @@ def main(argv=None):
             time.sleep(min(args.interval, max(0, deadline - time.monotonic())))
     except KeyboardInterrupt:
         return 0
-    except (ValueError, OSError, json.JSONDecodeError) as error:
+    except (
+        ValueError,
+        OSError,
+        json.JSONDecodeError,
+        subprocess.CalledProcessError,
+    ) as error:
         print(f"[flow] {error}", file=sys.stderr)
         return 2
 
