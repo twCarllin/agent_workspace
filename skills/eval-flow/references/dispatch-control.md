@@ -4,13 +4,16 @@
 
 writer 派工前，先依 [實作與 staging 的批次規則](writing.md) 決定本次 items；item 是驗收單位，不直接決定派工次數。
 
+單一 run 預設由主 flow 直接協調 writer、reviewer 與必要角色，不另派只負責轉交指令及彙整回報的 agent。多條互不相依的執行線需要分開管理時，才依適用的 parallel-run／[P] fan-out 隔離規則委派；各執行線的責任、狀態與收尾憑據仍須明確。
+
 流程角色（`code-writer`／`task-verifier`／`code-reviewer`／`retro`／`task-decomposer`／`usage-analyzer`／`impact-analyzer`）可由目前 harness 的角色工具或 headless CLI 派工。兩路都遵守共用角色契約、獨立審查與 gate；工具與權限差異住 `.agent-flow/HARNESS.md` 及適配層：
 
 - **指令**：`python3 .agent-flow/scripts/dispatch.py <role> --prompt-file <path> [--backend claude|codex] [--resume <session>] [--files <逗號清單>] [--timeout <秒>] [--max-output-chars <n>]`。後端依 manifest `harness` 選取；明示 `--backend` 可覆寫，舊 manifest 缺 harness 時使用 Claude 相容路徑。角色職責讀共用 `.agent-flow/roles/`，模型與工具設定由各 harness 載體提供
 - **prompt 檔**：主 flow 把派工 prompt 全文（含硬性約束區、契約表原文——知識前置規則不變，R-011）寫到 `run/<run_id>.prompt-<role>-<n>.md`（冷溯源檔，不進版控）再派工，不走命令列參數；retro 條目不在此列——派 `code-writer` 時由 dispatch 依 `--files` 自動前置到 prompt 末尾，主 flow 不讀 RETRO.md、不貼條目
 - **輸出**：stdout＝子 agent 報告全文（可保存供獨立審查；主 flow 閱讀方式見「派工上下文」）；stderr 摘要行 `[dispatch] role=… backend=… session=<sid> turns=… tokens=… cost_usd=…`；exit 2＝信封 blocking（退件重取，見「主 flow 憑據紀律」）、exit 3＝子程序失敗／超時（預設 1200 秒）／報告超量（預設 60000 字元，截斷）、exit 4＝越界變更（退件；範圍外檔案列在 stderr，優先於 exit 2）
 - **越界檢查（主 flow 派 code-writer 時必帶 `--files`，值＝本次批次 items 的 files 聯集）**：script 以派工前後的 `git status` 對照，「派工後新出現且不在清單內」的路徑即越界。越界退件時主 flow 先看 stderr 清單裁決（真越界→`--resume` 要求還原；清單漏列→補 files 後照常收），不自行放行
-- **修正輪與 session 邊界**：同一交付的續作、修正與重取預設沿用原 agent；原生工具用 followup，CLI 用 `--resume <sid>`（取自上一輪 stderr）。新批次若仍需前批的設計判斷與共用程式脈絡，可以沿用；若只需已完成的介面與驗收結果，另開 agent。不得只因角色或 task ID 相同而沿用，也不要求每個 item 都開新 session。
+- **修正輪與 session 邊界**：依責任與知識邊界開新 agent，依工作連續性沿用 session。同一交付的續作、修正與重取預設沿用原 agent；原生工具用 followup，CLI 用 `--resume <sid>`（取自上一輪 stderr）。新批次若仍需前批的設計判斷與共用程式脈絡，優先沿用；若只需已完成的介面與驗收結果，另開 agent。不得只因角色或 task ID 相同而沿用，也不得只因 item／task ID 不同而換 session。
+  - 跨 task 續用 writer 時，仍依原流程完成前一 task 的交付與適用審查，再開始下一 task；更新授權檔案範圍，不把跨 task 續作當成同一批派工。reviewer 的修正複審也優先沿用原 agent；完整首審、可縮小複審的有效 delta 與證據鮮度仍依 `efficiency.md`，不以 session 記憶取代證據。
   - 沿用時只傳未解問題、差異與新增證據；契約變動補變動原文，不重送未變背景。錯誤判讀已造成多輪返工與大量無效探索時，先整理正確契約、目前修改狀態及未解問題，再依下節精簡交接給新 agent；原 agent 不可用或 context 遺失也依此重建。不設固定 token 門檻。
   - 換 session 前確認舊 writer 已結束或停止寫入，保留既有修改、修正次數與審查狀態；換 session 不重置修正上限或 gate。writer 與 reviewer 仍須由不同 agent 擔任。
 - **信封驗收內建**：script 以 `report_envelope_check.check_envelope` 判定（單一出處），blocking／advisory 處置同 PostToolUse hook（該 hook 仍掛在 `Agent` 工具路徑上）
@@ -22,7 +25,7 @@ writer 派工前，先依 [實作與 staging 的批次規則](writing.md) 決定
 
 - 新 agent 不繼承主對話。Codex 原生 `spawn_agent` 必須明確指定 `fork_turns: "none"`，不得省略或使用 `"all"`；CLI 的 prompt 也不得夾帶完整對話。此規則適用實作、審查、恢復與平行派工，不改角色模型或權限設定。
 - 派工只提供下列資料；沒有對話背景也必須能理解任務。必要的使用者裁決先寫入既有 Spec／task 或 run 紀錄；首次／重建交接附相關裁決原文及位置。適用的硬性約束及本次契約仍按角色要求附原文，只摘相關條目，不貼整份流程文件。
-- 主 flow 保留決策摘要與證據位置；writer 只接收本批相關契約、約束原文及程式定位。沒有相關歷史時不補入完整對話；交接資訊仍須足以執行並核對本次任務。
+- 主 flow 保留目標、決策摘要、進度、未解問題及證據位置與有效範圍；來源變動時重新核對受影響證據。writer 只接收本批相關契約、約束原文及程式定位。沒有相關歷史時不補入完整對話；交接資訊仍須足以執行並核對本次任務。
 
 ```text
 目標：本次要完成的結果
