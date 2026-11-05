@@ -184,3 +184,4 @@
 ## 2026-11-05 新增（run 2026-11-05-observed-acceptance：使用者可觀察驗收）
 
 - 2026-11-05｜外部 agent 反饋＋pstack 對照｜skills/test-strategy/SKILL.md:依變更選擇驗證｜每 item 交付必附「使用者會看到什麼」與真實入口證據（ran／file／pending-manual），由 item_accounting 機械擋；run_verify 記 scope、flow status 分開顯示全套結果與待人工確認；新增 verification-recipe skill（每專案一次配方，不進測試）
+- 2026-11-06｜run 2026-11-06-memory-hygiene｜install_harness.py:Claude 指示區｜加記憶寫法規則（條件→動作，不存否決句）；SessionStart 加 memory_prune 提醒，--apply 只搬結案記錄到 _archive

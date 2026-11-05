@@ -8,7 +8,8 @@ compaction 後 session 重建三種進入點皆觸發）。stdout 純文字，�
   ⓪本次為 linked worktree 補建的工具鏈連結（`worktree_link.ensure_links`）
   ①殘留 in_progress run 提示（`eval_state.json` 存在，或 `run/*.json` 中有
     `status: in_progress` 的 manifest，`MANIFEST_RE` 同源判定）
-  ②`doctor.py --brief` 的異常行
+  ②記憶整理提醒（`memory_prune.py --notice`，有候選才一行；排在 doctor 前，避免被 10 行上限截掉）
+  ③`doctor.py --brief` 的異常行
 
 輸出上限 10 行（進 context 的成本要小；官方硬上限 10,000 字元）。
 stdin payload 解析失敗一律靜默 exit 0（hook 壞掉不可拖垮 session）。
@@ -70,7 +71,21 @@ def _doctor_brief_lines(harness=None):
     return [line for line in out.splitlines() if line]
 
 
-def build_output(codex=False, harness=None, linked=()):
+def _memory_notice_line(root):
+    """跑 memory_prune.py --notice；失敗回 None（旁路容錯）。"""
+    script = os.path.join(os.path.dirname(os.path.realpath(__file__)), "memory_prune.py")
+    try:
+        p = subprocess.run(
+            [sys.executable, script, "--notice", "--root", root],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    line = p.stdout.strip().splitlines()
+    return line[0] if p.returncode == 0 and line else None
+
+
+def build_output(codex=False, harness=None, linked=(), root="."):
     lines = []
     if linked:
         lines.append("已為 worktree 建立工具鏈連結：" + ", ".join(linked))
@@ -81,6 +96,9 @@ def build_output(codex=False, harness=None, linked=()):
             f"有未收尾的 run：{run_id}（phase={phase}），"
             f"依 eval-flow-resume skill 從檔案恢復，不靠記憶；或標 aborted 收尾"
         )
+    notice = _memory_notice_line(root)
+    if notice:
+        lines.append(notice)
     lines.extend(_doctor_brief_lines(harness or ("codex" if codex else None)))
     return lines[:MAX_OUTPUT_LINES]
 
@@ -102,7 +120,7 @@ def main():
     harness = payload.get("harness") or os.environ.get("AGENT_FLOW_HARNESS")
     if harness not in (None, "claude", "codex", "both"):
         harness = None
-    lines = build_output(harness=harness, linked=linked)
+    lines = build_output(harness=harness, linked=linked, root=root)
     if lines:
         print("\n".join(lines))
     sys.exit(0)

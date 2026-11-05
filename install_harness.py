@@ -172,6 +172,7 @@ Read `.agent-flow/HARNESS.md`, `.agent-flow/{harness.upper()}_ADAPTER.md`, and `
 For implementation, read `.agent-flow/ROUTER.md`, then load only the selected `.agents/skills/<name>/SKILL.md`. Diagnose bugs before routing; use eval-flow-resume for an interrupted run.
 New Tier 1/2 manifests use `harness: "{harness}"` and `evidence_schema: 2`. Keep actual verification evidence and independent review evidence when required. Run the final verification with `python3 .agent-flow/scripts/run_verify.py --run-id <id> --cmd "<project test command>"`; prepare, commit with Run-Id, then finalize with run_commit.py.
 Use the matching role, with goal, context, constraints, and done conditions. Respect project instructions and current session permissions.
+Write experience memories as condition → action; never store a bare verdict such as "X is unstable" as a reason not to act. When the session start notice lists memory candidates, run `python3 .agent-flow/scripts/memory_prune.py` and review the list.
 {end_marker}"""
     existing = path.read_text() if path.exists() else ""
     if harness == "codex" and not repo_mode:

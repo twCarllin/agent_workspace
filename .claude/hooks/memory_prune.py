@@ -1,0 +1,1 @@
+../../.agent-flow/scripts/memory_prune.py

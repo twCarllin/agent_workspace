@@ -178,6 +178,17 @@ python3 .agent-flow/scripts/item_accounting.py --run-id <id> partial --items 1.2
 部分交付仍須通過 task 審查與四項測試／審查憑據。reviewer 須明列未交付 item
 及使用者裁示，才可對已接受的部分範圍記 task `passed`；未獲裁示仍阻擋。
 
+## 記憶整理
+
+Claude Code 自動記憶（`~/.claude/projects/<slug>/memory`）沒有生命週期，每個 session 全載。SessionStart hook 以 `memory_prune.py --notice` 檢查，有候選才印一行。候選三類：索引超過 4096 字元；type project 且 30 天未修改的結案記錄；內文含否決句（效果不穩、擋不住、區分力弱等）。
+
+```sh
+python3 .agent-flow/scripts/memory_prune.py           # dry-run 列候選
+python3 .agent-flow/scripts/memory_prune.py --apply   # 只把結案記錄搬到 _archive/，不刪
+```
+
+否決句項目不自動搬，要改寫成「條件 → 動作」或由使用者移除。`CLAUDE_MEMORY_DIR` 可覆寫目錄。
+
 ## 用量紀錄
 
 - `subagent_usage`：**選填**。step 6 子項②收尾時由 `python3 .agent-flow/scripts/token_usage.py <run_id> --write` **實測回寫**的 tokens 彙總 `{"prep": int, "loop": int, "main": int}`——三鍵皆為 transcript 四欄（`input_tokens`／`cache_creation_input_tokens`／`cache_read_input_tokens`／`output_tokens`）加總；`prep`＝usage-analyzer／task-decomposer／impact-analyzer 的 subagent 合計、`loop`＝其餘 subagent 合計、`main`＝主 flow 自身。不以 Agent 工具回執自報、不憑印象估 `main`（估計法系統性低估流程稅）。消費端 `stats.py`：prep／loop 缺一或非 int → 整筆計無記錄；`main` 非 int → 只跳過 main、prep/loop 照收
