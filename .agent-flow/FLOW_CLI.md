@@ -183,11 +183,12 @@ python3 .agent-flow/scripts/item_accounting.py --run-id <id> partial --items 1.2
 Claude Code 自動記憶（`~/.claude/projects/<slug>/memory`）沒有生命週期，每個 session 全載。SessionStart hook 以 `memory_prune.py --notice` 檢查，有候選才印一行。候選三類：索引超過 4096 字元；type project 且 30 天未修改的結案記錄；內文含否決句（效果不穩、擋不住、區分力弱等）。
 
 ```sh
-python3 .agent-flow/scripts/memory_prune.py           # dry-run 列候選
-python3 .agent-flow/scripts/memory_prune.py --apply   # 只把結案記錄搬到 _archive/，不刪
+python3 .agent-flow/scripts/memory_prune.py                      # dry-run 列候選
+python3 .agent-flow/scripts/memory_prune.py --apply a.md b.md    # 整理過的候選搬到 _archive/，不刪
 ```
 
-否決句項目不自動搬，要改寫成「條件 → 動作」或由使用者移除。`CLAUDE_MEMORY_DIR` 可覆寫目錄。
+搬之前先整理：逐條讀候選，仍有效的「條件 → 動作」併入既有長期記憶或新寫一條，只剩進度流水帳的才搬。`--apply` 必須指名檔案，且只收候選清單內的；不指名不搬。否決句項目改寫後再搬。
+`CLAUDE_MEMORY_DIR` 可覆寫目錄。
 
 ## 用量紀錄
 
