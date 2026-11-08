@@ -15,6 +15,8 @@ description: 依 Spec（若曾具名問題觸發 usage-analyzer／impact-analyze
 輸入：run manifest `run/<run_id>.json`（由 `eval_state.json.run_id` 定位）的 `spec_path`（**Spec**）。**一律從 manifest 讀路徑，不自行以日期 / 檔名重組**。`usage_report_path` 維持 `null` 屬正常——不以此欄為 `null` 中止；若主 flow 曾具名問題觸發 `usage-analyzer`／`impact-analyzer`，答案已併入 Spec，拆分時一併參考。
 輸出：`task/YYYY-MM-DD-<run_id>.md` 內的 task 清單，每個 task 展開為 ≤5 個 item，每個 item 對映一個使用情境、可獨立 `git diff` 審查。
 
+拆分前依 [Spec 就緒、決策與 HITL](../eval-flow/references/decision-readiness.md) 的可接手條件檢查輸入。缺口須指明缺少的事實／決策、受阻 item 與無法判定的結果，交主 flow 先查證或集中裁示；不自行創造產品行為，也不因已有裁決而重問。主 flow 直建 task 同守本規則。
+
 ---
 
 ## 硬性上限（違反即須再拆，不可協商）
