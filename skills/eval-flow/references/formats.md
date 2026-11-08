@@ -142,7 +142,7 @@
 
 ## run/tier0.jsonl 格式
 
-**冷溯源檔**（單一共用檔、append-only、永不清除；留在工作目錄、不進版控。Tier 0 本身不 commit 的規則不變，見 .agent-flow/ROUTER.md Router）。Tier 0 改完回報時 append 一行：
+**冷溯源檔**（單一共用檔、append-only、永不清除；留在工作目錄、不進版控。Tier 0 驗證及留痕後直接 commit，見 .agent-flow/ROUTER.md Router）。Tier 0 改完回報時 append 一行：
 
 - 指令：`python3 .agent-flow/scripts/eval_state.py tier0 --summary "<一句>" --files "<逗號分隔清單>" --lines <int：git diff 增＋刪>`
 - 行形狀：`{"ts": "<ISO8601 UTC>", "summary": "...", "files": [...], "lines": <int>}`

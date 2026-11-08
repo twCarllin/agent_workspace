@@ -660,7 +660,7 @@ TIER0_MAX_LINES = 80
 def _git_changed_lines(files):
     """回傳 {path: 增＋刪行數}。已追蹤檔走 `git diff HEAD --numstat`，未追蹤檔以行數計為全新增。
 
-    為何是 HEAD 而非工作區 diff：Tier 0 不 commit，變更可能在工作區也可能已 git add，
+    為何是 HEAD 而非工作區 diff：Tier 0 在 commit 前留痕，變更可能在工作區也可能已 git add，
     `git diff HEAD` 同時涵蓋兩者（與 CLAUDE.md「以 git diff 變更行數計」一致）。
     二進位檔的 numstat 欄位是 `-`，以 0 計並在回報中可見（Tier 0 不該改二進位檔）。
     """

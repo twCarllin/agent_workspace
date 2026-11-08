@@ -49,7 +49,7 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
    - 工作目錄已由 harness 釘定：**禁止切換到其他工作區**，**禁止碰主工作區與其他 worktree**。
    - 載入 `eval-flow` skill，走 **Tier 1 精簡路徑**，但：
      - Tier 1 的 manifest 與 task 由主 session 在步驟 5 建好 worktree 後、spawn 前依 Tier 1 路徑初始化；用 `hitl-confirm` 記錄步驟 3 的實際裁示原文與來源並建立 item 計畫。背景 agent 只核對與接續，不直接改 phase，也不自行確認 HITL。
-     - **task 檔命名例外**：用 `task/YYYY-MM-DD-<slug>.md`（防兩個 run 同建當天檔造成 merge 衝突）。僅並行 run 適用此例外；單一 run 維持 `task/YYYY-MM-DD.md`。
+     - **task 檔命名例外**：用 `task/YYYY-MM-DD-<slug>.md`（防兩個 run 同建當天檔造成 merge 衝突）。每個 run 均使用獨立 task 檔，單一 run 使用 `task/YYYY-MM-DD-<run_id>.md`。
    - 新 `adaptive-v1` 依 Tier 1 路徑選實作與審查；舊 Tier 1 依相容路徑跑循環 1–7。批次 HITL、隔離、停止條件與 merge gate 照常；hook 以 tool payload 實際 cwd 解析所屬 worktree。目前 harness 的 root 限制見適配層，不能假設環境變數隨 worktree 改變。
    - **既有測試只增不改**（含 fixture／conftest／測試工具檔）：發現必須修改既有測試＝這個變更動到既有行為＝獨立性假設已破 → 觸發「卡住即停」，該需求退出並行（之後改序列跑）。單一 run 的「有意行為變更同步舊測試」規則僅在非並行模式適用。
    - **BUGLOG 不落盤**：修到 bug 時，BUGLOG 條目寫進回報內容，**不** append `retro/BUGLOG.md`；由主 session 於 merge 後統一 append 並做兩層制升級判定（兩個 worktree 各 grep 自己的快照會漏看對方，重複偵測會失靈）。
@@ -60,7 +60,7 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
 ## 收尾（rolling merge，主 session）
 
 7. **誰先完成先收，不等全批**：任一 agent 結束即回報該 run 結果——狀態（completed／failed）、review 輪數與首輪 🔴 數、diff 摘要（`git log --stat <agent 回報的 branch>`）——經使用者確認後即進入 merge 序列。愈早合，後合者要同步的 main 移動量愈小、語意衝突在 context 還熱時浮現。
-8. **merge 序列（每支都做；未經使用者確認不 merge、不清 worktree）**。前置條件：**主工作區必須 clean**——批次期間主 session 做的 Tier 0 微調若尚未 commit，先請使用者處置（commit 或 stash），否則全套測試的結果混入未提交變更，紅綠都不可信：
+8. **merge 序列（每支都做；未經使用者確認不 merge、不清 worktree）**。前置條件：**主工作區必須 clean**——批次期間主 session 做的 Tier 0 微調若尚未 commit，先依 Tier 0 規則完成驗證、留痕與 commit，否則全套測試的結果混入未提交變更，紅綠都不可信：
    1. **機械檢查①（測試完整性）**：`git diff main...<branch> --name-status` 過濾測試路徑（含 conftest／fixture／測試工具檔），出現 M／D → 不 merge，把 diff 列給使用者過目（判準只有一個：測試有沒有被改弱）。純 A（新增檔）放行。
    2. **機械檢查②（實際交集重驗）**：本支與其他未合支的**實際** changed-file 清單取交集，非空 → 停下回報（前置 2 是預估，此處以實際值重驗）。
    3. **後合者先同步**：在自己 worktree `git merge main`，重跑自己的相關測試，綠了才進下一步（真衝突 → 停下回報，不自行硬解）。

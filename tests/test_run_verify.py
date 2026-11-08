@@ -440,7 +440,7 @@ class RunVerifyCacheTest(RunVerifyFixture, unittest.TestCase):
         self.assertEqual(self.last_record()["output_file"], str(output))
         self.assertEqual(output.read_text(), "full output\n")
 
-    def test_quiet_reuse_executes_if_prior_success_has_no_output_file(self):
+    def test_normal_success_saves_output_for_quiet_reuse(self):
         command = "python3 -c \"print('saved on second run')\""
         first = run_entry(SCRIPT, command)
         self.assertEqual(first.returncode, 0, first.stderr)
@@ -454,8 +454,8 @@ class RunVerifyCacheTest(RunVerifyFixture, unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         record = self.last_record()
-        self.assertTrue(record["executed"])
-        self.assertFalse(record["reused"])
+        self.assertFalse(record["executed"])
+        self.assertTrue(record["reused"])
         self.assertIn("saved on second run", Path(record["output_file"]).read_text())
 
 

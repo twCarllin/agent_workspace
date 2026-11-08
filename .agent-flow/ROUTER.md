@@ -40,7 +40,7 @@
 | **2 完整路線** | 信任邊界／公開契約的本體變更 OR 重大不確定／未決決策無法收斂為具名問題 OR 預估 active time >120 分 OR 請求不連貫 OR 使用者宣告 all-in | 載入 `eval-flow` skill，走完整「Tier 2 路徑」 |
 | **B Bootstrap** | 空專案或新模組**骨架**（目錄結構、框架接線、CI、工具鏈）＋ 純結構性工作、**無業務邏輯**（開始寫業務行為的瞬間就不是 Tier B，回上面判級） | 載入 `eval-flow` skill，走「Tier B Bootstrap 路徑」 |
 
-- **Tier 0 的 commit 歸屬**：Tier 0 改完後回報變更內容，**不自行 commit**（依全域規則，由使用者決定何時 commit）
+- **Tier 0 的 commit 歸屬**：Tier 0 完成適用驗證、分級核對與留痕後，只 stage 本次檔案並直接 commit，再回報變更與 commit；不自動 push
 - **工程能力選用**：Tier 0 由主 flow 執行；Tier 1 有具體疑點時按問題選用方法或角色；Tier 2 必須完成系統理解、設計及影響分析，保留決策摘要與證據位置。按需派工，不固定派七個角色；授權與模型政策維持原規則。
 - **Tier 0 收尾核對**：依完整需求的實際 diff 重新核對進入條件；超限或不符合語意條件時，回到本節判級，改走 Tier 1／2。不得拆成多筆 Tier 0 留痕規避上限。留痕工具通過只代表檔數與行數檢查通過，不代表分級正確，也不替代獨立審查。
 - **active time 留痕**：Tier 1／2 的 manifest 記 `estimated_active_minutes`（選填，判級時的預估主動工時；收尾可補 `actual_active_minutes`）——估實分記（agentflow 慣例），供校準判級
@@ -80,9 +80,9 @@
 
 ## Task Principle
 
-- 產出物目錄慣例（`task/YYYY-MM-DD.md`、`run/<run_id>.json` 冷溯源留在工作目錄、不進版控）住 `eval-flow` skill 的 `references/tier2-prep.md`（Tier 2 前置）、「Tier 1 精簡路徑」節與 `references/formats.md`，不在此重列。`usage/`／`impact/`／`risk/` 三目錄的既有歷史報告保留不刪（冷溯源），不是任何步驟的輸出目標、不列入產出物目錄慣例
+- 產出物目錄慣例（`task/YYYY-MM-DD-<run_id>.md`、`run/<run_id>.json` 冷溯源留在工作目錄、不進版控）住 `eval-flow` skill 的 `references/tier2-prep.md`（Tier 2 前置）、「Tier 1 精簡路徑」節與 `references/formats.md`，不在此重列。`usage/`／`impact/`／`risk/` 三目錄的既有歷史報告保留不刪（冷溯源），不是任何步驟的輸出目標、不列入產出物目錄慣例
 - **產出物自足性（換手的前提）**：Spec、usage 報告、task 檔、風險報告必須**不依賴對話上下文**即可讀懂——不得出現「如上所述」「依先前討論」等指涉對話的內容；task item 必須寫明確檔案路徑與 DoD。標準是：任何未參與對話的 AI／工程師讀檔即可接手。**引用其他 run 產出檔（spec／usage／impact 路徑＋節次）不算依賴對話**——應指向式引用、不重述內容
-- 每次新增或讀取任務時，使用**當天日期**的檔案（例如 `task/2026-04-18.md`）
+- 新增任務時，使用**當天日期與 run ID** 命名的獨立檔案（例如 `task/2026-04-18-example.md`）；讀取或恢復既有 run 時，以 manifest 的 task_file 為準
 - 直寫或委派：adaptive Tier 1 依 eval-flow `references/tier1.md` 第 4 點由主 flow 判斷；Tier 2 依循環 step 1 派 code-writer。派工機制見 eval-flow skill「派工機制」節
 - sub_task 收尾後，若任務來自 task 檔，須將對應 item 標記完成（`[x]`）
 - 拆分粒度、[P] 平行標註、item 四要素等規則住 **task-decomposition** skill；審查／驗證順序與 gate 住 **eval-flow** skill 與 hook，不在此重述

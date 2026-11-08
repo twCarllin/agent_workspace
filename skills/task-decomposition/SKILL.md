@@ -13,7 +13,7 @@ description: 依 Spec（若曾具名問題觸發 usage-analyzer／impact-analyze
 **把 Spec 拆成「小到可以一次寫對、獨立可驗收」的單位。粒度失控是 eval flow 失敗與 scope 偏移的頭號成因。**
 
 輸入：run manifest `run/<run_id>.json`（由 `eval_state.json.run_id` 定位）的 `spec_path`（**Spec**）。**一律從 manifest 讀路徑，不自行以日期 / 檔名重組**。`usage_report_path` 維持 `null` 屬正常——不以此欄為 `null` 中止；若主 flow 曾具名問題觸發 `usage-analyzer`／`impact-analyzer`，答案已併入 Spec，拆分時一併參考。
-輸出：`task/YYYY-MM-DD.md` 內的 task 清單，每個 task 展開為 ≤5 個 item，每個 item 對映一個使用情境、可獨立 `git diff` 審查。
+輸出：`task/YYYY-MM-DD-<run_id>.md` 內的 task 清單，每個 task 展開為 ≤5 個 item，每個 item 對映一個使用情境、可獨立 `git diff` 審查。
 
 ---
 
@@ -137,7 +137,7 @@ task 超過 5 個 item 時，依序：功能切片 → 分層 → 前置基礎�
 
 ---
 
-## 輸出格式（寫入 `task/YYYY-MM-DD.md`）
+## 輸出格式（寫入 `task/YYYY-MM-DD-<run_id>.md`）
 
 ```
 # Task — <Spec 名稱>  (created: YYYY-MM-DD HH:MM)

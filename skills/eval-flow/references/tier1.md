@@ -21,8 +21,8 @@
   自查是執行者檢查，不宣稱獨立審查；不以欄位齊全代表需求已滿足。
 - **具體疑點**：按問題選用系統調查、設計比較、影響分析、對抗驗證或結構修正方法；需要委派時附問題原文，選對應角色。保留結論與證據位置，不固定派角色；既有 HITL 與審查判斷不變。
 
-1. **精簡初始化**：執行 `git status --porcelain`，確認本次範圍。既有變更可保留且不需覆寫時繼續；只有歸屬不明或必須覆寫時才提問。再執行 `flow.py preflight --harness <codex|claude>`；`hook_trust: unknown` 表示無原生執行證據，不表示已啟用，也不阻止已授權的本地工作。完成 Router 分級後，執行 `eval_state.py init-run --run-id <id> --harness <codex|claude> --spec-inline '<需求>' --tier-rationale '<理由碼與理由>' --test-command '<全套測試>' --task-file task/<當天日期>.md`；保存使用者需求、
-   分級理由、驗證命令與 task 路徑。不建 `eval_state.json`。
+1. **精簡初始化**：執行 `git status --porcelain`，確認本次範圍。既有變更可保留且不需覆寫時繼續；只有歸屬不明或必須覆寫時才提問。再執行 `flow.py preflight --harness <codex|claude>`；`hook_trust: unknown` 表示無原生執行證據，不表示已啟用，也不阻止已授權的本地工作。完成 Router 分級後，執行 `eval_state.py init-run --run-id <id> --harness <codex|claude> --spec-inline '<需求>' --tier-rationale '<理由碼與理由>' --test-command '<全套測試>' --task-file task/<當天日期>-<run-id>.md`；保存使用者需求、
+   分級理由、驗證命令與 task 路徑。每個 run 使用獨立 task 檔；初始化前確認路徑未被其他 run 使用。不建 `eval_state.json`。
    **intent gate（不可鬆）**：`spec_path` 與 `spec_inline` 至少一個非空。
 2. **直接建 task 檔**：主 flow 記錄執行範圍與可驗 DoD；單一來源引用需求，不重述規格。
    維持 ≤2 tasks、合計 ≤8 items、每 task ≤5 items；超出或風險上升時依 Router 處理。
@@ -36,7 +36,7 @@
    主 flow 直寫同守 `.agent-flow/CODE_QUALITY.md`。涉及資料接入或轉換時，實作前必讀並執行 [資料接入前核對](writing.md#資料接入前核對)。`executor_notes` 可記有用的選擇理由，
    不為每個 item 產生固定格式的空白說明。
 5. **驗證與交付**：只 stage 本次檔案，選足以覆蓋需求的測試或實際運行驗證，以
-   `run_verify.py --run-id <id> --cmd '<適用驗證>'` 記實際結果。依適用判斷記自查或獨立結論；用 `item_accounting.py --run-id <id> deliver <item-id> --files <本次檔案> --evidence <憑據> --observed '<使用者會看到什麼>' --observed-evidence <ran:…|file:…|pending-manual:…>` 逐項對帳（憑據三選一：`existing:<檔:函式>`／`ran:<命令>`／`new:<函式>|<既有為何不夠>`，見 test-strategy「測試取捨」；可觀察證據兩級見 test-strategy「依變更選擇驗證」），再用 `flow.py finish --run-id <id> --message '<訊息>' --files <本次檔案> --verify-command '<適用驗證>'` 驗證、提交並 finalize。疑難用法與欄位查 `.agent-flow/FLOW_CLI.md`。
+   `run_verify.py --run-id <id> --cmd '<適用驗證>'` 記實際結果。用 `item_accounting.py --run-id <id> deliver <item-id> --files <本次檔案> --evidence <憑據> --observed '<使用者會看到什麼>' --observed-evidence <ran:…|file:…|pending-manual:…>` 逐項對帳（憑據三選一：`existing:<檔:函式>`／`ran:<命令>`／`new:<函式>|<既有為何不夠>`，見 test-strategy「測試取捨」；可觀察證據兩級見 test-strategy「依變更選擇驗證」），完成 task 勾選與所有來源更新後，再記自查或獨立結論。記錄後不得再改 task 檔；有變更須重新檢查並記錄結論。最後用 `flow.py finish --run-id <id> --message '<訊息>' --files <本次檔案> --verify-command '<適用驗證>'` 驗證、提交並 finalize。疑難用法與欄位查 `.agent-flow/FLOW_CLI.md`。
    自查由 `eval_state.py review-run <id> 0 --checked-by self --evidence '<完成度與驗證範圍>' --passed` 記錄；
    須已有目前來源的有效成功驗證且無審查原因。來源變更或測試失敗後不可沿用。
    自查不代表可以跳過測試、偽造結果、覆蓋他人變更或擴張外部授權。

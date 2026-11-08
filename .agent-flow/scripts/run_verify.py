@@ -4,7 +4,8 @@
 用法：python3 .agent-flow/scripts/run_verify.py --run-id <id> [--sub-task <int>] --cmd "<指令>"
 
 - 指令以 shell=True 執行；預設輸出原樣直通（R-009：同 test_baseline.py run_tests 基準）
-- `--quiet-success` 將完整 stdout/stderr 保存於 run/，只顯示摘要；失敗另顯示末 40 行
+- 完整 stdout/stderr 一律保存於 run/；一般模式於命令結束後顯示輸出
+- `--quiet-success` 只顯示摘要；失敗另顯示末 40 行
 - 記錄面：eval_state.json 存在且給 --sub-task → 寫該 sub_task 的 verification_commands
   （Tier 2 路徑；事件沿 eval_state.append_event 慣例記 add-verification）；
   否則寫 manifest run/<run_id>.json 的 verification_commands 並記 verify_cmd 事件（Tier 1 路徑）
@@ -200,7 +201,10 @@ def main():
     if unexplained_repeat:
         print(
             "[run-verify] outcome=blocked reason=rerun_reason_required; "
-            "use --reuse or provide --rerun-reason",
+            + ("prior output log missing; provide --rerun-reason evidence_refresh"
+             if args.reuse and args.quiet_success and not has_output
+             else "reuse conditions not met; provide --rerun-reason"
+             if args.reuse else "use --reuse or provide --rerun-reason"),
             file=sys.stderr,
         )
         sys.exit(2)
@@ -218,18 +222,19 @@ def main():
             record["output_file"] = prior_output
     else:
         record["executed"] = True
-        if args.quiet_success:
-            label = f"task{args.sub_task}." if args.sub_task is not None else ""
-            output_file = os.path.join(
-                "run", f"{args.run_id}.{label}verify-{len(history)}.log"
-            )
-            with open(output_file, "w", encoding="utf-8") as stream:
-                exit_code = subprocess.run(
-                    args.cmd, shell=True, stdout=stream, stderr=subprocess.STDOUT
-                ).returncode
-            record["output_file"] = output_file
-        else:
-            exit_code = subprocess.run(args.cmd, shell=True).returncode
+        label = f"task{args.sub_task}." if args.sub_task is not None else ""
+        output_file = os.path.join(
+            "run", f"{args.run_id}.{label}verify-{len(history)}.log"
+        )
+        with open(output_file, "w", encoding="utf-8") as stream:
+            exit_code = subprocess.run(
+                args.cmd, shell=True, stdout=stream, stderr=subprocess.STDOUT
+            ).returncode
+        record["output_file"] = output_file
+        if not args.quiet_success:
+            with open(output_file, encoding="utf-8", errors="replace") as stream:
+                for line in stream:
+                    print(line, end="")
     if not record["executed"]:
         record.pop("rerun_reason", None)
     if schema2 and before is not None:
