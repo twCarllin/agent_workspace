@@ -10,7 +10,7 @@
    - checker 審查報告**強制兩節、缺一退件**：①**完成度節**——對照 task 檔**該 task 全部 item** 的 DoD 與子任務逐條核對，**明列 diff `--stat` 中缺席的項目**（scope 偏移一併檢，以檔名清單核對，不讀內容）；②**憑據節**（取代品質節）——上述憑據逐項核對結果，逐項標「有憑據／缺席／存疑」
    - **信封註記（快 model 遵從補強）**：checker 派工 prompt 末尾附一句「報告首行戳記行、末行恰一個 `Self-check:`、兩節缺一退件（依你定義的輸出格式）」——規則住 agent 定義，此句為 recency 前置
    - checker 不做 Fowler smell 品質審查（那是 reviewer 的職責，Tier 2 直派與 舊 Tier 1 升級輪均適用）。`step` 欄位記 `reviewing`（`verifying` 為舊 run 的相容值，新路徑不寫入）
-   - **邊界直派（理由碼機械推導；原則：信任邊界變更須有人審實作 diff 的安全性）**：讀 manifest `tier_rationale` 的理由碼——含**信任邊界**或**公開介面／落地資料契約** → 該 run **全部 sub_task 跳過 checker**，step 3 直接派 `code-reviewer` 全 diff 審（輸入照升級輪：step 2 改附 `git diff --cached -- <files>` 完整 diff）。set-review `--checked-by reviewer:boundary`；**不計入**升級率（stats.py 另計「邊界直派」）；step 7 retro 條件視同升級輪；all-in 亦同。判定只依已留痕的理由碼推導，**agent 不得臨場裁量**（同循環升級逃生門的慣例）。動機：checker 不讀 diff，邊界類變更的實作 diff 若不升級便無人審安全性；理由碼已留痕，直派的成本只落在邊界 run
+   - **邊界直派（理由碼機械推導；原則：信任邊界變更須有人審實作 diff 的安全性）**：讀 manifest `tier_rationale` 的理由碼——含**信任邊界**或**公開介面／落地資料契約** → 該 run **全部 sub_task 跳過 checker**，step 3 直接派 `code-reviewer` 全 diff 審（輸入照升級輪：提供 `git diff --cached -- <files>` 讀取命令，首審資料順序依下方「派工前組裝資料」）。set-review `--checked-by reviewer:boundary`；**不計入**升級率（stats.py 另計「邊界直派」）；step 7 retro 條件視同升級輪；all-in 亦同。判定只依已留痕的理由碼推導，**agent 不得臨場裁量**（同循環升級逃生門的慣例）。動機：checker 不讀 diff，邊界類變更的實作 diff 若不升級便無人審安全性；理由碼已留痕，直派的成本只落在邊界 run
    - **四類升級觸發（checker 遇任一情況 → 主 flow 改派 code-reviewer 全 diff 審）**：
      - ①憑據對不上或缺席
      - ②契約 row 找不到適用證據
@@ -50,8 +50,8 @@
 
 ## 派工前組裝資料
 
-reviewer 的共用定位內容依 [派工與證據控制「共用程式定位資訊」](dispatch-control.md#共用程式定位資訊)；reviewer 自行讀 staged diff，並按需補查相關原始碼。checker 維持不讀 diff。
+reviewer 的共用定位內容依 [派工與證據控制「共用程式定位資訊」](dispatch-control.md#共用程式定位資訊)；首審資料投放依同檔「派工上下文」，先依角色「先建立預期」讀需求與修改前來源，再讀 staged diff、測試與作者報告。主 flow 核對預期是否符合需求與已確認決定；有偏差時附原始依據請 reviewer 重裁，不替 reviewer 宣告通過。checker 維持不讀 diff。
 
-執行 step 3 前，必讀 `.agent-flow/REVIEW_PACKET.md`。舊 Tier 1 checker 使用 `flow.py review-packet build`，再用 `dispatch.py task-verifier --review-packet <packet>` 派工。Tier 2 直接派 reviewer，提供全部 item 的需求／契約、完整 task staged diff、writer 報告與適用自驗紀錄；資料包可作證據索引，不另加 checker 層。缺必要資料先補齊；ready 只表示資料結構與來源可用，不是審查通過。舊 Tier 1 checker 的失敗、疑似注入與實質疑慮仍依本文件四類升級處理；Tier 2 reviewer 直接在完成度／品質節列出問題並走本文件處置。邊界直派維持全 diff reviewer 路徑，不以資料包取代審查。
+執行 step 3 前，必讀 `.agent-flow/REVIEW_PACKET.md`。舊 Tier 1 checker 使用 `flow.py review-packet build`，再用 `dispatch.py task-verifier --review-packet <packet>` 派工。Tier 2 直接派 reviewer，提供全部 item 的需求／契約，以及完整 task staged diff、writer 報告與適用自驗紀錄的可讀位置與命令；資料包可作證據索引，不另加 checker 層。缺必要資料先補齊；ready 只表示資料結構與來源可用，不是審查通過。舊 Tier 1 checker 的失敗、疑似注入與實質疑慮仍依本文件四類升級處理；Tier 2 reviewer 直接在完成度／品質節列出問題並走本文件處置。邊界直派維持全 diff reviewer 路徑，不以資料包取代審查。
 
 審查先使用有效測試紀錄；只有輸入變更、失敗、證據失效或具名疑點才重跑相關測試。不同命令不可互當證據。修正重審與快取細則由根入口「效率與驗證重用」節按需載入。
