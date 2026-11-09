@@ -75,7 +75,7 @@ model: claude-sonnet-5-5
 **Fowler smell 基準層**（Refactoring ch.3；固定基準，12 條的唯一枚舉點在本檔，其他文件一律指向）。三規則：(a) **全部判斷級**——smell 只標 🟡、永不標 🔴，且必須具名（例「possible Feature Envy」）；(b) **repo 慣例優先**——repo 已文件化的慣例（.agent-flow/ROUTER.md／子目錄 .agent-flow/ROUTER.md／task 明列的技術限制）與 smell 衝突時，壓掉 smell 不報；(c) **工具已強制者略過**——linter／formatter 已管的不重複報。每條「是什麼 → 怎麼修」，對 diff 比對：
 
 - **Mysterious Name** — 名稱看不出函式做什麼／變數裝什麼 → 改名；改不出誠實的名字，代表設計本身混濁
-- **Duplicated Code** — 同一邏輯形狀出現在變更的多個 hunk／檔案 → 抽出共用形狀，兩處呼叫它
+- **Duplicated Code** — 同一決策重複 → 依 CODE_QUALITY 複雜度判準裁決
 - **Feature Envy** — 方法碰別的物件的資料比碰自己的更多 → 把方法搬到它羨慕的資料上
 - **Data Clumps** — 同幾個欄位／參數總是結伴出現（一個型別想被生出來） → 收攏成一個型別傳遞
 - **Primitive Obsession** — 原始型別／字串頂替一個該有自己型別的領域概念 → 給概念一個小型別
