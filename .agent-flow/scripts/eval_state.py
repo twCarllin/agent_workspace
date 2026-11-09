@@ -109,19 +109,30 @@ def record_session(run_id):
     （token_usage.py 憑此開對應 transcript）。旁路：env 缺、manifest 缺或壞、寫入失敗
     皆只 stderr warning、不改 exit code（同 append_event 慣例）；已有值不覆寫（resume
     換 session 不得改寫首次 session）。"""
-    session_id = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    if not session_id:
-        return
     path = os.path.join("run", f"{run_id}.json")
     try:
         with open(path, encoding="utf-8") as f:
             manifest = json.load(f)
         if manifest.get("session_id"):
             return
-        manifest["session_id"] = session_id
-        manifest["config_dir"] = os.environ.get(
-            "CLAUDE_CONFIG_DIR"
-        ) or os.path.expanduser("~/.claude")
+        if manifest.get("harness") == "codex":
+            session_id = os.environ.get("CODEX_THREAD_ID") or os.environ.get(
+                "CODEX_SESSION_ID"
+            )
+            if not session_id:
+                return
+            manifest["session_id"] = session_id
+            manifest["config_dir"] = os.environ.get("CODEX_HOME") or os.path.expanduser(
+                "~/.codex"
+            )
+        else:
+            session_id = os.environ.get("CLAUDE_CODE_SESSION_ID")
+            if not session_id:
+                return
+            manifest["session_id"] = session_id
+            manifest["config_dir"] = os.environ.get(
+                "CLAUDE_CONFIG_DIR"
+            ) or os.path.expanduser("~/.claude")
         save(manifest, path)
     except Exception as e:
         print(

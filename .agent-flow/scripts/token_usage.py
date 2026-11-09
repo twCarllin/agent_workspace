@@ -287,6 +287,144 @@ def _fmt(u):
     )
 
 
+def codex_usage(manifest, args, lo, hi):
+    """Read cumulative rollout counters and attribute child sessions once."""
+    root = args.projects_root or os.path.join(
+        manifest.get("config_dir") or os.path.expanduser("~/.codex"), "sessions"
+    )
+    session_id = manifest.get("session_id")
+    files = (
+        glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True)
+        if session_id
+        else []
+    )
+    rollouts = {}
+    for path in files:
+        with open(path, encoding="utf-8") as stream:
+            try:
+                first = json.loads(stream.readline())
+            except json.JSONDecodeError:
+                continue
+        meta = (
+            first.get("payload", {})
+            if isinstance(first, dict) and first.get("type") == "session_meta"
+            else {}
+        )
+        sid = meta.get("id") or meta.get("session_id")
+        if sid and (sid == session_id or meta.get("parent_thread_id") == session_id):
+            rollouts[sid] = (meta, _parse_events(path) or [])
+
+    def measure(entries, start, end):
+        samples = []
+        for entry in entries:
+            if not isinstance(entry, dict) or entry.get("type") != "event_msg":
+                continue
+            payload = entry.get("payload") or {}
+            info = payload.get("info") or {}
+            usage = info.get("total_token_usage") or {}
+            if payload.get("type") != "token_count" or not all(
+                isinstance(usage.get(k), int)
+                and not isinstance(usage.get(k), bool)
+                and usage[k] >= 0
+                for k in ("input_tokens", "output_tokens")
+            ):
+                continue
+            try:
+                timestamp = _parse_ts(entry["timestamp"])
+            except (KeyError, ValueError, TypeError):
+                continue
+            samples.append((timestamp, usage))
+        samples.sort(key=lambda sample: sample[0])
+        if start is None or end is None:
+            return None, "unknown"
+        before = [usage for timestamp, usage in samples if timestamp <= start]
+        inside = [usage for timestamp, usage in samples if start < timestamp <= end]
+        if not inside:
+            return None, "unknown"
+        baseline = before[-1] if before else {"input_tokens": 0, "output_tokens": 0}
+        last = inside[-1]
+        if any(last[k] < baseline[k] for k in ("input_tokens", "output_tokens")):
+            return None, "unknown"
+        usage = _zero_usage()
+        for key in ("input_tokens", "output_tokens"):
+            usage[key] = last[key] - baseline[key]
+        usage["turns"] = len(inside)
+        # A counter sample before the run does not prove when the next usage
+        # occurred. A token event also cannot prove that the final interval is
+        # fully measured. Only samples at both run boundaries establish both.
+        has_start = any(timestamp == start for timestamp, _ in samples)
+        has_end = any(timestamp == end for timestamp, _ in samples)
+        return usage, "complete" if has_start and has_end else "partial"
+
+    main, status = (
+        measure(rollouts[session_id][1], lo, hi)
+        if session_id in rollouts
+        else (None, "unknown")
+    )
+    dispatches = (
+        _parse_events(os.path.join(args.dir, f"{args.run_id}.dispatch.jsonl")) or []
+    )
+    subagents = []
+    by_session = {}
+    for entry in dispatches:
+        if not isinstance(entry, dict):
+            continue
+        sid = entry.get("session_id")
+        usage = _zero_usage()
+        valid = all(
+            isinstance(entry.get(k), int)
+            and not isinstance(entry.get(k), bool)
+            and entry[k] >= 0
+            for k in ("input_tokens", "output_tokens")
+        )
+        has_receipt = bool(sid) and valid
+        entry_status = (
+            "complete"
+            if has_receipt and not entry.get("failure")
+            else "partial" if has_receipt else "unknown"
+        )
+        if has_receipt:
+            for key in ("input_tokens", "output_tokens"):
+                usage[key] = entry[key]
+            usage["turns"] = (
+                entry.get("turns") if isinstance(entry.get("turns"), int) else 0
+            )
+        if sid and sid in by_session:
+            existing = by_session[sid]
+            existing.update(_add_usage(existing, usage))
+            if entry_status != "complete" or existing["status"] != "complete":
+                existing["status"] = "partial"
+            continue
+        item = {
+            "session_id": sid,
+            "agent_type": entry.get("role"),
+            "description": f"dispatch:{entry.get('backend')}",
+            "source": "dispatch",
+            "status": entry_status,
+            **usage,
+        }
+        subagents.append(item)
+        if sid:
+            by_session[sid] = item
+    for sid, (meta, entries) in rollouts.items():
+        if sid == session_id or sid in by_session:
+            continue
+        usage, child_status = measure(entries, lo, hi)
+        subagents.append(
+            {
+                "session_id": sid,
+                "agent_type": meta.get("agent_role"),
+                "description": "rollout",
+                "source": "rollout",
+                "status": child_status,
+                **(usage or _zero_usage()),
+            }
+        )
+    if any(s["status"] != "complete" for s in subagents) and status == "complete":
+        status = "partial"
+    return main, subagents, status
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -303,21 +441,48 @@ def main():
     if not isinstance(manifest, dict):
         manifest = {}
 
+    events_path = os.path.join(args.dir, f"{args.run_id}.events.jsonl")
+    lo, hi = get_window(events_path, args.full_session)
     if manifest.get("harness") == "codex":
-        # Codex transcript format is not a stable metering interface. Keep the
-        # measurement unknown instead of scanning Claude sessions and reporting zero.
-        print(
-            "[token-usage] Codex 用量：未支援計量（未提供穩定的逐 agent transcript 計量介面）"
-        )
-        if args.write and manifest_path and os.path.isfile(manifest_path):
-            manifest["token_usage_status"] = "unsupported_codex"
+        main_usage, subagents, status = codex_usage(manifest, args, lo, hi)
+        prep = [s for s in subagents if s.get("agent_type") in PREP_AGENT_TYPES]
+        loop = [s for s in subagents if s.get("agent_type") not in PREP_AGENT_TYPES]
+        result = {
+            "session_id": manifest.get("session_id"),
+            "window": (
+                [lo.isoformat(), hi.isoformat()]
+                if lo is not None and hi is not None
+                else None
+            ),
+            "main": main_usage,
+            "subagents": subagents,
+            "status": status,
+            "source": "codex_rollout",
+        }
+        print(json.dumps(result, ensure_ascii=False))
+        if args.write:
+            if not manifest_path or not os.path.isfile(manifest_path):
+                print("[token-usage] --write 需要既有 manifest", file=sys.stderr)
+                sys.exit(1)
+            manifest["token_usage"] = result
+            manifest["token_usage_status"] = status
+            manifest["subagent_usage"] = {
+                "prep": (
+                    _sum4_list(prep)
+                    if all(s["status"] != "unknown" for s in prep)
+                    else None
+                ),
+                "loop": (
+                    _sum4_list(loop)
+                    if all(s["status"] != "unknown" for s in loop)
+                    else None
+                ),
+                "main": _sum4(main_usage) if main_usage is not None else None,
+            }
             with open(manifest_path, "w", encoding="utf-8") as stream:
                 json.dump(manifest, stream, ensure_ascii=False, indent=2)
                 stream.write("\n")
         return
-
-    events_path = os.path.join(args.dir, f"{args.run_id}.events.jsonl")
-    lo, hi = get_window(events_path, args.full_session)
 
     session_id, main_usage, subagents = resolve_usage(manifest, args, lo, hi)
     subagents += collect_dispatch(args.dir, args.run_id)

@@ -192,6 +192,8 @@ python3 .agent-flow/scripts/memory_prune.py --apply a.md b.md    # 整理過的�
 
 ## 用量紀錄
 
+Codex run 完成驗證後執行 `python3 .agent-flow/scripts/token_usage.py <run_id> --write`。工具讀取本機 Codex session 的累積 token 事件及 `run/<run_id>.dispatch.jsonl`，並將來源與完整度寫入 manifest。再次執行會重新計算，不累加舊結果。缺少主 session 識別或完整時間基準時須查看 `token_usage_status` 與明細限制；部分數值不能當成 run 總量。token 數不等於付款金額。
+
 - `subagent_usage`：**選填**。step 6 子項②收尾時由 `python3 .agent-flow/scripts/token_usage.py <run_id> --write` **實測回寫**的 tokens 彙總 `{"prep": int, "loop": int, "main": int}`——三鍵皆為 transcript 四欄（`input_tokens`／`cache_creation_input_tokens`／`cache_read_input_tokens`／`output_tokens`）加總；`prep`＝usage-analyzer／task-decomposer／impact-analyzer 的 subagent 合計、`loop`＝其餘 subagent 合計、`main`＝主 flow 自身。不以 Agent 工具回執自報、不憑印象估 `main`（估計法系統性低估流程稅）。消費端 `stats.py`：prep／loop 缺一或非 int → 整筆計無記錄；`main` 非 int → 只跳過 main、prep/loop 照收
 
 - `token_usage`：**選填**。與 `subagent_usage` 同時由 `token_usage.py --write` 寫入的明細：`{"session_id", "window": [lo, hi]|null, "main": {四欄＋turns}, "subagents": [{"agent_type", "description", 四欄＋turns}]}`；`window` 取自 `events.jsonl` 首尾 `ts`（init 之前的判級／載 skill 用量不在窗內，屬已知低估面）；`subagents` 為 transcript `subagents/` 目錄 ∪ `run/<run_id>.dispatch.jsonl` 派工留痕（後者 `description` 為 `dispatch:<backend>`、不切窗）。純記錄，無 gate 消費

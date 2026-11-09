@@ -370,6 +370,8 @@ def collect(run_dir="run"):
         "checked_by_none_new": 0,
         "checked_by_boundary_new": 0,
         "token_usage_statuses": Counter(),
+        "token_usage_gaps": [],
+        "token_usage_partial_values": [],
         "subagent_usage": [],
         "subagent_usage_missing": 0,  # (run_id, prep, loop)，僅實測 run
         "subagent_usage_main": [],  # (run_id, main) 選填鍵，主 flow 用量（實測 run）
@@ -383,7 +385,13 @@ def collect(run_dir="run"):
         if not isinstance(m, dict) or "run_id" not in m:
             continue
         status = m.get("token_usage_status")
-        if status == "unsupported_codex":
+        if status == "complete":
+            usage_status = "measured"
+        elif status in ("partial", "partial_codex"):
+            usage_status = "partial_codex"
+        elif status == "unknown":
+            usage_status = "unknown"
+        elif status == "unsupported_codex":
             usage_status = "unsupported_codex"
         elif status == "unknown_codex":
             usage_status = "unknown_codex"
@@ -392,6 +400,25 @@ def collect(run_dir="run"):
         else:
             usage_status = "missing"
         data["token_usage_statuses"][usage_status] += 1
+        if usage_status in ("partial_codex", "unknown") and isinstance(
+            m.get("subagent_usage"), dict
+        ):
+            usage_values = m["subagent_usage"]
+            data["token_usage_partial_values"].append(
+                (
+                    m["run_id"],
+                    usage_values.get("main"),
+                    usage_values.get("prep"),
+                    usage_values.get("loop"),
+                )
+            )
+        if usage_status in (
+            "partial_codex",
+            "unknown",
+            "unknown_codex",
+            "unsupported_codex",
+        ):
+            data["token_usage_gaps"].append((m["run_id"], usage_status))
         data["runs"].append(m["run_id"])
         data["tiers"][str(m.get("tier"))] += 1
         data["statuses"][str(m.get("status"))] += 1
@@ -417,7 +444,7 @@ def collect(run_dir="run"):
             and isinstance(usage.get("loop"), int)
             and not isinstance(usage.get("loop"), bool)
         ):
-            if not isinstance(m.get("token_usage"), dict):
+            if not isinstance(m.get("token_usage"), dict) or usage_status != "measured":
                 data["subagent_usage_legacy"] += 1  # 舊制自報：單位不同，不進清單與比值
             else:
                 data["subagent_usage"].append(
@@ -678,10 +705,26 @@ def append_subagent_usage(out, data):
     statuses = data["token_usage_statuses"]
     out.append(
         f"Token 計量：已記錄 {statuses['measured']}／"
+        f"部分記錄（Codex）{statuses['partial_codex']}／"
+        f"未知（Codex）{statuses['unknown']}／"
         f"未支援計量（Codex）{statuses['unsupported_codex']}／"
         f"歷史未知（Codex）{statuses['unknown_codex']}／"
         f"資料缺失 {statuses['missing']} 個 run"
     )
+    if data["token_usage_gaps"]:
+        out.append(
+            "Codex 計量缺口："
+            + "、".join(
+                f"{run_id} ({status})" for run_id, status in data["token_usage_gaps"]
+            )
+        )
+    for run_id, main, prep, loop in data["token_usage_partial_values"]:
+        labels = [
+            "未知" if value is None else str(value) for value in (main, prep, loop)
+        ]
+        out.append(
+            f"部分用量 {run_id}：main {labels[0]}／prep {labels[1]}／loop {labels[2]}（僅已知值，不計入完整比值）"
+        )
     if data["subagent_usage"]:
         main_by_run = dict(data["subagent_usage_main"])
         parts = [
@@ -692,9 +735,7 @@ def append_subagent_usage(out, data):
         total_prep = sum(prep for _, prep, _ in data["subagent_usage"])
         total_loop = sum(loop for _, _, loop in data["subagent_usage"])
         ratio = f"{total_prep / total_loop:.2f}" if total_loop else "n/a"
-        line = (
-            f"前置/循環成本比（實測）：{'、'.join(parts)}　合計比值 prep:loop = {ratio}"
-        )
+        line = f"前置/循環 token 比（實測）：{'、'.join(parts)}　合計比值 prep:loop = {ratio}"
         if main_by_run:
             line += f"　main 合計 {sum(main_by_run.values())}（{len(main_by_run)} 個 run 有記錄）"
     else:

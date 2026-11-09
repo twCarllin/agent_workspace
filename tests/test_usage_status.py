@@ -38,19 +38,18 @@ class UsageStatusTest(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 manifest = json.loads(path.read_text())
-                self.assertEqual(manifest["token_usage_status"], "unsupported_codex")
-                self.assertNotIn("token_usage", manifest)
-                self.assertNotIn("subagent_usage", manifest)
+                self.assertEqual(manifest["token_usage_status"], "unknown")
+                self.assertIsNone(manifest["token_usage"]["main"])
+                self.assertIsNone(manifest["subagent_usage"]["main"])
             (run / "2026-10-27-missing.json").write_text(
                 json.dumps({"run_id": "2026-10-27-missing"})
             )
             data = stats.collect(directory)
             self.assertEqual(
                 dict(data["token_usage_statuses"]),
-                {"unknown_codex": 1, "unsupported_codex": 2, "missing": 1},
+                {"unknown_codex": 1, "unknown": 2, "missing": 1},
             )
             output = stats.report(data)
-            self.assertIn("未支援計量（Codex）2", output)
             self.assertIn("歷史未知（Codex）1", output)
             self.assertIn("資料缺失 1 個 run", output)
             self.assertEqual(old.read_bytes(), original)

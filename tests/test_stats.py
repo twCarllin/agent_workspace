@@ -38,6 +38,42 @@ def pick(data, key):
 
 
 class StatsCollectTest(unittest.TestCase):
+    def test_codex_partial_run_is_named_and_excluded_from_complete_ratio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(
+                os.path.join(directory, "2026-11-09-partial.json"),
+                M(
+                    "2026-11-09-partial",
+                    harness="codex",
+                    token_usage_status="partial",
+                    token_usage={"main": None},
+                    subagent_usage={"prep": 12, "loop": 20, "main": None},
+                ),
+            )
+            data = stats.collect(directory)
+            self.assertEqual(data["subagent_usage"], [])
+            self.assertIn("2026-11-09-partial (partial_codex)", stats.report(data))
+            self.assertIn(
+                "部分用量 2026-11-09-partial：main 未知／prep 12／loop 20",
+                stats.report(data),
+            )
+
+    def test_codex_unknown_main_keeps_known_dispatch_usage_visible(self):
+        with tempfile.TemporaryDirectory() as directory:
+            write(
+                os.path.join(directory, "2026-11-09-unknown.json"),
+                M(
+                    "2026-11-09-unknown",
+                    harness="codex",
+                    token_usage_status="unknown",
+                    token_usage={"main": None},
+                    subagent_usage={"prep": 12, "loop": 20, "main": None},
+                ),
+            )
+            output = stats.report(stats.collect(directory))
+            self.assertIn("2026-11-09-unknown (unknown)", output)
+            self.assertIn("main 未知／prep 12／loop 20", output)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.run_dir = os.path.join(self.tmp.name, "run")
@@ -121,7 +157,9 @@ class StatsCollectTest(unittest.TestCase):
                 },
             }
         )
-        with open(os.path.join(self.run_dir, "gate_hits.log"), "w", encoding="utf-8") as f:
+        with open(
+            os.path.join(self.run_dir, "gate_hits.log"), "w", encoding="utf-8"
+        ) as f:
             f.write("2026-07-15 10:00:00\teval_state.json 仍存在。須先歸檔\n")
             f.write("2026-07-15 11:00:00\teval_state.json 仍存在。須先歸檔\n")
             f.write("2026-07-15 12:00:00\t假測試 lint 未過（修測試）\n")
@@ -143,7 +181,9 @@ class StatsCollectTest(unittest.TestCase):
         }
         for key, value in expect.items():
             self.assertEqual(pick(data, key), value, key)
-        self.assertEqual(sorted(data["runs"]), ["r1", "r2"])  # .eval/.test_baseline 不算 run
+        self.assertEqual(
+            sorted(data["runs"]), ["r1", "r2"]
+        )  # .eval/.test_baseline 不算 run
         text = stats.report(data)
         self.assertIn("waive 率", text)
         self.assertIn("rework 率", text)
@@ -151,7 +191,11 @@ class StatsCollectTest(unittest.TestCase):
     def test_structured_gate_ids_and_legacy_coexist(self):
         os.makedirs(self.run_dir, exist_ok=True)
         rows = [
-            {"gate_id": "gate.manifest_missing", "message": f"run/{n}.json 不存在", "outcome": "blocked"}
+            {
+                "gate_id": "gate.manifest_missing",
+                "message": f"run/{n}.json 不存在",
+                "outcome": "blocked",
+            }
             for n in ("alpha", "beta")
         ]
         path = Path(self.run_dir) / "gate_hits.log"
@@ -197,7 +241,12 @@ class StatsCollectTest(unittest.TestCase):
                         ]
                     },
                 },
-                {"sub_tasks": 2, "rework": 0, "rework_recorded": 0, "rework_missing": 2},
+                {
+                    "sub_tasks": 2,
+                    "rework": 0,
+                    "rework_recorded": 0,
+                    "rework_missing": 2,
+                },
             ),
             # --- review_dimensions ---
             (
@@ -206,7 +255,10 @@ class StatsCollectTest(unittest.TestCase):
                     "rz.json": M("rz"),
                     "rz.eval.json": {
                         "sub_tasks": [
-                            {"id": 1, "review_dimensions": {"Clarity": 3, "Testability": 1}},
+                            {
+                                "id": 1,
+                                "review_dimensions": {"Clarity": 3, "Testability": 1},
+                            },
                             {"id": 2, "review_dimensions": {"Clarity": 2}},
                         ]
                     },
@@ -223,14 +275,21 @@ class StatsCollectTest(unittest.TestCase):
                     "rm.json": M("rm", tier=2),
                     "rm.eval.json": {
                         "sub_tasks": [
-                            {"id": 1, "review_reds": 1, "review_dimensions": {"Clarity": 2}},
+                            {
+                                "id": 1,
+                                "review_reds": 1,
+                                "review_dimensions": {"Clarity": 2},
+                            },
                             {
                                 "id": 2,
                                 "rounds": [
                                     {
                                         "round": 1,
                                         "deduction_reasons": [
-                                            {"points_lost": 3, "dimension": "Completeness"}
+                                            {
+                                                "points_lost": 3,
+                                                "dimension": "Completeness",
+                                            }
                                         ],
                                     }
                                 ],
@@ -273,7 +332,9 @@ class StatsCollectTest(unittest.TestCase):
                             {
                                 "id": 1,
                                 "review_reds": 0,
-                                "verification_commands": [{"command": "a", "exit_code": 0}],
+                                "verification_commands": [
+                                    {"command": "a", "exit_code": 0}
+                                ],
                             },
                             {
                                 "id": 2,
@@ -292,7 +353,10 @@ class StatsCollectTest(unittest.TestCase):
             # --- 1c：aborted 計入 status 分佈 ---
             (
                 "aborted_status_in_distribution",
-                {"ab.json": M("ab", status="aborted", failed_reason="x"), "ok.json": M("ok")},
+                {
+                    "ab.json": M("ab", status="aborted", failed_reason="x"),
+                    "ok.json": M("ok"),
+                },
                 {("statuses", "aborted"): 1, ("statuses", "completed"): 1},
             ),
             # --- HITL 裁示數 ---
@@ -338,15 +402,25 @@ class StatsCollectTest(unittest.TestCase):
                         ]
                     },
                 },
-                {"checked_by_direct": 1, "checked_by_escalated": 1, "checked_by_boundary": 1},
+                {
+                    "checked_by_direct": 1,
+                    "checked_by_escalated": 1,
+                    "checked_by_boundary": 1,
+                },
             ),
             (
                 "checker_escalation_null_or_missing_is_no_record",
                 {
                     "old.json": M("old"),
-                    "old.eval.json": {"sub_tasks": [{"id": 1, "checked_by": None}, {"id": 2}]},
+                    "old.eval.json": {
+                        "sub_tasks": [{"id": 1, "checked_by": None}, {"id": 2}]
+                    },
                 },
-                {"checked_by_direct": 0, "checked_by_escalated": 0, "checked_by_none": 2},
+                {
+                    "checked_by_direct": 0,
+                    "checked_by_escalated": 0,
+                    "checked_by_none": 2,
+                },
             ),
             (
                 "checker_escalation_mixed_recorded_and_unrecorded",
@@ -366,14 +440,23 @@ class StatsCollectTest(unittest.TestCase):
                 "checker_escalation_unknown_value_unvalidated",
                 {
                     "unk.json": M("unk"),
-                    "unk.eval.json": {"sub_tasks": [{"id": 1, "checked_by": "some_未知值"}]},
+                    "unk.eval.json": {
+                        "sub_tasks": [{"id": 1, "checked_by": "some_未知值"}]
+                    },
                 },
                 {"checked_by_escalated": 1, ("checked_by_dist", "some_未知值"): 1},
             ),
             # --- 前置/循環成本比 ---
             (
                 "subagent_usage_per_run_and_ratio",
-                {"su.json": M("su", tier=2, subagent_usage={"prep": 100, "loop": 400}, token_usage={})},
+                {
+                    "su.json": M(
+                        "su",
+                        tier=2,
+                        subagent_usage={"prep": 100, "loop": 400},
+                        token_usage={},
+                    )
+                },
                 {"subagent_usage": [("su", 100, 400)]},
             ),
             (
@@ -406,7 +489,11 @@ class StatsCollectTest(unittest.TestCase):
             (
                 # 舊制：有 subagent_usage 無 token_usage → 不進清單、legacy=1
                 "subagent_usage_legacy_self_reported_excluded",
-                {"lg.json": M("lg", subagent_usage={"prep": 0, "loop": 68161, "main": 50000})},
+                {
+                    "lg.json": M(
+                        "lg", subagent_usage={"prep": 0, "loop": 68161, "main": 50000}
+                    )
+                },
                 {
                     "subagent_usage": [],
                     "subagent_usage_main": [],
@@ -421,7 +508,12 @@ class StatsCollectTest(unittest.TestCase):
                     "ms.json": M(
                         "ms",
                         subagent_usage={"prep": 1000, "loop": 4000, "main": 7000},
-                        token_usage={"session_id": "s", "window": None, "main": {}, "subagents": []},
+                        token_usage={
+                            "session_id": "s",
+                            "window": None,
+                            "main": {},
+                            "subagents": [],
+                        },
                     ),
                     "lg.json": M("lg", subagent_usage={"prep": 999, "loop": 1}),
                     "none.json": M("none"),
@@ -434,7 +526,11 @@ class StatsCollectTest(unittest.TestCase):
             ),
             (
                 "subagent_usage_token_usage_non_dict_is_legacy",
-                {"nd.json": M("nd", subagent_usage={"prep": 1, "loop": 2}, token_usage="x")},
+                {
+                    "nd.json": M(
+                        "nd", subagent_usage={"prep": 1, "loop": 2}, token_usage="x"
+                    )
+                },
                 {"subagent_usage": [], "subagent_usage_legacy": 1},
             ),
             (
@@ -455,8 +551,18 @@ class StatsCollectTest(unittest.TestCase):
                     "2026-09-22-newtask.json": M("2026-09-22-newtask", tier=2),
                     "2026-09-22-newtask.eval.json": {
                         "sub_tasks": [
-                            {"id": 1, "first_review_reds": 1, "review_reds": 1, "checked_by": "checker"},
-                            {"id": 2, "first_review_reds": 0, "review_reds": 0, "checked_by": "reviewer:①"},
+                            {
+                                "id": 1,
+                                "first_review_reds": 1,
+                                "review_reds": 1,
+                                "checked_by": "checker",
+                            },
+                            {
+                                "id": 2,
+                                "first_review_reds": 0,
+                                "review_reds": 0,
+                                "checked_by": "reviewer:①",
+                            },
                         ]
                     },
                 },
@@ -518,8 +624,16 @@ class StatsCollectTest(unittest.TestCase):
                 "full_suite_count_from_verify_command",
                 [
                     ev("00:00", "verify_cmd", verify_command=fs, exit_code=0),
-                    ev("00:05", "add-verification", id=1, verify_command=fs + " --run-id fs", exit_code=0),
-                    ev("00:10", "verify_cmd", verify_command="diff -q a b", exit_code=0),
+                    ev(
+                        "00:05",
+                        "add-verification",
+                        id=1,
+                        verify_command=fs + " --run-id fs",
+                        exit_code=0,
+                    ),
+                    ev(
+                        "00:10", "verify_cmd", verify_command="diff -q a b", exit_code=0
+                    ),
                 ],
                 {"full_suite": 2},
             ),
@@ -561,12 +675,15 @@ class StatsCollectTest(unittest.TestCase):
     def test_events_and_context_files_not_counted_as_run_manifest(self):
         # retro：新衍生檔命名前置檢查——這些 basename 不得匹配 MANIFEST_RE
         self.put({"cnt.json": M("cnt")})
-        self.write_events("cnt", [{"ts": "2026-08-20T10:00:00+00:00", "cmd": "init", "args": {}}])
+        self.write_events(
+            "cnt", [{"ts": "2026-08-20T10:00:00+00:00", "cmd": "init", "args": {}}]
+        )
         for name in ("cnt.context.json", "cnt.context.writer.json"):
             self.put({name: {"run_id": "cnt"}})
             self.assertIsNone(stats.MANIFEST_RE.match(name))
         self.assertIsNone(stats.MANIFEST_RE.match("cnt.events.jsonl"))
         self.assertEqual(sorted(stats.collect(self.run_dir)["runs"]), ["cnt"])
+
 
 class EventsIntegrationTest(unittest.TestCase):
     """跨 item 整合：真實 eval_state.py 子命令序列 → events.jsonl → stats 消費。"""
@@ -593,7 +710,9 @@ class EventsIntegrationTest(unittest.TestCase):
         self.run_eval_state("init", "--run-id", run_id)
         self.run_eval_state("add-subtask", "--id", "1", "--name", "demo")
         self.run_eval_state("set-step", "1", "writing")
-        self.run_eval_state("set-step", "1", "writing")  # 重入：同 sub_task 同 step 第 2 次
+        self.run_eval_state(
+            "set-step", "1", "writing"
+        )  # 重入：同 sub_task 同 step 第 2 次
         self.run_eval_state("set-files", "1", "src/a.py")
         self.run_eval_state("set-test", "1", "--passed", "--evidence", "pytest -> ok")
         self.run_eval_state("set-review", "1", "0")
