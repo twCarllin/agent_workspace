@@ -44,7 +44,7 @@
    - **發現不得自我授權（scope 防線）**：任何發現（含 🟡 建議）要進 fixing，主 flow 必須先指名其**對映依據**——本 item 的 DoD 條目、契約 row、Spec／spec_inline 句、或既有硬規則（.agent-flow/ROUTER.md／skill 條文）之一，記入該輪處置摘要（隨收尾回報呈現）。
      - 對映不出來的發現不得變成修正工作——處置為駁回（留痕）或 park 進收尾回報請使用者裁決
      - 與步驟 3 的引文核實並存不互代：引文核實防幻覺發現（引的 code 不存在），本條防真發現擴 scope（發現為真但無人要求）
-   - **修正迭代上限（僅數 reviewer 修正輪）**：同一 sub_task 的 reviewer 修正 2 輪後 reviewer 仍有 🔴 → 將該 sub_task 的 `status` 設為 `"failed"`、`warning: true`，回報使用者（不自行繼續修）；checker 輪與升級動作本身不計入此上限
+   - **修正迭代上限（僅數 reviewer 修正輪）**：同一 sub_task 的 reviewer 修正 2 輪後 reviewer 仍有 🔴 → 已明示 full-send 者先依 [有限恢復](decision-readiness.md#full-send單次任務的工程決策委託) 處置；其餘或恢復額度用盡者， 將該 sub_task 的 `status` 設為 `"failed"`、`warning: true`，回報使用者（不自行繼續修）；checker 輪與升級動作本身不計入此上限
 
 涉及外部答案解析或第二根因時，審查與結果處置依 test-strategy「外部答案解析與第二根因」；主 flow 依該節投放原文，獨立審查核對該節所需證據與裁示。
 

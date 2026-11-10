@@ -7,6 +7,8 @@ description: Tier 1／2 實作流程。新 Tier 1 依授權開始、自選方法
 
 本入口保留共用控制與步驟導覽。**開始當前階段前，必須完整讀取該階段的必讀文件**；不得只讀標題或以摘要代替規則。只載入目前階段，不預設讀所有 references。同階段文件已完整讀取且規則仍在 context 時沿用；context 遺失或文件變更才重載。標 `（R-NNN）` 的規則修改前，先讀 `retro/RETRO.md` 對應條目。寫流程文件時查 `references/glossary.md`；執行 run 不需載入術語表。
 
+使用者明示 full-send 工程決策委託時，先讀 [Full-send](references/decision-readiness.md#full-send單次任務的工程決策委託)，依既有任務授權自行裁決與交付；必要 gate 保持。
+
 ## 路徑選擇
 
 新 Tier 1／2 manifest 記目前 `harness` 與 `evidence_schema: 2`。新 adaptive Tier 1 直接讀 `references/tier1.md`；Tier 2、舊 run、跨 harness 操作才讀 `.agent-flow/HARNESS.md`。實際產碼、派工或品質爭議才讀 `.agent-flow/PRACTICES.md` 的適用節。派工輸入含目標、背景、限制與完成條件。

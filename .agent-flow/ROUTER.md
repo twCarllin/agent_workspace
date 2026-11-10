@@ -52,6 +52,8 @@
   - 本模式只代替提問，不改任何規則或 gate
   - 留痕：每次採用記一筆「問題｜選項｜採用｜理由」——有 Tier 1／2 run 時記 manifest `auto_decisions`（格式見 eval-flow `references/formats.md`），無 run 時記在變更回報；收尾回報列出本次全部自動決定供使用者檢查
 
+- **full-send 工程決策委託**：明示啟動與範圍依 `.agents/skills/eval-flow/references/decision-readiness.md`「Full-send」。判級照常；先讀該節再處理工程選擇、爭議與交付，不由名稱推定外部操作授權。
+
 ### 工作型態前判（bugfix 先診斷，判級在後）
 
 - 需求是**修 bug** 時，不先判 tier——判級需要的資訊（改哪裡、多大、觸不觸理由碼）在診斷前都未知。順序：
