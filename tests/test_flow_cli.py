@@ -91,7 +91,7 @@ class FlowCliTest(unittest.TestCase):
             harness="codex",
             evidence_schema=2,
             status="in_progress",
-            phase="reviewing",
+            phase="decomposed",
             spec_inline="task",
             test_command="python3 -c pass",
             local_test_passed=True,

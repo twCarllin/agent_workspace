@@ -29,7 +29,7 @@
 - 報告最後一行恰好一個 `Self-check:` 行（一句話自檢結論，其後不得再有任何內容）。
 
 1. 拆分結果寫入當天 `task/YYYY-MM-DD.md`
-2. 把該 task 檔路徑寫入 `manifest.task_file`（`phase` 不由你更新——自檢通過交付後由主 flow 設為 `"decomposed"`）
+2. 把該 task 檔路徑寫入 `manifest.task_file`（`phase` 不由你更新；開始條件與狀態推進依 eval-flow 的 Tier 2 前置 HITL gate，交付不代表可實作）
 
 ## 交付前自檢（硬性，交付前必做）
 

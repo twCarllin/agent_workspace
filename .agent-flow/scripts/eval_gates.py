@@ -57,7 +57,7 @@ AGENT_MIN_PHASE = {
     "usage-analyzer": "init",  # 具名問題隨時可觸發（前置 2 改觸發式，Spec §3.1 D2）
     "impact-analyzer": "init",  # 具名問題隨時可觸發（前置 2.5 改觸發式，Spec §3.1 D2）
     "task-decomposer": "init",  # 分拆隨時可做（前置 3 改條件派工，Spec §3.1）
-    "code-writer": "decomposed",  # 前置 3（task 分拆）完成才可進循環
+    "code-writer": "decomposed",  # 適用開始授權記錄完成後才可進循環
 }
 
 
@@ -425,10 +425,14 @@ def check_write_gate(tool_input):
         return  # 無進行中的 run（含 Tier 0 與日常工作）→ 不擋
     manifest_path, manifest = pending[0]
     run_id = MANIFEST_RE.match(manifest_path).group("run_id")
+    remedy = (
+        f"無待裁示問題且已有需求授權時，用 `python3 .agent-flow/scripts/eval_state.py start-run {run_id} --authorization '<已授權需求>'`；有決策缺口則先取得裁示，再用 hitl-confirm"
+        if flow_rules.adaptive_tier1(manifest)
+        else f'把「N tasks／M items」計畫回報使用者，確認後跑 `python3 .agent-flow/scripts/eval_state.py hitl-confirm {run_id} --note "<實際確認範圍>" [--rulings N]`'
+    )
     block(
-        f"{manifest_path} 的 HITL 未過（phase={manifest_phase(manifest)}）：不可在使用者確認計畫前寫 {rel}\n"
-        f"→ 補救一：把「N tasks／M items」計畫回報使用者，確認後跑 "
-        f'`python3 .agent-flow/scripts/eval_state.py hitl-confirm {run_id} --note "<時間＋確認範圍一句>" [--rulings N]`\n'
+        f"{manifest_path} 尚未通過開始條件（phase={manifest_phase(manifest)}）：不可寫 {rel}\n"
+        f"→ 補救一：{remedy}\n"
         f"→ 補救二：本 run 不再續跑 → 由使用者裁決把該 manifest 的 status 改 aborted（並填 failed_reason）\n"
         f"（溯源與規格檔不受本 gate 限制：{'／'.join(WRITE_GATE_EXEMPT_PREFIXES)} 與 eval_state.json 照常可寫）",
         gate_id="gate.write_before_hitl",
@@ -488,7 +492,7 @@ def check_task_gate(tool_input):
     if PHASES.index(phase) < PHASES.index(required):
         block(
             f"phase 狀態機：呼叫 {agent} 需 manifest.phase >= {required}，"
-            f"目前為 {phase}。請先完成缺少的前置步驟並更新 manifest.phase",
+            f"目前為 {phase}。請依適用流程用 start-run 或 hitl-confirm 記錄開始，不直接改 manifest.phase",
             gate_id="gate.agent_phase",
             run_id=run_id,
         )
@@ -634,7 +638,7 @@ def run_hook():
             "eval_state.json 仍存在。須先歸檔為 run/<run_id>.eval.json 並清除後才可 commit；"
             "若為失敗收尾（status: failed），依規則由使用者裁決，不可由 Claude commit\n"
             "→ 補救：`python3 .agent-flow/scripts/eval_state.py archive`（會驗四項憑據、寫出歸檔檔並刪除 eval_state.json），"
-            "再把 manifest 標 status: completed（歸檔檔是冷溯源檔，留在工作目錄即可，不需 git add）",
+            "再執行 run_commit.py prepare → commit（Run-Id）→ finalize；不要直接標 completed（歸檔檔留在工作目錄，不需 git add）",
             gate_id="gate.state_not_archived",
         )
 

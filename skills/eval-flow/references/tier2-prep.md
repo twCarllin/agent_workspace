@@ -38,12 +38,12 @@
 
 - **條件派工門檻**：主 flow 估規模——**預估 ≤2 tasks 且 ≤8 items（含界）→ 主 flow 直建 task 檔**（比照 Tier 1 精簡路徑第 2 點：上限、四要素、DoD 措辭規則一併適用）；超過 → 依「派工機制」節派工 **`task-decomposer` subagent**（它無 Bash；Spec 含作廢舊行為清單時，主 flow 派工前先跑 `test_baseline.py related`、結果附進 prompt）。它讀 Spec（含已寫入的具名問題答案），拆成 task 與 item、寫入 `task/YYYY-MM-DD-<run_id>.md`、回寫 `manifest.task_file`、並執行交付前自檢。拆分粒度、上限、四要素等規則住在它的定義與 `task-decomposition` skill
 - **計畫單一來源**：Spec 已有決策與行為不在 task 重述；task 保留執行範圍、DoD／契約及 Spec 章節引用，供派工與驗收使用。主 flow 直建同守此規則。
-- task-decomposer 交付前自檢通過後（或主 flow 直建完成後），將每個 task 展開為 `eval_state.json` 的 `sub_tasks`（**一個 task 一筆**；item 不入 `eval_state`，其 DoD 與契約表只住 task 檔），並將 manifest 的 `phase` 更新為 `"decomposed"`（hook 憑此放行 code-writer）
+- task-decomposer 交付前自檢通過後（或主 flow 直建完成後），將每個 task 展開為 `eval_state.json` 的 `sub_tasks`（**一個 task 一筆**；item 不入 `eval_state`，其 DoD 與契約表只住 task 檔），manifest 的 `phase` 保持為 `"init"`，等待下方 HITL gate；分拆完成不代表已可實作
 
 ## HITL gate：Spec 開放問題裁示＋task 計畫確認（合為一次）
 
 - 人閘門掛在**分拆完成後**：主 flow 依共用決策規則，集中提報仍需使用者決定的 Spec 開放問題與 task 計畫（N tasks／M items），取得使用者裁示及計畫確認。`［假設］` 先查證或釐清；影響產品行為且無法查證／無授權自行選擇者須裁示，不因移出提問清單就當成事實。
 - 若缺口使 task 無法拆解，先集中提出當時必要問題；取得答案後補齊拆解。更新後的 task 計畫仍須依本 gate 確認，不補造先前已確認的紀錄。裁決寫回 Spec，task 引用決策位置。
-- **確認留痕**：確認當下主 flow 把「時間＋確認範圍一句話」寫入 manifest 的 `hitl_confirmed_at`（留痕，接手者可驗證），並把**裁示條數**寫入 `hitl_rulings`（int，選填；無裁示填 0）——人閘門的價值信號是裁示數不是打回率，消費端見 stats.py
+- **確認留痕**：取得真實使用者確認後，執行 `python3 .agent-flow/scripts/eval_state.py hitl-confirm <run_id> --note "<實際確認範圍>" --rulings <裁示條數>`（無裁示填 0）。helper 核對進行中且尚未開始的 run、需求與 task 來源、有人看管的限制，一次記錄 `hitl_confirmed_at`、`hitl_rulings`、`hitl_attended`、適用的 `item_plan` 與事件，再推進 `decomposed`。不得直接改 phase 或補造確認欄位；無人看管時依 helper 指示交由可取得使用者確認的 session 接手。
 - 確認後才進入 `SKILL.md`「循環」節的步驟 1–7
 

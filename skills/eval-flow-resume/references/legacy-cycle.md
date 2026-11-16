@@ -1,11 +1,11 @@
 ## Step 2：依 manifest `phase` 定位前置進度
 
-`phase` 值域為 `init` → `decomposed` → `completed`。前置進度依 **`task_file`**（已建＝分拆完成）與 **`hitl_confirmed_at`**（已記＝HITL 已過）兩個欄位定位：
+`phase` 值域為 `init` → `decomposed` → `completed`。前置進度依 **`task_file`**（須讀內容核對分拆）與 **`hitl_confirmed_at`**（已記＝HITL 已過）兩個欄位定位：
 
 | phase | 代表已完成 | 恢復動作 |
 |---|---|---|
-| `init` | 前置 0（manifest + eval_state 已建） | 檢查 `task_file`：非空 → 分拆已完成但 `phase` 未更新，核對 task 檔內容後補設 `"decomposed"`；為 `null` → 檢查 `hitl_confirmed_at`：已記 → HITL 已過但分拆未完成或未觸發，回報現況請使用者決定重新分拆（直建或派 task-decomposer）；未記 → 尚未進入分拆，從前置 1（分拆 task）開始，依 eval-flow skill「Tier 2 完整路徑」的條件派工門檻（**≤2 tasks 且 ≤8 items，含界**）判斷主 flow 直建或派 task-decomposer |
-| `decomposed` | 前置 1（分拆完成，HITL 已確認） | 進 Step 3（循環內恢復） |
+| `init` | 前置已初始化，尚未通過開始條件 | `phase` 保持為 `"init"`；先核對 task 檔內容與 Tier 2 的 task 狀態，未分拆完先完成分拆。分拆已完成且未記確認時，依 eval-flow 的 Tier 2 前置 HITL gate 取得真實確認並用 `hitl-confirm` 推進；不因 `task_file` 非空直接改 phase。若已有確認卻仍是 init，回報不一致，不覆寫確認或自行補狀態 |
+| `decomposed` | 已達實作階段 | 核對實際開始憑據與工作現場後進 Step 3；舊 run 若只剩相容推導且無確認紀錄，明列未知，不補造或倒退 phase |
 | `completed` | 全部完成 | 無事可做；若 `eval_state.json` 竟仍存在 → 收尾被中斷，補歸檔流程（step 6 收尾順序） |
 
 - **舊 manifest 的 `phase` 為 `risk_done`／`usage_confirmed`** → hook 的 `manifest_phase()` 已將其映射為 `"init"`，本表按 `init` 列的恢復動作處置——`risk/<run_id>.md`、`usage/<run_id>.md` 即使存在也不用於判斷卡點，只看 `task_file`／`hitl_confirmed_at`
@@ -29,8 +29,8 @@
 | `fixing` | review 有 🔴、修正中被斷 | 同 `reviewing`：依 Tier 重派審查（Tier 2 reviewer；Tier 1 checker 或邊界 reviewer），無結論時不猜修正進度 |
 | `verifying` | （舊版 run 的相容值）審查階段 | 同 `reviewing`：依 Tier 重派審查 |
 | `testing` | 本地驗證中被斷 | 回到循環步驟 5，依有效證據完成剩餘驗證；失敗、缺席或失效的項目重驗，不採信中斷前的口頭結果。重用仍須符合 eval-flow skill「效率與驗證重用」的條件 |
-| `scoring` | （舊版 run 的相容值）無對應現行步驟 | 視同 testing 完成，直接進 eval-flow skill 循環 step 6 的完整收尾程序（執行前必讀，含冷溯源檔處置） |
-| `done` | 該 task 已收完 | 狀態應為 `passed`；不是 → 修正狀態後進下一個 task |
+| `scoring` | （舊版 run 的相容值）無對應現行步驟 | 依 testing 列核對有效驗證與四項憑據；全部齊全且 task 已通過才進 step 6，缺少時回到對應步驟，不由 scoring 推定測試完成 |
+| `done` | 該 task 已收完 | 先核對交付、審查與驗證憑據；齊全才用 helper 記 `passed` 並進下一個 task，缺少時回到對應步驟，不由 done 推定通過 |
 
 恢復時若有有效 review checkpoint 與前次結論，可依 eval-flow skill「效率與驗證重用」重派獨立 reviewer 做增量重審；前次結論缺失仍按本表重審，不以 checkpoint 代替審查結果。
 

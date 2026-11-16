@@ -33,3 +33,10 @@
 - 2026-11-04［.agent-flow/scripts/harness_adapter.py］驗證盲點：Codex resume 的 edits 旗標置於子命令後，CLI 0.166.0 拒絕 --sandbox；以真實 CLI 子程序確認移到 resume 前可解析，並以真實 thread 實測續用。同分類再次命中；R-005 的真實端到端執行約束涵蓋，新增實際 CLI 相容回歸，不新增約束。 ↑RETRO
 
 - 2026-11-16［.agent-flow/scripts/flow.py］驗證盲點：finish 缺命令時直接使用 manifest test_command，next 也推薦該全套命令，違反 Tier 1 累積相關驗證範圍；真實 CLI 證明漏參數仍執行並提交。新增拒絕分支、候選限制及明確命令回歸；兩項原逾時原因未知。同模組再次命中，新增 R-037。↑RETRO
+
+- 2026-11-16［skills/eval-flow/references/tier2-prep.md／formats.md／task-decomposer］時序耦合：把分拆完成當成開始授權而提前設 decomposed，使 HITL 前寫入 gate 放行、hitl-confirm 反而拒絕；共用與相容 CLI 重現 (0,1)，修正後為 (2,0)。↑RETRO R-038
+- 2026-11-16［.agent-flow/scripts/flow.py］時序耦合：next 未核對進行中 run 的 init，舊 Tier 1 建議 verify、Tier 2 建議 resume_task；真實 CLI 回歸改為 plan，保留缺 phase 的舊推導及已 prepare 的恢復路徑。↑RETRO R-038
+- 2026-11-16［.agent-flow/FLOW_CLI.md］時序耦合：Tier 2 HITL helper 已凍結 item_plan，文件卻要求再 confirm-plan；真實 CLI 證明重複命令拒絕且來源不變，文件改為僅有適用且缺計畫的相容現場才補建。↑RETRO R-038
+- 2026-11-16［.agent-flow/scripts/eval_state.py／eval_gates.py］時序耦合：archive 與 gate 補救訊息要求在 commit 前把 manifest 標 completed，與 prepare 的進行中前提衝突；真實 CLI 改提示 prepare→commit→finalize，歸檔仍維持 in_progress。↑RETRO R-038
+- 2026-11-16［skills/eval-flow-resume/references/legacy-cycle.md］驗證盲點：由 scoring 推定測試完成、由 done 直接補 passed，與未完成步驟須核證規則相反；真實 archive 拒絕缺憑據的兩種 step 且保留現場，恢復指示改為依實際證據選步驟。↑RETRO R-038
+- 2026-11-16［.agent-flow/scripts/eval_gates.py］時序耦合：未開始的 adaptive Tier 1 一律得到 HITL 補救指示，與已授權無問題時 start-run 的契約不同；真實 gate 回歸保留拒絕結果，提示依政策選既有 helper，不新增 gate。↑RETRO R-038

@@ -52,6 +52,8 @@ python3 .agent-flow/scripts/flow.py watch --run-id <id> --timeout 30 --interval 
 
 Tier 1 缺有效驗證快照時，`command` 為 null，呼叫端須依本次修改選命令。`next` 與缺命令訊息可列本 run 成功的相關命令候選；候選可能已過期，成功紀錄與 `scope=related` 均不證明涵蓋目前全部修改。核對範圍後才選命令並明確加 `--reuse`；實際重用仍由 `run_verify.py` 核對命令、快照與環境。
 
+進行中的 Tier 1／2 若 phase 仍為 init，`next` 先建議 `plan`；分拆或 task 狀態不取代開始授權。舊 run 缺 phase 時保留既有推導，已 prepare 的提交恢復仍先核對實際 commit。
+
 操作順序：先確認需求與計畫授權，再完成 task、驗證、審查與 item 對帳。收尾前由呼叫端確認提交訊息與範圍；恢復提交時須核對實際 commit。`next` 只依現有資料提供單一建議，不補造授權或審查結果。
 
 Tier 1／2 在**接手既有 run**及**準備收尾**時預設查詢一次；同一現場已有有效判斷與證據時可省略。正常實作中不逐步查詢；Tier 0 不使用。gate 錯誤已有明確修法時直接處理，仍不清楚才查。查詢後只在狀態或來源有實際改變時重查，不輪詢等候建議改變。
@@ -157,10 +159,9 @@ git rm --cached -- run/gate_hits.log run/tier0.jsonl
 
 2026.10.19.1 起的新 Tier 1／2 run 必須記 `item_accounting_required: true`。
 開始時固定 `item_plan.confirmed_at` 與 `items`（`id`、`task_id`、`summary`）。
-adaptive Tier 1 由 `start-run` 依已授權需求建立，或有決策時用真實 `hitl-confirm`；舊 Tier 1 保留 HITL。計畫時間由共用 `plan_timestamp()` 定位；Tier 2 在 HITL 後執行：
+adaptive Tier 1 由 `start-run` 依已授權需求建立，或有決策時用真實 `hitl-confirm`；舊 Tier 1 保留 HITL。計畫時間由共用 `plan_timestamp()` 定位；Tier 2 的 `hitl-confirm` 也會建立適用的 item 計畫，不重複執行 `confirm-plan`。只有已取得真實確認、適用 item 對帳且尚缺 `item_plan` 的相容現場，才使用 `item_accounting.py --run-id <id> confirm-plan`；不得覆寫已有計畫。後續對帳例如：
 
 ```sh
-python3 .agent-flow/scripts/item_accounting.py --run-id <id> confirm-plan
 python3 .agent-flow/scripts/item_accounting.py --run-id <id> deliver 1.1 --files src/file.py --evidence "existing:tests/test_file.py:test_x" --observed "使用者在列表頁看到新欄位" --observed-evidence "file:run/<id>.verify/list.png"
 python3 .agent-flow/scripts/item_accounting.py --run-id <id> pending 1.2 --reason '待使用者裁示'
 python3 .agent-flow/scripts/item_accounting.py --run-id <id> remove 1.2 --ruling-file ruling.json

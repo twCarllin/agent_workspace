@@ -804,7 +804,7 @@ def cmd_archive(args):
     append_event(run_id, "archive", args)
     os.remove(STATE_PATH)
     print(
-        f"[eval-state] 已歸檔 {archive_path} 並清除 {STATE_PATH}（記得把 manifest 標 completed）"
+        f"[eval-state] 已歸檔 {archive_path} 並清除 {STATE_PATH}（接續 run_commit.py prepare → commit（Run-Id）→ finalize；不要直接標 completed）"
     )
 
 

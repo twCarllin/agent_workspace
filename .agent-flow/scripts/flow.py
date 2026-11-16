@@ -333,6 +333,16 @@ def next_step(run_id=None):
         run_evidence.check_item_plan(manifest)
     except flow_rules.RuleViolation as error:
         return advise("plan", "計畫資料不足", blockers=[str(error)])
+    if (
+        state_name == "in_progress"
+        and manifest.get("tier") in (1, "1", 2, "2")
+        and flow_rules.manifest_phase(manifest) == "init"
+    ):
+        return advise(
+            "plan",
+            "尚未開始；先核對分拆與待裁示問題。adaptive Tier 1 無待裁示問題且已有授權時用 start-run；"
+            "需要 HITL 的 run 取得真實確認後用 hitl-confirm，不直接改 phase。",
+        )
     state = None
     hot = Path("eval_state.json")
     archive = Path(f"run/{run_id}.eval.json")

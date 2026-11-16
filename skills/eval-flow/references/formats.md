@@ -46,7 +46,7 @@
 - `hitl_rulings`：HITL 確認當下的**裁示條數**（int，選填；無裁示填 0）。Tier 2 的 HITL gate（Spec 開放問題裁示＋task 計畫確認）與 需要實際裁示的 Tier 1 HITL 同名同義（寫入時機見 eval-flow SKILL.md 對應節）；消費端 `stats.py` 裁示數分佈
 - `tier` / `tier_rationale`：Router 判定後寫入（供審計；Tier 1 若升級 Tier 2 須更新）
 - `phase`：流程狀態機欄位，值域 `init` → `decomposed` → `completed`，hook 憑此攔亂序的 subagent 呼叫（見「Gate 的硬性執行」gate 7）
-  - 轉移時機：前置 0 建立 `"init"` → 前置 1 分拆完成 `"decomposed"` → step 6 收尾 `"completed"`。adaptive Tier 1 由 `start-run` 記已授權計畫後設 `"decomposed"`；舊 Tier 1 於 HITL 確認後設定
+  - 轉移時機：前置 0 建立 `"init"` → 分拆完成後仍維持 `"init"` → HITL 確認由 `hitl-confirm` 推進 `"decomposed"` → 提交後由 `finalize` 設 `"completed"`。adaptive Tier 1 由 `start-run` 記已授權計畫後設 `"decomposed"`；舊 Tier 1 於 HITL 確認後設定
   - **舊值相容（硬性）**：既有 run 的 manifest 可能仍是 `"risk_done"`／`"usage_confirmed"`——`manifest_phase()` 在與值域比對前**必須先**把這兩值映射為 `"init"`，不得對舊值拋例外（既有 run 的 resume 依賴此映射；不可用 try/except 吞例外兜底，映射須發生在 `PHASES.index()` 之前）
   - 舊 manifest 無此欄時 hook 以 `task_file` 推導（向後相容）；`usage_report_path` 不參與推導
 - `spec_path` / `spec_inline`：Tier 2 用 `spec_path`（Spec 檔）；Tier 1 用 `spec_inline`（需求原文一句話）。**兩者至少一個非空**，皆空不可往下（intent gate）。`spec_path` 指向的 `spec/<run_id>.md` **進版控**（與本文件開頭「run manifest」等冷溯源檔不同類；分類的單一枚舉點住 eval-flow SKILL.md step 6 子項②）
@@ -166,7 +166,7 @@
 - **一律用 helper script 更新，不手動 Edit**：`python3 .agent-flow/scripts/eval_state.py`（`init`／`add-subtask`／`set-step`／`set-files`／`set-test`／`set-status`／`set-review`／`set-verify`／`add-verification`／`list-files`／`archive`）
   - 理由：手動 Edit 是高錯誤面；helper 在寫入前驗證不變量（archive 驗全數 passed），錯誤在落盤前就擋下
 - **前置 0（初始化）**：Tier 1 使用 `init-run`，開始依 `tier1.md`；Tier 2 建立 manifest `run/<run_id>.json`（填 `run_id`、`created_at`、`spec_path`，其餘 `null`，`status: "in_progress"`）與 `eval_state.json`（填 `run_id` ＋ 空 `sub_tasks`）。manifest 的 `spec_path` 未填不可往下
-- **分拆 task 完成後**：`task_file` 由主 flow（直建，≤2 tasks 且 ≤8 items 含界）或 `task-decomposer`（超門檻條件派工）回寫（時機與條件見 eval-flow SKILL.md 的「Tier 2 完整路徑」節（Tier 2）與「Tier 1 精簡路徑」第 2 點（Tier 1））；`phase` 隨之更新為 `"decomposed"`
+- **分拆 task 完成後**：`task_file` 由主 flow（直建，≤2 tasks 且 ≤8 items 含界）或 `task-decomposer`（超門檻條件派工）回寫（時機與條件見 eval-flow SKILL.md 的「Tier 2 完整路徑」節（Tier 2）與「Tier 1 精簡路徑」第 2 點（Tier 1））；此時不更新 `phase`，開始條件與轉換依上方 `phase` 條款
 - **具名問題觸發 usage-analyzer／impact-analyzer 時**：答案寫進 Spec，**不**回寫 `usage_report_path`／`impact_report_path`（兩欄維持 `null` 屬正常），無 gate 依賴此二欄
 - **循環進度記錄（write-ahead，中斷恢復的關鍵）**：每個循環步驟**開始前**先把該 sub_task 的 `step` 寫入 `eval_state.json`，步驟完成後再更新為下一步
   - `step` 值序：`writing`→`reviewing`（並發 review＋verify 階段）→`fixing`（有 🔴 時）→`testing`→`done`；`verifying`／`scoring` 為舊版 run 的相容值，新路徑不寫入

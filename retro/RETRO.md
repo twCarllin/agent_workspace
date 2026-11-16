@@ -55,3 +55,5 @@
 - R-036 2026-11-09［.agent-flow/scripts/token_usage.py／驗證盲點／2026-11-09-codex-token-usage］累積樣本早於 run 邊界及失敗派工的全零回執均曾被當成完整用量，因完整度判定未涵蓋樣本時間與回執成功條件。**約束：當 `token_usage.py` 判定 Codex run 的用量完整度時，主 session 必須有恰在起訖邊界的累積樣本才可標 `complete`；派工回執必須有 session ID、有效非負 token 數及無 failure 才可標 `complete`，失敗或缺回執不得視為完整。回歸須經 CLI 驗證前一個樣本早於起點的同 session 多 run，以及無 session ID、全零且逾時的派工回執，逐項斷言完整度。**［錨點: .agent-flow/scripts/token_usage.py::measure、.agent-flow/scripts/token_usage.py］
 
 - R-037 2026-11-16［.agent-flow/scripts/flow.py／驗證盲點／2026-11-16-tier1-finish-command］Tier 1 收尾把 manifest 全套命令當作缺參數預設，next 同樣推薦全套，使已通過的相關驗證在收尾被擴大範圍。**約束：Tier 1 需執行驗證時，finish 必須先取得有效的明確命令，不得退回 manifest test_command；next 不得自選全套。歷史成功與 scope=related 只可作候選，不得當作目前全部修改的涵蓋證明；保持明確 --reuse 及既有快照核對，並以真實 CLI 斷言缺命令未啟動測試、明確命令照指定執行及恢復分支仍可用。**［錨點: flow.py::finish、next_step］
+
+- R-038 2026-11-16［流程狀態轉換／時序耦合＋驗證盲點／2026-11-16-transition-contracts］分拆、恢復與 helper 提示各自重述狀態轉換，曾在 HITL 前放行實作、重複凍結計畫、在提交前宣告完成，並由 step 推定驗證成功。**約束：修改生命週期順序或補救指示時，逐一核對文件、helper 接受條件、gate 與 next；phase 只能由適用的授權／確認路徑推進，不由 task_file 或 step 代替證據。以真實 CLI 重放指示的前後條件，確認拒絕時現場保留、成功時必要紀錄齊全，並涵蓋相容入口；文件與角色只引用共用轉換規則，不另訂提前放行或手動補狀態的捷徑。**［錨點: cmd_hitl_confirm、next_step、cmd_archive］
