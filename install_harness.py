@@ -170,7 +170,8 @@ Use the selected skill for verification, review, and completion. Read `.agent-fl
 
 Read `.agent-flow/HARNESS.md`, `.agent-flow/{harness.upper()}_ADAPTER.md`, and `.agent-flow/PRACTICES.md`.
 For implementation, read `.agent-flow/ROUTER.md`, then load only the selected `.agents/skills/<name>/SKILL.md`. Diagnose bugs before routing; use eval-flow-resume for an interrupted run.
-New Tier 1/2 manifests use `harness: "{harness}"` and `evidence_schema: 2`. Keep actual verification evidence and independent review evidence when required. Run the final verification with `python3 .agent-flow/scripts/run_verify.py --run-id <id> --cmd "<project test command>"`; prepare, commit with Run-Id, then finalize with run_commit.py.
+Tier 0 follows `.agent-flow/ROUTER.md`: complete applicable verification, confirm classification, record the Tier 0 log, stage only this change, and commit directly; do not push automatically.
+For Tier 1/2 only: New Tier 1/2 manifests use `harness: "{harness}"` and `evidence_schema: 2`. Keep actual verification evidence and independent review evidence when required. Run the final verification with `python3 .agent-flow/scripts/run_verify.py --run-id <id> --cmd "<project test command>"`; prepare, commit with Run-Id, then finalize with run_commit.py.
 Use the matching role, with goal, context, constraints, and done conditions. Respect project instructions and current session permissions.
 Write experience memories as condition → action; never store a bare verdict such as "X is unstable" as a reason not to act. When the session start notice lists memory candidates, run `python3 .agent-flow/scripts/memory_prune.py`, read each candidate, merge any still-valid condition → action into a durable memory, then archive only the reviewed files with `--apply <file>...`.
 {end_marker}"""
