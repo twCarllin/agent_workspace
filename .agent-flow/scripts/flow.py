@@ -205,7 +205,10 @@ def status(run_id=None):
     full_runs = [c for c in commands if c.get("scope") == "full"]
     full_suite = full_runs[-1].get("exit_code") if full_runs else None
     pending_manual = [
-        dict(item=item_id, steps=result["observed_evidence"][len("pending-manual:"):].strip())
+        dict(
+            item=item_id,
+            steps=result["observed_evidence"][len("pending-manual:") :].strip(),
+        )
         for item_id, result in sorted((manifest.get("item_results") or {}).items())
         if str(result.get("observed_evidence", "")).startswith("pending-manual:")
     ]
@@ -255,6 +258,28 @@ def status(run_id=None):
             verify_passed=manifest.get("verify_passed"),
         ),
         next_action=next_action,
+    )
+
+
+def tier1_verification_hint(manifest):
+    """Historical commands are choices for the caller, never coverage evidence."""
+    candidates = list(
+        dict.fromkeys(
+            record["command"]
+            for record in manifest.get("verification_commands", [])
+            if record.get("exit_code") == 0
+            and record.get("scope") == "related"
+            and isinstance(record.get("command"), str)
+            and record["command"].strip()
+            and record["command"].strip()
+            != str(manifest.get("test_command", "")).strip()
+        )
+    )
+    return (
+        "Tier 1 需要明確的 --verify-command；請核對目前修改的相關驗證涵蓋範圍。"
+        "舊成功與 scope=related 不代表涵蓋全部修改；確認可重用後才明確加 --reuse，"
+        "由 run_verify 核對命令、快照與環境。候選命令（可能已過期）："
+        + json.dumps(candidates, ensure_ascii=False)
     )
 
 
@@ -338,6 +363,10 @@ def next_step(run_id=None):
     try:
         run_evidence.validate_evidence_snapshot(manifest, path)
     except flow_rules.RuleViolation as error:
+        if manifest.get("tier") in (1, "1"):
+            return advise(
+                "verify", tier1_verification_hint(manifest), blockers=[str(error)]
+            )
         command = manifest.get("test_command")
         argv = (
             [
@@ -526,7 +555,15 @@ def finish(args):
                         "eval_state run_id mismatch; cannot verify or archive another run"
                     )
                 validate_tasks(state, str(hot))
-            command = args.verify_command or manifest.get("test_command")
+            command = args.verify_command
+            if manifest.get("tier") in (1, "1"):
+                if not isinstance(command, str) or not command.strip():
+                    raise ValueError(
+                        "outcome=blocked reason=verify_command_required; "
+                        + tier1_verification_hint(manifest)
+                    )
+            else:
+                command = command or manifest.get("test_command")
             if not isinstance(command, str) or not command.strip():
                 raise ValueError("provide --verify-command or manifest test_command")
             # Review evidence is checked before spending time on full verification.
@@ -620,7 +657,10 @@ def main(argv=None):
     end.add_argument("--run-id", required=True)
     end.add_argument("--message", required=True)
     end.add_argument("--files", nargs="+")
-    end.add_argument("--verify-command")
+    end.add_argument(
+        "--verify-command",
+        help="Explicit verification command; required for Tier 1 verification",
+    )
     end.add_argument("--push", action="store_true")
     end.add_argument("--reuse", action="store_true")
     end.add_argument(

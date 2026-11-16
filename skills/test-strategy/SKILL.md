@@ -150,6 +150,7 @@ step 6 收尾**之前**（Tier 2 歸檔 eval_state 前）跑一次收尾檢查�
 | **Tier 2** | **全套**（manifest `test_command`） | `python3 .agent-flow/scripts/test_baseline.py check --strike-key full_suite`（省略 `--cmd` → 讀 manifest，與 baseline 同源同範圍） |
 | parallel-run merge gate | 全套（規則住 parallel-run skill，不變） | 同 Tier 2 |
 
+- 使用 `flow.py finish` 收尾時，Tier 1 須明確傳入所選驗證命令；缺參數與候選命令的處理依 `.agent-flow/FLOW_CLI.md`「收尾」及「唯讀下一步建議」。
 - Tier 1 的 related 輸出為空（純 prose 變更等）→ `local_test_evidence` 記「wrapup_related：無相關測試」，以 step 5 既有憑據收尾；**不得改跑全套湊憑據**（全套在 Tier 1 不是憑據要求）
 - exit 0 → 照常收尾
 - exit 2 → 相關測試沒抓到的跨 sub_task 破壞。處置：

@@ -176,9 +176,17 @@ class FlowCliTest(unittest.TestCase):
         result = self.cli("next", "--run-id", "r1")
         value = json.loads(result.stdout)
         self.assertEqual(value["action"], "verify")
-        self.assertIn("--reuse", value["command"])
+        self.assertIsNone(value["command"])
         verify = self.cli(
-            "finish", "--run-id", "r1", "--message", "x", "--files", "code.py"
+            "finish",
+            "--run-id",
+            "r1",
+            "--message",
+            "x",
+            "--files",
+            "code.py",
+            "--verify-command",
+            "python3 -c pass",
         )
         self.assertEqual(verify.returncode, 0, verify.stderr)
         self.manifest = self.read_manifest()
@@ -261,7 +269,17 @@ class FlowCliTest(unittest.TestCase):
         value = json.loads(self.cli("next", "--run-id", "r1").stdout)
         self.assertEqual(value["action"], "verify")
         verify = subprocess.run(
-            value["command"], cwd=self.repo, capture_output=True, text=True
+            [
+                sys.executable,
+                str(CLI.parent / "run_verify.py"),
+                "--run-id",
+                "r1",
+                "--cmd",
+                "python3 -c pass",
+            ],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
         )
         self.assertEqual(verify.returncode, 0, verify.stderr)
         self.assertEqual(
@@ -423,10 +441,79 @@ class FlowCliTest(unittest.TestCase):
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(second.stdout.strip(), "無需建立連結")
 
+    def test_tier1_missing_command_never_starts_manifest_test(self):
+        command = "python3 -c \"from pathlib import Path; Path('run/started').touch()\""
+        for tier, policy in ((1, None), ("1", "adaptive-v1")):
+            for extra in ((), ("--verify-command", ""), ("--verify-command", "   ")):
+                with self.subTest(tier=tier, extra=extra):
+                    self.manifest.update(tier=tier, test_command=command)
+                    if policy:
+                        self.manifest["tier1_policy"] = policy
+                    self.save()
+                    before = self.git("rev-parse", "HEAD")
+                    result = self.finish(*extra)
+                    self.assertEqual(
+                        result.returncode, 2, result.stdout + result.stderr
+                    )
+                    self.assertIn("verify_command_required", result.stderr)
+                    self.assertIn("--verify-command", result.stderr)
+                    self.assertFalse((self.repo / "run/started").exists())
+                    self.assertNotIn("verification_commands", self.read_manifest())
+                    self.assertEqual(before, self.git("rev-parse", "HEAD"))
+
+    def test_next_and_missing_command_offer_only_untrusted_related_candidates(self):
+        candidate = "python3 -c 'print(123)'"
+        self.manifest["verification_commands"] = [
+            dict(command=candidate, scope="related", exit_code=0),
+            dict(command=candidate, scope="related", exit_code=0),
+            dict(command="failed-command", scope="related", exit_code=7),
+            dict(command=self.manifest["test_command"], scope="related", exit_code=0),
+            dict(command="full-command", scope="full", exit_code=0),
+        ]
+        self.save()
+        before = (self.repo / "run/r1.json").read_bytes()
+        result = self.cli("next", "--run-id", "r1")
+        value = json.loads(result.stdout)
+        self.assertEqual(value["action"], "verify")
+        self.assertIsNone(value["command"])
+        self.assertEqual(before, (self.repo / "run/r1.json").read_bytes())
+        blocked = self.finish()
+        self.assertEqual(blocked.returncode, 2)
+        for hint in (value["reason"], blocked.stderr):
+            self.assertIn(candidate, hint)
+            self.assertEqual(hint.count(candidate), 1)
+            self.assertNotIn("failed-command", hint)
+            self.assertNotIn("full-command", hint)
+            self.assertNotIn(self.manifest["test_command"], hint)
+            self.assertIn("--reuse", hint)
+            self.assertIn("scope=related", hint)
+            self.assertIn("目前修改", hint)
+        self.assertEqual(
+            self.read_manifest()["verification_commands"],
+            self.manifest["verification_commands"],
+        )
+        # The same missing snapshot still recommends the full default for Tier 2.
+        self.manifest["tier"] = 2
+        self.save()
+        (self.repo / "eval_state.json").write_text(
+            json.dumps(dict(run_id="r1", sub_tasks=[dict(id=1, status="passed")]))
+        )
+        value = json.loads(self.cli("next", "--run-id", "r1").stdout)
+        self.assertEqual(value["action"], "verify")
+        self.assertIn(self.manifest["test_command"], value["command"])
+        self.assertIn("--reuse", value["command"])
+
     def test_finish_real_verify_prepare_commit_finalize(self):
-        result = self.finish()
+        self.manifest["test_command"] = "python3 -c 'raise SystemExit(9)'"
+        self.save()
+        command = (
+            "python3 -c \"from pathlib import Path; Path('run/explicit').touch()\""
+        )
+        result = self.finish("--verify-command", command)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertTrue((self.repo / "run/explicit").exists())
         manifest = self.read_manifest()
+        self.assertEqual(manifest["verification_commands"][-1]["command"], command)
         self.assertEqual(manifest["status"], "completed")
         self.assertEqual(manifest["commit_sha"], self.git("rev-parse", "HEAD"))
         self.assertEqual(manifest["verification_commands"][-1]["exit_code"], 0)
@@ -458,7 +545,7 @@ class FlowCliTest(unittest.TestCase):
             text=True,
         )
         self.assertEqual(first.returncode, 0, first.stderr)
-        result = self.finish("--reuse")
+        result = self.finish("--verify-command", command, "--reuse")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual((self.repo / "run/counter").read_text(), "1")
         self.assertTrue(self.read_manifest()["verification_commands"][-1]["reused"])
@@ -478,11 +565,13 @@ class FlowCliTest(unittest.TestCase):
             text=True,
         )
         self.assertEqual(first.returncode, 0, first.stderr)
-        blocked = self.finish()
+        blocked = self.finish("--verify-command", command)
         self.assertEqual(blocked.returncode, 2, blocked.stderr + blocked.stdout)
         self.assertIn("rerun_reason_required", blocked.stderr)
         self.assertEqual((self.repo / "run/counter").read_text(), "1")
-        result = self.finish("--rerun-reason", "evidence_refresh")
+        result = self.finish(
+            "--verify-command", command, "--rerun-reason", "evidence_refresh"
+        )
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual((self.repo / "run/counter").read_text(), "2")
         self.assertTrue(self.read_manifest()["verification_commands"][-1]["executed"])
@@ -513,7 +602,9 @@ class FlowCliTest(unittest.TestCase):
         self.assertEqual(first.returncode, 0, first.stderr)
         before = self.git("rev-parse", "HEAD")
         (self.repo / "run/external_exit").write_text("7")
-        result = self.finish("--rerun-reason", "environment_changed")
+        result = self.finish(
+            "--verify-command", command, "--rerun-reason", "environment_changed"
+        )
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(
             self.read_manifest()["verification_commands"][-1]["exit_code"], 7
@@ -524,7 +615,7 @@ class FlowCliTest(unittest.TestCase):
         self.manifest["verify_passed"] = False
         self.save()
         before = self.git("rev-parse", "HEAD")
-        result = self.finish()
+        result = self.finish("--verify-command", "python3 -c pass")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(before, self.git("rev-parse", "HEAD"))
         self.assertNotIn("verification_commands", self.read_manifest())
@@ -632,7 +723,9 @@ class FlowCliTest(unittest.TestCase):
         self.assertEqual(lock.read_text(), "another process")
 
     def test_resume_finalize_does_not_commit_again(self):
-        self.assertEqual(self.finish().returncode, 0)
+        self.assertEqual(
+            self.finish("--verify-command", "python3 -c pass").returncode, 0
+        )
         manifest = self.read_manifest()
         manifest["status"] = "ready_to_commit"
         manifest.pop("commit_sha")
@@ -646,7 +739,9 @@ class FlowCliTest(unittest.TestCase):
     def test_initial_commit_finish(self):
         # New repository with staged code and no HEAD exercises prepare's null parent.
         subprocess.run(["git", "update-ref", "-d", "HEAD"], cwd=self.repo, check=True)
-        result = self.finish("--files", ".gitignore", "code.py")
+        result = self.finish(
+            "--files", ".gitignore", "code.py", "--verify-command", "python3 -c pass"
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIsNone(self.read_manifest()["pre_commit_head"])
 
@@ -690,13 +785,15 @@ class FlowCliTest(unittest.TestCase):
         hook.write_text("#!/bin/sh\necho hook-rejected >&2\nexit 1\n")
         hook.chmod(0o755)
         before = self.git("rev-parse", "HEAD")
-        result = self.finish()
+        result = self.finish("--verify-command", "python3 -c pass")
         self.assertEqual(result.returncode, 2)
         self.assertIn("hook-rejected", result.stderr)
         self.assertEqual(before, self.git("rev-parse", "HEAD"))
         self.assertEqual(self.read_manifest()["status"], "ready_to_commit")
         hook.unlink()
-        self.assertEqual(self.finish("--reuse").returncode, 0)
+        self.assertEqual(
+            self.finish("--verify-command", "python3 -c pass", "--reuse").returncode, 0
+        )
         self.assertNotIn("finish_error", self.read_manifest())
 
     def test_status_reports_existing_failed_reason_and_dispatch(self):
@@ -716,7 +813,9 @@ class FlowCliTest(unittest.TestCase):
         self.assertIn("missing=", result.stderr)
 
     def test_crash_recovery_rejects_wrong_commit_parent(self):
-        self.assertEqual(self.finish().returncode, 0)
+        self.assertEqual(
+            self.finish("--verify-command", "python3 -c pass").returncode, 0
+        )
         manifest = self.read_manifest()
         manifest.update(status="ready_to_commit", pre_commit_head="bad-parent")
         self.save(manifest)
@@ -725,18 +824,31 @@ class FlowCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertEqual(before, self.git("rev-parse", "HEAD"))
 
-
     def test_status_separates_full_suite_and_pending_manual(self):
         self.manifest.update(
             verification_commands=[
                 {"command": "python3 -c pass", "scope": "full", "exit_code": 2},
-                {"command": "python3 -m unittest tests.test_x", "scope": "related", "exit_code": 0},
+                {
+                    "command": "python3 -m unittest tests.test_x",
+                    "scope": "related",
+                    "exit_code": 0,
+                },
             ],
             item_results={
-                "1.1": {"status": "delivered", "files": ["code.py"], "evidence": "ran:x",
-                        "observed": "看到列表", "observed_evidence": "pending-manual:開列表頁捲到底"},
-                "1.2": {"status": "delivered", "files": ["code.py"], "evidence": "ran:x",
-                        "observed": "看到回應", "observed_evidence": "ran:curl -> 200"},
+                "1.1": {
+                    "status": "delivered",
+                    "files": ["code.py"],
+                    "evidence": "ran:x",
+                    "observed": "看到列表",
+                    "observed_evidence": "pending-manual:開列表頁捲到底",
+                },
+                "1.2": {
+                    "status": "delivered",
+                    "files": ["code.py"],
+                    "evidence": "ran:x",
+                    "observed": "看到回應",
+                    "observed_evidence": "ran:curl -> 200",
+                },
             },
         )
         self.save()
@@ -744,17 +856,19 @@ class FlowCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         value = json.loads(result.stdout)
         self.assertEqual(value["full_suite"], 2)
-        self.assertEqual(value["pending_manual"], [{"item": "1.1", "steps": "開列表頁捲到底"}])
+        self.assertEqual(
+            value["pending_manual"], [{"item": "1.1", "steps": "開列表頁捲到底"}]
+        )
         self.assertEqual(value["latest_verification"]["exit_code"], 0)
         text = self.cli("status", "--run-id", "r1").stdout
         self.assertIn("full_suite: 2 / pending_manual: 1", text)
-        self.manifest["verification_commands"] = self.manifest["verification_commands"][1:]
+        self.manifest["verification_commands"] = self.manifest["verification_commands"][
+            1:
+        ]
         self.manifest["item_results"] = {}
         self.save()
         value = json.loads(self.cli("status", "--run-id", "r1", "--json").stdout)
         self.assertEqual((value["full_suite"], value["pending_manual"]), (None, []))
-
-
 
     def test_scope_accepts_symlink_entries_but_not_directories(self):
         (self.repo / "pkg").mkdir()
@@ -764,6 +878,7 @@ class FlowCliTest(unittest.TestCase):
         self.git("reset", "-q", "code.py")
         sys.path.insert(0, str(CLI.parent))
         import flow
+
         with self.assertRaises(ValueError):
             flow.scope_check(["pkg", "link"])
         cwd = os.getcwd()
@@ -772,7 +887,6 @@ class FlowCliTest(unittest.TestCase):
             flow.scope_check(["link", "pkg/x.py"])
         finally:
             os.chdir(cwd)
-
 
 
 if __name__ == "__main__":

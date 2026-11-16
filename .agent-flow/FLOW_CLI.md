@@ -50,6 +50,8 @@ python3 .agent-flow/scripts/flow.py watch --run-id <id> --timeout 30 --interval 
 
 `python3 .agent-flow/scripts/flow.py next --run-id <id>` 輸出 JSON；可省略 ID 以選取唯一活動 run，`--json` 亦可使用。結果固定包含 `run_id`、`state`、`action`、`command`、`reason` 和 `blockers`。`command` 是參數陣列或 null；建議不執行驗證、審查或提交，也不代表提交 gate 已通過。選取或輸入錯誤的退出碼為 2。
 
+Tier 1 缺有效驗證快照時，`command` 為 null，呼叫端須依本次修改選命令。`next` 與缺命令訊息可列本 run 成功的相關命令候選；候選可能已過期，成功紀錄與 `scope=related` 均不證明涵蓋目前全部修改。核對範圍後才選命令並明確加 `--reuse`；實際重用仍由 `run_verify.py` 核對命令、快照與環境。
+
 操作順序：先確認需求與計畫授權，再完成 task、驗證、審查與 item 對帳。收尾前由呼叫端確認提交訊息與範圍；恢復提交時須核對實際 commit。`next` 只依現有資料提供單一建議，不補造授權或審查結果。
 
 Tier 1／2 在**接手既有 run**及**準備收尾**時預設查詢一次；同一現場已有有效判斷與證據時可省略。正常實作中不逐步查詢；Tier 0 不使用。gate 錯誤已有明確修法時直接處理，仍不清楚才查。查詢後只在狀態或來源有實際改變時重查，不輪詢等候建議改變。
@@ -124,8 +126,10 @@ Tier 2 與有具名審查原因的新 Tier 1 直接派 reviewer 審完整 task d
 git add -- src/example.py tests/test_example.py
 python3 .agent-flow/scripts/flow.py finish --run-id <id> \
   --message 'Implement example' --files src/example.py tests/test_example.py \
-  --verify-command 'python3 -m unittest discover -s tests'
+  --verify-command 'python3 -m unittest discover -s tests -p test_example.py'
 ```
+
+Tier 1（含舊 run）要執行驗證時，必須提供非空的 `--verify-command`；缺少或只有空白時，在啟動測試前停止，不使用 manifest `test_command`。Tier 2 保留 manifest 全套預設；其他 tier 的預設不變。已完成 run 的核對與既有 commit 的 finalize 恢復路徑不需此參數。
 
 `finish` 依序核對範圍與既有憑據、執行 `run_verify.py`、歸檔符合條件的 Tier 2 狀態、執行 `run_commit.py prepare`、Git commit 與 finalize。它不推定審查通過，也不自動 stage 檔案；測試欄位由實際驗證結果產生。驗證命令依 test-strategy「依變更選擇驗證」；純設定使用必要設定／操作檢查，程式部分保留適用回歸範圍，專案另有要求時依專案規則。
 

@@ -307,6 +307,8 @@ class AdaptiveTier1Test(unittest.TestCase):
         self.prepare(ok=False)
         result = self.cli(
             "finish",
+            "--verify-command",
+            'python3 -c "pass"',
             "--rerun-reason",
             "evidence_refresh",
             "--run-id",
@@ -344,6 +346,8 @@ class AdaptiveTier1Test(unittest.TestCase):
         self.review()
         self.cli(
             "finish",
+            "--verify-command",
+            'python3 -c "pass"',
             "--rerun-reason",
             "evidence_refresh",
             "--run-id",
@@ -455,6 +459,8 @@ class AdaptiveTier1Test(unittest.TestCase):
                 self.tool_gate(SCRIPTS / "eval_gates.py", ok=False)
                 self.cli(
                     "finish",
+                    "--verify-command",
+                    'python3 -c "pass"',
                     "--run-id",
                     "demo",
                     "--message",
