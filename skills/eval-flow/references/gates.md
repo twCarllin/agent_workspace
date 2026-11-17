@@ -10,7 +10,7 @@
 
 - **① commit message 的 `Run-Id: <run_id>` trailer**（主路徑）→ 取工作目錄的 `run/<run_id>.json`。解析對象是 Bash 指令原文，故 run_id 只認 `[A-Za-z0-9._-]`、不加行尾錨點（`-m "…"` 的收尾引號不得讓比對整條失效）；路徑合法性仍一律交給 `MANIFEST_RE`（單一判定點，R-001）
 - **② staged 中匹配 `MANIFEST_RE` 者**（向後相容：舊 run，以及仍把 `run/` 納入版控的專案），與①取聯集
-- **③ 安全網**：①②皆落空時，掃工作目錄 `run/*.json`，任一 `status` 為 `"in_progress"` 或 `"ready_to_commit"` → 擋 commit；若已安裝本框架管理的 Git `commit-msg` hook，交由它核對 Git 實際訊息與憑據
+- **③ 安全網**：①②皆落空時，掃工作目錄 `run/*.json`，任一 `status` 為 `"in_progress"` 或 `"ready_to_commit"` → 擋 commit。不能因來源工作目錄有受管 hook 就推定未知目標已接入；raw 命令保留此保守檢查。正式導航提交使用目標 cwd 的 `flow.py finish`，由共用提交入口及目標 hook 核對實際訊息與憑據
   - 安全網刻意排在 gate 3 窄例外**之後**：窄例外的成立條件是「staged 恰一個 aborted／failed manifest、不含任何 code」，該 commit 純為留痕放棄的 run，不該被另一個未收尾的 run 卡死；兩者的 `status` 條件互斥，不存在攔截型被永久遮蔽的情境（與 R-008 的攔截型優先原則不衝突，組合測試見 `tests/test_eval_gates.py` C10）
 - 判定基準是**工作目錄**（`os.path.exists`／`glob`），與 gate 2 防刪除的 git 索引基準（`--diff-filter=D`）不同；兩者的發散情境與處置明列於 `eval_gates.py` 的 `_manifest_path_from_command` docstring（R-009）
 
@@ -29,7 +29,7 @@
    - `usage-analyzer`／`impact-analyzer`／`task-decomposer` 皆需 `phase >= init`（等同「manifest 已建即可呼叫」）；`task-decomposer` 不要求 `usage_report_path` 非空
    - `code-writer` 需 `phase >= decomposed` 且 `task_file` 非空
    - **舊值相容**：既有 manifest 的 `phase` 為 `risk_done`／`usage_confirmed` 時，`manifest_phase()` 在比對值域前先映射為 `init`，不拋例外
-   - **Bash 派工指令同受本 gate**：`command` 命中 `dispatch.py <role>`（`eval_gates.py` 的 `DISPATCH_RE`，role＝`dispatch.py` 後第一個非旗標 token、旗標可在其前）→ 以該 role 走同一判定；非 `AGENT_MIN_PHASE` 角色放行。解析對象是 Bash 指令原文，heredoc 內容含此字樣亦會觸發（與 commit gate 同型的已知假陽性，phase 已達門檻時無害）
+   - **Bash 派工入口**：命中 `dispatch.py <role>` 時，工具 hook 把角色檢查交給 dispatch.py；script 在實際目標 cwd 啟動子程序前走同一 gate，避免 A 狀態誤擋 B。同一命令文字中的提交仍執行既有保守 gate，派工字樣不能豁免其他適用檢查。不解析 cd/git -C 推測目標。原生 Agent 沒有明確目標時仍依自身 cwd 檢查；導航派工使用 dispatch.py
    - **共通前提**：intent gate 通過且 manifest 存在。`eval_state.json` 存在時依其 `run_id` 定位 manifest
    - **Tier 1 分支**：`eval_state.json` 不存在時，掃 `run/` 找唯一一個 `tier: 1` 且 `status: "in_progress"` 的 manifest 作為當前 run 依據（找到唯一一個 → 繼續後續 gate；找不到或多個 → 擋，原訊息語義）
    - `check_other_runs` 在兩條路徑下都執行（Tier 1 單一 run 原則不因豁免而失效）

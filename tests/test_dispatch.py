@@ -24,7 +24,24 @@ COMPLIANT = "\n".join(
     [STAMP, "", "## 完成度", "全部完成", "## 憑據", "測試通過", "Self-check: 通過"]
 )
 FAKE_EXE = """#!/usr/bin/env python3
-import json, os, subprocess, sys, time
+import hashlib, json, os, subprocess, sys, time, tomllib
+if sys.argv[1:2] == ["app-server"]:
+    for line in sys.stdin:
+        request = json.loads(line)
+        if request.get("id") == 1:
+            print(json.dumps({"id": 1, "result": {}}), flush=True)
+        if request.get("method") == "hooks/list":
+            hooks = []
+            for event in ("PreToolUse", "SessionStart"):
+                declaration = next(v.split("=", 1)[1] for v in sys.argv if v.startswith("hooks." + event + "="))
+                command = tomllib.loads("value=" + declaration)["value"][0]["hooks"][0]["command"]
+                hooks.append({"source": "sessionFlags", "eventName": event[0].lower() + event[1:],
+                              "enabled": os.environ.get("FAKE_HOOK_ENABLED", "true") == "true",
+                              "command": command, "currentHash": "sha256:" + hashlib.sha256(command.encode()).hexdigest(),
+                              "trustStatus": os.environ.get("FAKE_HOOK_TRUST", "trusted")})
+            print(json.dumps({"id": 2, "result": {"data": [{"hooks": hooks}]}}), flush=True)
+            break
+    sys.exit(0)
 data = sys.stdin.read()
 with open(os.environ["FAKE_CALLS"], "a", encoding="utf-8") as f:
     f.write(json.dumps({"exe": %r, "argv": sys.argv[1:], "stdin": data, "pid": os.getpid()}) + "\\n")
@@ -149,6 +166,8 @@ class DispatchFixture:
         input=None,
         git_add=None,
         rewrite=None,
+        hook_trust="trusted",
+        hook_enabled=True,
     ):
         env = {
             **os.environ,
@@ -157,6 +176,8 @@ class DispatchFixture:
             "FAKE_STDOUT": stdout,
             "FAKE_EXIT": str(exit_code),
             "FAKE_TOUCH": "|".join(touch),
+            "FAKE_HOOK_TRUST": hook_trust,
+            "FAKE_HOOK_ENABLED": str(hook_enabled).lower(),
         }
         if sleep is not None:
             env["FAKE_SLEEP"] = str(sleep)
@@ -265,6 +286,82 @@ BROKEN = "\n".join([STAMP, "", "## 完成度", "x", "## 憑據", "y"])  # 缺 Se
 
 
 class DispatchTest(DispatchFixture, unittest.TestCase):
+    def test_shared_roles_receive_target_module_instructions_and_hooks(self):
+        self.init_git()
+        target = Path(self.dir)
+        (target / "pkg").mkdir()
+        (target / "AGENTS.md").write_text("TARGET_ROOT_CANARY")
+        (target / "pkg/AGENTS.md").write_text("TARGET_MODULE_CANARY")
+        for backend in ("claude", "codex"):
+            with self.subTest(backend=backend):
+                result = self.run_role(
+                    "--backend",
+                    backend,
+                    "--files",
+                    "pkg/value.py",
+                    stdout=claude_json() if backend == "claude" else codex_jsonl(),
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                call = self.calls_made()[-1]
+                self.assertIn("TARGET_ROOT_CANARY", call["stdin"])
+                self.assertIn("TARGET_MODULE_CANARY", call["stdin"])
+                self.assertIn(str(target / "pkg/AGENTS.md"), call["stdin"])
+                argv = call["argv"]
+                if backend == "claude":
+                    agents = json.loads(argv[argv.index("--agents") + 1])
+                    self.assertIn("Self-check", agents["task-verifier"]["prompt"])
+                    settings = json.loads(argv[argv.index("--settings") + 1])
+                    self.assertIn("PreToolUse", settings["hooks"])
+                else:
+                    self.assertTrue(
+                        any(arg.startswith("hooks.PreToolUse=") for arg in argv)
+                    )
+                    self.assertIn("Self-check", call["stdin"])
+                self.assertFalse((target / ".agent-flow").exists())
+
+    def test_codex_untrusted_runtime_does_not_start_child(self):
+        before = (Path(self.dir) / "run" / f"{RUN_ID}.json").read_bytes()
+        for trust, enabled in (
+            ("untrusted", True),
+            ("modified", True),
+            ("trusted", False),
+        ):
+            with self.subTest(trust=trust, enabled=enabled):
+                result = self.run_role(
+                    "--backend",
+                    "codex",
+                    stdout=codex_jsonl(),
+                    hook_trust=trust,
+                    hook_enabled=enabled,
+                )
+                self.assertEqual(result.returncode, 3)
+                self.assertIn("/hooks", result.stderr)
+                self.assertIn("sha256:", result.stderr)
+                self.assertIn(
+                    str(ROOT / ".agent-flow/scripts/eval_gates.py"), result.stderr
+                )
+                self.assertIn("hooks.PreToolUse=", result.stderr)
+                self.assertNotIn("--dangerously", result.stderr)
+                self.assertEqual(self.calls_made(), [])
+                self.assertEqual(
+                    (Path(self.dir) / "run" / f"{RUN_ID}.json").read_bytes(), before
+                )
+        retry = self.run_role("--backend", "codex", stdout=codex_jsonl())
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        self.assertEqual(len(self.calls_made()), 1)
+        self.assertEqual(
+            (Path(self.dir) / "run" / f"{RUN_ID}.json").read_bytes(), before
+        )
+
+    def test_target_gate_runs_before_child_process(self):
+        self.init_git()
+        self.write_manifest(phase="init")
+        rejected = self.run_role(role="code-writer")
+        self.assertEqual(rejected.returncode, 2, rejected.stderr)
+        self.assertEqual(self.calls_made(), [])
+        self.write_manifest(phase="decomposed")
+        self.assertEqual(self.run_role(role="code-writer").returncode, 0)
+
     # --- item 1.1 ---
 
     def test_c1_compliant_report_stdout_exit_and_record(self):
@@ -472,11 +569,12 @@ class DispatchTest(DispatchFixture, unittest.TestCase):
         self.assertTrue(self.records()[0]["resumed"])
 
     def test_k5_codex_missing_toml_and_missing_message(self):
-        """K5 [邊界]：toml 不存在 → exit 1、不呼叫 codex；JSONL 無 agent_message → exit 3。"""
+        """Shared targets get the provider's role; a missing final message still fails."""
         proc = self.run_role("--backend", "codex", stdout=codex_jsonl())
-        self.assertEqual(proc.returncode, 1)
-        self.assertIn("task-verifier.toml", proc.stderr)
-        self.assertEqual(self.calls_made(), [])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(len(self.calls_made()), 1)
+        self.assertFalse((Path(self.dir) / ".codex").exists())
+        self.assertIn("hooks.PreToolUse=", " ".join(self.calls_made()[0]["argv"]))
         self.write_codex_toml()
         proc = self.run_role(
             "--backend", "codex", stdout=codex_jsonl(with_message=False)

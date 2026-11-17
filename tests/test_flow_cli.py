@@ -84,6 +84,18 @@ class FlowCliTest(unittest.TestCase):
         (self.repo / "code.py").write_text("value = 1\n")
         self.git("add", ".gitignore", "code.py")
         self.git("commit", "-qm", "initial")
+        attached = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "install_harness.py"),
+                "--attach",
+                "--target",
+                str(self.repo),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(attached.returncode, 0, attached.stderr)
         (self.repo / "run").mkdir()
         self.manifest = dict(
             run_id="r1",
@@ -782,7 +794,12 @@ class FlowCliTest(unittest.TestCase):
 
     def test_real_commit_msg_hook_failure_keeps_run_unfinished(self):
         hook = self.repo / ".git/hooks/commit-msg"
-        hook.write_text("#!/bin/sh\necho hook-rejected >&2\nexit 1\n")
+        installed = hook.read_text()
+        hook.write_text(
+            f"#!/bin/sh\n# agent-workspace shared scripts: {CLI.parent}\n"
+            f'python3 "{CLI.parent}/commit_message_gate.py" "$1" || exit $?\n'
+            "echo hook-rejected >&2\nexit 1\n"
+        )
         hook.chmod(0o755)
         before = self.git("rev-parse", "HEAD")
         result = self.finish("--verify-command", "python3 -c pass")
@@ -790,7 +807,7 @@ class FlowCliTest(unittest.TestCase):
         self.assertIn("hook-rejected", result.stderr)
         self.assertEqual(before, self.git("rev-parse", "HEAD"))
         self.assertEqual(self.read_manifest()["status"], "ready_to_commit")
-        hook.unlink()
+        hook.write_text(installed)
         self.assertEqual(
             self.finish("--verify-command", "python3 -c pass", "--reuse").returncode, 0
         )

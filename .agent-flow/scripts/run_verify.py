@@ -37,7 +37,9 @@ def environment_digest():
     ).hexdigest()
 
 
-TEST_PATH_RE = re.compile(r"(^|/)(tests?|__tests__|spec)/|(^|/)(test_[^/]*|[^/]*_test)\.py$")
+TEST_PATH_RE = re.compile(
+    r"(^|/)(tests?|__tests__|spec)/|(^|/)(test_[^/]*|[^/]*_test)\.py$"
+)
 
 
 def test_growth_ratio():
@@ -106,6 +108,9 @@ def main():
         help="Save full output under run/ and print a short result",
     )
     args = parser.parse_args()
+    import work_root
+
+    work_root.check_cli(toolchain=True)
 
     manifest_path = os.path.join("run", f"{args.run_id}.json")
     use_state = os.path.exists(eval_state.STATE_PATH) and args.sub_task is not None
@@ -201,10 +206,15 @@ def main():
     if unexplained_repeat:
         print(
             "[run-verify] outcome=blocked reason=rerun_reason_required; "
-            + ("prior output log missing; provide --rerun-reason evidence_refresh"
-             if args.reuse and args.quiet_success and not has_output
-             else "reuse conditions not met; provide --rerun-reason"
-             if args.reuse else "use --reuse or provide --rerun-reason"),
+            + (
+                "prior output log missing; provide --rerun-reason evidence_refresh"
+                if args.reuse and args.quiet_success and not has_output
+                else (
+                    "reuse conditions not met; provide --rerun-reason"
+                    if args.reuse
+                    else "use --reuse or provide --rerun-reason"
+                )
+            ),
             file=sys.stderr,
         )
         sys.exit(2)

@@ -18,6 +18,8 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.run(["git", "add", "user-notes.txt"], cwd=project, check=True)
     subprocess.run(["git", "commit", "-qm", "baseline"], cwd=project, check=True)
     (project / "user-notes.txt").write_text("user edit\\n")
+    (project / "run").mkdir()
+    (project / "run/probe.json").write_text(json.dumps({"run_id": "probe", "tier": 1, "status": "in_progress", "phase": "decomposed", "spec_inline": "dispatch boundary fixture", "task_file": "task/plan.md"}))
     bindir = project / "bin"
     bindir.mkdir()
     fake = bindir / "claude"

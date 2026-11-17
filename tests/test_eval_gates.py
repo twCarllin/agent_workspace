@@ -120,7 +120,9 @@ class TestFileDetectionTest(unittest.TestCase):
                 self.assertEqual(eval_gates.is_test_file(path), expected)
 
 
-HOOK_PY = str(Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "eval_gates.py")
+HOOK_PY = str(
+    Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "eval_gates.py"
+)
 EVAL_STATE_PY = str(
     Path(__file__).resolve().parents[1] / ".claude" / "hooks" / "eval_state.py"
 )
@@ -236,6 +238,7 @@ class GateHitLogTest(CwdTmpCase):
             eval_gates.block("x")
         self.assertFalse(os.path.exists("run/gate_hits.log"))
 
+
 class GitCommitRegexTest(unittest.TestCase):
     def test_commit_detection_table(self):
         for command, expected in (
@@ -246,7 +249,9 @@ class GitCommitRegexTest(unittest.TestCase):
             ("git diff --cached", False),
         ):
             with self.subTest(command=command):
-                self.assertEqual(bool(eval_gates.GIT_COMMIT_RE.search(command)), expected)
+                self.assertEqual(
+                    bool(eval_gates.GIT_COMMIT_RE.search(command)), expected
+                )
 
 
 class Tier1ManifestCommitTest(CwdTmpCase):
@@ -304,8 +309,14 @@ class Tier1SubagentGateTest(CwdTmpCase):
         os.makedirs("run")
 
     def _write_manifest(self, run_id, tier=1, status="in_progress", phase="decomposed"):
-        m = {"run_id": run_id, "tier": tier, "status": status, "phase": phase,
-             "spec_inline": "spec", "task_file": "task/x.md"}
+        m = {
+            "run_id": run_id,
+            "tier": tier,
+            "status": status,
+            "phase": phase,
+            "spec_inline": "spec",
+            "task_file": "task/x.md",
+        }
         Path(f"run/{run_id}.json").write_text(json.dumps(m), encoding="utf-8")
 
     def test_no_eval_state_task_gate_table(self):
@@ -314,11 +325,21 @@ class Tier1SubagentGateTest(CwdTmpCase):
             ("unique_tier1_inprogress_passes", [dict(run_id="tier1-run")], 0),
             ("only_tier2_blocks", [dict(run_id="t2-run", tier=2)], 2),
             ("no_manifest_blocks", [], 2),
-            ("other_inprogress_blocks",
-             [dict(run_id="tier1-run"), dict(run_id="other-run", tier=2)], 2),
-            ("phase_below_decomposed_blocks", [dict(run_id="tier1-run", phase="init")], 2),
-            ("multiple_tier1_blocks",
-             [dict(run_id="tier1-run-a"), dict(run_id="tier1-run-b")], 2),
+            (
+                "other_inprogress_blocks",
+                [dict(run_id="tier1-run"), dict(run_id="other-run", tier=2)],
+                2,
+            ),
+            (
+                "phase_below_decomposed_blocks",
+                [dict(run_id="tier1-run", phase="init")],
+                2,
+            ),
+            (
+                "multiple_tier1_blocks",
+                [dict(run_id="tier1-run-a"), dict(run_id="tier1-run-b")],
+                2,
+            ),
         ):
             with self.subTest(name=name):
                 for p in Path("run").glob("*.json"):
@@ -328,6 +349,7 @@ class Tier1SubagentGateTest(CwdTmpCase):
                 with self.assertRaises(SystemExit) as ctx:
                     eval_gates.check_task_gate({"subagent_type": "code-writer"})
                 self.assertEqual(ctx.exception.code, expected)
+
 
 class RunHookWorktreeRootTest(unittest.TestCase):
     """e2e：run_hook() root 解析在真實 git worktree 下的正確性（拋棄式 repo，不碰真實 run/）。"""
@@ -407,9 +429,13 @@ class RunHookWorktreeRootTest(unittest.TestCase):
             ):
                 with self.subTest(name=name):
                     state = os.path.join(state_dir, "eval_state.json")
-                    Path(state).write_text(json.dumps({"run_id": "r"}), encoding="utf-8")
-                    payload = {"tool_name": "Bash",
-                               "tool_input": {"command": "git commit -m x"}}
+                    Path(state).write_text(
+                        json.dumps({"run_id": "r"}), encoding="utf-8"
+                    )
+                    payload = {
+                        "tool_name": "Bash",
+                        "tool_input": {"command": "git commit -m x"},
+                    }
                     if cwd is not None:
                         payload["cwd"] = cwd
                     self.assertEqual(self._run_hook(payload, cpd), 2)
@@ -419,7 +445,9 @@ class RunHookWorktreeRootTest(unittest.TestCase):
         """[核心/F] worktree 備妥合法 tier2 state+manifest → check_task_gate 讀 worktree → exit 0。"""
         wt_run_dir = os.path.join(self.worktree, "run")
         os.makedirs(wt_run_dir)
-        Path(os.path.join(self.worktree, "eval_state.json")).write_text(json.dumps({"run_id": "wt-run", "sub_tasks": []}), encoding="utf-8")
+        Path(os.path.join(self.worktree, "eval_state.json")).write_text(
+            json.dumps({"run_id": "wt-run", "sub_tasks": []}), encoding="utf-8"
+        )
         manifest = {
             "run_id": "wt-run",
             "tier": 2,
@@ -428,13 +456,16 @@ class RunHookWorktreeRootTest(unittest.TestCase):
             "spec_inline": "spec",
             "task_file": "task/x.md",
         }
-        Path(os.path.join(wt_run_dir, "wt-run.json")).write_text(json.dumps(manifest), encoding="utf-8")
+        Path(os.path.join(wt_run_dir, "wt-run.json")).write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
         payload = {
             "tool_name": "Task",
             "tool_input": {"subagent_type": "code-writer"},
             "cwd": self.worktree,
         }
         self.assertEqual(self._run_hook(payload, self.main), 0)
+
 
 class AbortedConsumptionTest(CwdTmpCase):
     """1a 契約：aborted／failed 皆為「非 in_progress」，四消費點中可離開 git 直接單元測的兩點。
@@ -449,7 +480,11 @@ class AbortedConsumptionTest(CwdTmpCase):
 
     def test_check_other_runs_by_status(self):
         # aborted／failed 不擋新 run；in_progress 仍擋（回歸，防止改壞判定式）
-        for status, blocks in (("aborted", False), ("failed", False), ("in_progress", True)):
+        for status, blocks in (
+            ("aborted", False),
+            ("failed", False),
+            ("in_progress", True),
+        ):
             with self.subTest(status=status):
                 self._write("other.json", {"run_id": "other", "status": status})
                 if blocks:  # testlint: allow — else 分支為放行契約：不得拋出阻擋例外
@@ -457,6 +492,7 @@ class AbortedConsumptionTest(CwdTmpCase):
                         eval_gates.check_other_runs("current")
                 else:
                     eval_gates.check_other_runs("current")  # 不得拋出
+
 
 class ManifestDeletionGateTest(CwdTmpCase):
     """1b 契約：check_manifest_deletion 正反向測試（真實 git repo，覆蓋正常/含空白/含特殊字元/
@@ -506,7 +542,9 @@ class ManifestDeletionGateTest(CwdTmpCase):
                 git("reset", "-q", "--hard")
         with self.subTest(name="modify_not_delete"):
             self._commit_file("run/2026-08-20-m.json", '{"status": "in_progress"}')
-            Path("run/2026-08-20-m.json").write_text('{"status": "completed"}', encoding="utf-8")
+            Path("run/2026-08-20-m.json").write_text(
+                '{"status": "completed"}', encoding="utf-8"
+            )
             git("add", "run/2026-08-20-m.json")
             eval_gates.check_manifest_deletion()
 
@@ -519,16 +557,43 @@ class NarrowExceptionGateTest(CwdTmpCase):
         # (name, 寫入的檔案名, 內容, staged 集合, 預期)
         for name, fname, obj, staged, expected in (
             # aborted＋reason 為 True、混入其他檔為 False：由 IntegrationHookGatesTest e2e 覆蓋
-            ("failed_with_reason", "x.json",
-             {"status": "failed", "failed_reason": "卡在 step 3"}, {"run/x.json"}, True),
-            ("status_completed", "x.json", {"status": "completed"}, {"run/x.json"}, False),
+            (
+                "failed_with_reason",
+                "x.json",
+                {"status": "failed", "failed_reason": "卡在 step 3"},
+                {"run/x.json"},
+                True,
+            ),
+            (
+                "status_completed",
+                "x.json",
+                {"status": "completed"},
+                {"run/x.json"},
+                False,
+            ),
             # 1a「必填」機械強制點
-            ("empty_failed_reason", "x.json",
-             {"status": "aborted", "failed_reason": ""}, {"run/x.json"}, False),
-            ("none_failed_reason", "x.json",
-             {"status": "aborted", "failed_reason": None}, {"run/x.json"}, False),
+            (
+                "empty_failed_reason",
+                "x.json",
+                {"status": "aborted", "failed_reason": ""},
+                {"run/x.json"},
+                False,
+            ),
+            (
+                "none_failed_reason",
+                "x.json",
+                {"status": "aborted", "failed_reason": None},
+                {"run/x.json"},
+                False,
+            ),
             # 恰一檔但非 manifest（如歸檔檔）
-            ("non_manifest_single_file", "x.eval.json", reason, {"run/x.eval.json"}, False),
+            (
+                "non_manifest_single_file",
+                "x.eval.json",
+                reason,
+                {"run/x.eval.json"},
+                False,
+            ),
             ("empty_staged", None, None, set(), False),
             # manifest 不存在（如被刪除）→ 落回防刪除 gate 判定，不誤放行
             ("manifest_file_missing", None, None, {"run/missing.json"}, False),
@@ -538,7 +603,9 @@ class NarrowExceptionGateTest(CwdTmpCase):
                     p.unlink()
                 os.makedirs("run", exist_ok=True)
                 if fname:
-                    Path(f"run/{fname}").write_text(json.dumps({"run_id": "x", **obj}), encoding="utf-8")
+                    Path(f"run/{fname}").write_text(
+                        json.dumps({"run_id": "x", **obj}), encoding="utf-8"
+                    )
                 self.assertIs(
                     eval_gates.check_abort_failed_narrow_exception(staged), expected
                 )
@@ -621,31 +688,64 @@ class ColdFileLocationGateTest(unittest.TestCase):
         """C1–C11 + eval_state 不變量。每列：(name, setup(), trailer run_id, 預期 rc,
         stderr 必含的 key, stderr 不得含的字串)。"""
         m, code, stage = self._manifest, self._stage_code, self._stage_manifest
-        archive_ok = {"run_id": "2026-09-22-c8", "sub_tasks": [{
-            "id": 1, "name": "s1", "status": "passed", "local_test_passed": True,
-            "local_test_evidence": "ok", "review_reds": 0, "verify_passed": True}]}
+        archive_ok = {
+            "run_id": "2026-09-22-c8",
+            "sub_tasks": [
+                {
+                    "id": 1,
+                    "name": "s1",
+                    "status": "passed",
+                    "local_test_passed": True,
+                    "local_test_evidence": "ok",
+                    "review_reds": 0,
+                    "verify_passed": True,
+                }
+            ],
+        }
         fake_test = "def test_nothing():\n    assert True\n"
 
-        def c3(): m("2026-09-22-c3", local_test_passed=None); code()
-        def c3b(): m("2026-09-22-c3b", local_test_evidence="   "); code()
+        def c3():
+            m("2026-09-22-c3", local_test_passed=None)
+            code()
+
+        def c3b():
+            m("2026-09-22-c3b", local_test_evidence="   ")
+            code()
+
         def c8():
             m("2026-09-22-c8", tier=2)
             self._write_json("run/2026-09-22-c8.eval.json", archive_ok)
             code()
+
         def c8c():
             m("2026-09-22-c8c", tier=2)
-            self._write_json("run/2026-09-22-c8c.eval.json", {"run_id": "other", "sub_tasks": []})
+            self._write_json(
+                "run/2026-09-22-c8c.eval.json", {"run_id": "other", "sub_tasks": []}
+            )
             code()
+
         def c9():
             m("2026-09-22-c9")
             self._write_text("tests/test_fake.py", fake_test)
             self._git("add", "tests/test_fake.py")
+
         def c9b():
             self._write_text("tests/test_fake.py", fake_test)
             self._git("add", "tests/test_fake.py")
-        def c7a(): m("2026-09-22-c7"); code(); stage("2026-09-22-c7")
-        def c7b(): m("2026-09-22-c7b", status="in_progress"); stage("2026-09-22-c7b")
-        def c7c(): m("2026-09-22-c7c", spec_inline=None); stage("2026-09-22-c7c")
+
+        def c7a():
+            m("2026-09-22-c7")
+            code()
+            stage("2026-09-22-c7")
+
+        def c7b():
+            m("2026-09-22-c7b", status="in_progress")
+            stage("2026-09-22-c7b")
+
+        def c7c():
+            m("2026-09-22-c7c", spec_inline=None)
+            stage("2026-09-22-c7c")
+
         # C10（R-008 組合測試：放行型 vs 攔截型的相互遮蔽）：staged 恰一個 aborted manifest
         # （窄例外三條件全中）同時工作目錄另有 in_progress 的 run → 維持放行（兩者 status
         # 條件互斥，不存在攔截型被永久遮蔽）；多 staged 一個 code 檔則窄例外不成立，
@@ -654,60 +754,149 @@ class ColdFileLocationGateTest(unittest.TestCase):
             m("2026-09-22-c10busy", status="in_progress")
             m("2026-09-22-c10", status="aborted", failed_reason="使用者決定不做了")
             stage("2026-09-22-c10")
+
         def c10b():
             m("2026-09-22-c10busy2", status="in_progress")
             m("2026-09-22-c10b", status="aborted", failed_reason="放棄")
-            stage("2026-09-22-c10b"); code()
+            stage("2026-09-22-c10b")
+            code()
+
         # 1.4 情境 N：窄例外三條件全滿足 → 放行，即使 eval_state.json 仍存在也被豁免
         # （情境 B 刪除 manifest＝C11；N-err1 混入其他檔＝C10b，不另列）
         def n_scenario():
             m("2026-09-22-n", status="aborted", failed_reason="使用者決定不做了")
             stage("2026-09-22-n")
             self._write_json("eval_state.json", {"run_id": "n"})
+
         def c11():
             m("2026-09-22-c11")
             stage("2026-09-22-c11")
             self._git("commit", "-q", "-m", "keep")
             self._git("rm", "-q", "run/2026-09-22-c11.json")
+
         def es():
             self._write_json("eval_state.json", {"run_id": "x", "sub_tasks": []})
-            m("2026-09-22-es"); code()
+            m("2026-09-22-es")
+            code()
 
         for name, setup, trailer, rc, keys, absent in (
-            ("C1_trailer_completed_passes", lambda: (m("2026-09-22-c1"), code()),
-             "2026-09-22-c1", 0, (), ()),
-            ("C2_trailer_inprogress_blocks",
-             lambda: (m("2026-09-22-c2", status="in_progress"), code()),
-             "2026-09-22-c2", 2, ("status 非 completed",), ()),
-            ("C3_missing_credential_blocks", c3, "2026-09-22-c3", 2, ("local_test_passed",), ()),
-            ("C3_blank_evidence_blocks", c3b, "2026-09-22-c3b", 2, ("local_test_evidence",), ()),
-            ("C4_trailer_missing_manifest_no_block", code, "2026-09-22-nonexistent", 0, (), ()),
+            (
+                "C1_trailer_completed_passes",
+                lambda: (m("2026-09-22-c1"), code()),
+                "2026-09-22-c1",
+                0,
+                (),
+                (),
+            ),
+            (
+                "C2_trailer_inprogress_blocks",
+                lambda: (m("2026-09-22-c2", status="in_progress"), code()),
+                "2026-09-22-c2",
+                2,
+                ("status 非 completed",),
+                (),
+            ),
+            (
+                "C3_missing_credential_blocks",
+                c3,
+                "2026-09-22-c3",
+                2,
+                ("local_test_passed",),
+                (),
+            ),
+            (
+                "C3_blank_evidence_blocks",
+                c3b,
+                "2026-09-22-c3b",
+                2,
+                ("local_test_evidence",),
+                (),
+            ),
+            (
+                "C4_trailer_missing_manifest_no_block",
+                code,
+                "2026-09-22-nonexistent",
+                0,
+                (),
+                (),
+            ),
             ("C4_trailer_path_traversal_rejected", code, "../../etc/passwd", 0, (), ()),
-            ("C5_inprogress_on_disk_blocks_without_trailer",
-             lambda: (m("2026-09-22-c5", status="in_progress"), code()),
-             None, 2, ("run/2026-09-22-c5.json", "in_progress"), ()),
+            (
+                "C5_inprogress_on_disk_blocks_without_trailer",
+                lambda: (m("2026-09-22-c5", status="in_progress"), code()),
+                None,
+                2,
+                ("run/2026-09-22-c5.json", "in_progress"),
+                (),
+            ),
             ("C6_nothing_passes", code, None, 0, (), ()),
-            ("C6_completed_on_disk_no_block",
-             lambda: (m("2026-09-22-c6old"), code()), None, 0, (), ()),
-            ("C6_aborted_on_disk_no_block",
-             lambda: (m("2026-09-22-c6ab", status="aborted", failed_reason="放棄"), code()),
-             None, 0, (), ()),
+            (
+                "C6_completed_on_disk_no_block",
+                lambda: (m("2026-09-22-c6old"), code()),
+                None,
+                0,
+                (),
+                (),
+            ),
+            (
+                "C6_aborted_on_disk_no_block",
+                lambda: (
+                    m("2026-09-22-c6ab", status="aborted", failed_reason="放棄"),
+                    code(),
+                ),
+                None,
+                0,
+                (),
+                (),
+            ),
             ("C7_staged_manifest_legacy_passes", c7a, None, 0, (), ()),
             ("C7_staged_inprogress_blocks", c7b, None, 2, ("status 非 completed",), ()),
             ("C7_staged_missing_intent_blocks", c7c, None, 2, ("intent gate",), ()),
             ("C8_tier2_archive_on_disk_passes", c8, "2026-09-22-c8", 0, (), ()),
-            ("C8_tier2_missing_archive_blocks",
-             lambda: (m("2026-09-22-c8b", tier=2), code()), "2026-09-22-c8b", 2,
-             ("run/2026-09-22-c8b.eval.json",), ("git add run/2026-09-22-c8b.eval.json",)),
-            ("C8_tier2_archive_run_id_mismatch_blocks", c8c, "2026-09-22-c8c", 2, ("不一致",), ()),
-            ("C9_test_lint_runs_via_trailer", c9, "2026-09-22-c9", 2, ("假測試 lint",), ()),
+            (
+                "C8_tier2_missing_archive_blocks",
+                lambda: (m("2026-09-22-c8b", tier=2), code()),
+                "2026-09-22-c8b",
+                2,
+                ("run/2026-09-22-c8b.eval.json",),
+                ("git add run/2026-09-22-c8b.eval.json",),
+            ),
+            (
+                "C8_tier2_archive_run_id_mismatch_blocks",
+                c8c,
+                "2026-09-22-c8c",
+                2,
+                ("不一致",),
+                (),
+            ),
+            (
+                "C9_test_lint_runs_via_trailer",
+                c9,
+                "2026-09-22-c9",
+                2,
+                ("假測試 lint",),
+                (),
+            ),
             ("C9_test_lint_not_run_without_manifest", c9b, None, 0, (), ()),
             ("C10_narrow_exception_wins_over_safety_net", c10, None, 0, (), ()),
-            ("C10_narrow_exception_requires_sole_staged_file", c10b, None, 2,
-             ("run/2026-09-22-c10b.json", "status 非 completed"), ()),
+            (
+                "C10_narrow_exception_requires_sole_staged_file",
+                c10b,
+                None,
+                2,
+                ("run/2026-09-22-c10b.json", "status 非 completed"),
+                (),
+            ),
             ("N_narrow_exception_exempts_eval_state", n_scenario, None, 0, (), ()),
             ("C11_manifest_deletion_blocks", c11, None, 2, ("被刪除",), ()),
-            ("eval_state_blocks_before_locator", es, "2026-09-22-es", 2, ("eval_state.json",), ()),
+            (
+                "eval_state_blocks_before_locator",
+                es,
+                "2026-09-22-es",
+                2,
+                ("eval_state.json",),
+                (),
+            ),
         ):
             with self.subTest(name=name):
                 self._reset()
@@ -723,11 +912,15 @@ class ColdFileLocationGateTest(unittest.TestCase):
     # status=aborted＋failed_reason 非空（窄例外三條件全中）。修正前窄例外先於防刪除 gate
     # 判定而放行（exit 0）；修正後防刪除 gate 先看 git 索引狀態，仍須 block（exit 2）。
     def test_git_rm_cached_aborted_manifest_still_blocked_end_to_end(self):
-        self._manifest("2026-08-20-rc", status="aborted", failed_reason="使用者決定不做了")
+        self._manifest(
+            "2026-08-20-rc", status="aborted", failed_reason="使用者決定不做了"
+        )
         self._stage_manifest("2026-08-20-rc")
         self._git("commit", "-q", "-m", "keep")
         self._git("rm", "-q", "--cached", "run/2026-08-20-rc.json")
-        self.assertTrue(os.path.exists(os.path.join(self.repo, "run/2026-08-20-rc.json")))
+        self.assertTrue(
+            os.path.exists(os.path.join(self.repo, "run/2026-08-20-rc.json"))
+        )
         result = self._run_hook(self._commit_cmd())
         self.assertEqual(result.returncode, 2)
         self.assertIn("被刪除", result.stderr)
@@ -768,7 +961,12 @@ class LegacyPhaseCompatibilityTest(unittest.TestCase):
             # AGENT_MIN_PHASE 改 init 後，舊值 risk_done 映射 init，init>=init → 放行
             ("risk_done_impact_analyzer", "risk_done", "impact-analyzer", 0),
             # 舊值 usage_confirmed 映射 init；擋人兩條（usage_report_path 空/skipped）已隨 §3.2 移除
-            ("usage_confirmed_task_decomposer", "usage_confirmed", "task-decomposer", 0),
+            (
+                "usage_confirmed_task_decomposer",
+                "usage_confirmed",
+                "task-decomposer",
+                0,
+            ),
             # [組合] init < decomposed（code-writer 門檻）→ block；無 Traceback 坐實映射未讓
             # PHASES.index() 對離域值拋 ValueError（R-005 同型防線，DoD 2）
             ("usage_confirmed_code_writer_blocks", "usage_confirmed", "code-writer", 2),
@@ -781,14 +979,23 @@ class LegacyPhaseCompatibilityTest(unittest.TestCase):
                 m = {"run_id": "2026-09-22-legacy", **self.LEGACY_FIELD_SHAPE}
                 if phase is not None:
                     m["phase"] = phase
-                Path(os.path.join(repo, "run", "2026-09-22-legacy.json")).write_text(json.dumps(m), encoding="utf-8")
-                Path(os.path.join(repo, "eval_state.json")).write_text(json.dumps({"run_id": "2026-09-22-legacy", "sub_tasks": []}), encoding="utf-8")
-                payload = {"tool_name": "Task", "tool_input": {"subagent_type": subagent}}
+                Path(os.path.join(repo, "run", "2026-09-22-legacy.json")).write_text(
+                    json.dumps(m), encoding="utf-8"
+                )
+                Path(os.path.join(repo, "eval_state.json")).write_text(
+                    json.dumps({"run_id": "2026-09-22-legacy", "sub_tasks": []}),
+                    encoding="utf-8",
+                )
+                payload = {
+                    "tool_name": "Task",
+                    "tool_input": {"subagent_type": subagent},
+                }
                 result = run_hook_proc(payload, repo)
                 self.assertEqual(result.returncode, rc, result.stderr)
                 self.assertNotIn("Traceback", result.stderr)
 
     # --- DoD ②：新值 ⊂ 舊值域（雙向相容，H-err2）---
+
 
 class RunIdTrailerRegexTest(unittest.TestCase):
     """`RUN_ID_TRAILER_RE` 的解析邊界：對象是 Bash 指令原文，行尾可能殘留 shell 語法。"""
@@ -801,7 +1008,10 @@ class RunIdTrailerRegexTest(unittest.TestCase):
             ("ADD: something without a trailer", None),
             ("see the Run-Id: 2026-09-22-d for details", None),  # 行首錨點
             ("Run-Id: ../../etc/passwd", ".."),  # 字元集排除 `/`
-            ("Run-Id: 2026-09-22-e\nRun-Id: 2026-09-22-f", "2026-09-22-e"),  # 第一個為準
+            (
+                "Run-Id: 2026-09-22-e\nRun-Id: 2026-09-22-f",
+                "2026-09-22-e",
+            ),  # 第一個為準
         )
         for command, expected in cases:
             with self.subTest(command=command):
@@ -838,6 +1048,7 @@ class PerTaskSubTaskChainTest(CwdTmpCase):
 
     # --- DoD② 舊歸檔形狀相容 ---
 
+
 class CrossHookFullChainTest(CwdTmpCase):
     """item 5.3①：跨 hook 整合——manifest_phase → check_task_gate → validate_state →
     stats.collect 端到端自洽；run_id 用 2026-09-22 起的日期前綴以計入「新期」分母（R-007）。"""
@@ -854,7 +1065,9 @@ class CrossHookFullChainTest(CwdTmpCase):
             "task_file": "task/2026-09-22.md",
         }
         manifest.update(overrides)
-        Path(f"run/{self.RUN_ID}.json").write_text(json.dumps(manifest), encoding="utf-8")
+        Path(f"run/{self.RUN_ID}.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
 
     def test_full_chain_self_consistent_and_counted_as_new_period(self):
         self._write_manifest()
@@ -907,24 +1120,58 @@ class DispatchCommandGateTest(unittest.TestCase):
     def test_dispatch_gate_table(self):
         cd = "python3 .claude/hooks/dispatch.py"
         for name, phase, command, rc in (
-            ("G1_code_writer_at_init_blocks", "init", f"{cd} code-writer --prompt-file p.md", 2),
-            ("G2_code_writer_at_decomposed_passes", "decomposed",
-             f"{cd} code-writer --prompt-file p.md", 0),
+            (
+                "G1_code_writer_at_init_defers_to_dispatch",
+                "init",
+                f"{cd} code-writer --prompt-file p.md",
+                0,
+            ),
+            (
+                "G2_code_writer_at_decomposed_passes",
+                "decomposed",
+                f"{cd} code-writer --prompt-file p.md",
+                0,
+            ),
             # G3 [組合]：旗標在 role 前仍解析到 role；task-verifier 不在 AGENT_MIN_PHASE
-            ("G3_flags_before_unmanaged_role_passes", "init",
-             f"{cd} --backend codex task-verifier --prompt-file p.md", 0),
-            ("G3_flags_before_code_writer_blocks", "init",
-             f"{cd} --backend codex code-writer --prompt-file p.md", 2),
+            (
+                "G3_flags_before_unmanaged_role_passes",
+                "init",
+                f"{cd} --backend codex task-verifier --prompt-file p.md",
+                0,
+            ),
+            (
+                "G3_flags_before_code_writer_defers_to_dispatch",
+                "init",
+                f"{cd} --backend codex code-writer --prompt-file p.md",
+                0,
+            ),
             # G4 [邊界]：非管轄角色、無派工字樣的指令不觸 gate
-            ("G4_unmanaged_role_untouched", "init", f"{cd} explore-foo --prompt-file p.md", 0),
+            (
+                "G4_unmanaged_role_untouched",
+                "init",
+                f"{cd} explore-foo --prompt-file p.md",
+                0,
+            ),
             ("G4_plain_command_untouched", "init", "git status", 0),
         ):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as repo:
                 os.makedirs(os.path.join(repo, "run"))
-                m = {"run_id": "2026-09-29-dispatch-gate", "tier": 1, "status": "in_progress",
-                     "phase": phase, "spec_inline": "s", "task_file": "task/x.md"}
-                Path(os.path.join(repo, "run", "2026-09-29-dispatch-gate.json")).write_text(json.dumps(m), encoding="utf-8")
-                payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": repo}
+                m = {
+                    "run_id": "2026-09-29-dispatch-gate",
+                    "tier": 1,
+                    "status": "in_progress",
+                    "phase": phase,
+                    "spec_inline": "s",
+                    "task_file": "task/x.md",
+                }
+                Path(
+                    os.path.join(repo, "run", "2026-09-29-dispatch-gate.json")
+                ).write_text(json.dumps(m), encoding="utf-8")
+                payload = {
+                    "tool_name": "Bash",
+                    "tool_input": {"command": command},
+                    "cwd": repo,
+                }
                 result = run_hook_proc(payload, repo)
                 self.assertEqual(result.returncode, rc, result.stderr)
                 self.assertNotIn("Traceback", result.stderr)
@@ -940,18 +1187,30 @@ class WriteGateTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.repo = os.path.realpath(self.tmp.name)  # macOS /var → /private/var：兩側同基準
+        self.repo = os.path.realpath(
+            self.tmp.name
+        )  # macOS /var → /private/var：兩側同基準
         for d in ("run", "task", "spec", ".claude/hooks"):
             os.makedirs(os.path.join(self.repo, d), exist_ok=True)
-        Path(os.path.join(self.repo, ".claude", "hooks", "stats.py")).write_text("print('stats')\n", encoding="utf-8")
+        Path(os.path.join(self.repo, ".claude", "hooks", "stats.py")).write_text(
+            "print('stats')\n", encoding="utf-8"
+        )
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def _write_manifest(self, phase="init", status="in_progress"):
-        m = {"run_id": "2026-10-03-probe", "tier": 1, "status": status, "phase": phase,
-             "spec_inline": "s", "task_file": "task/x.md"}
-        Path(os.path.join(self.repo, "run", "2026-10-03-probe.json")).write_text(json.dumps(m), encoding="utf-8")
+        m = {
+            "run_id": "2026-10-03-probe",
+            "tier": 1,
+            "status": status,
+            "phase": phase,
+            "spec_inline": "s",
+            "task_file": "task/x.md",
+        }
+        Path(os.path.join(self.repo, "run", "2026-10-03-probe.json")).write_text(
+            json.dumps(m), encoding="utf-8"
+        )
 
     def _run(self, tool_input, tool_name="Write"):
         payload = {"tool_name": tool_name, "tool_input": tool_input, "cwd": self.repo}
@@ -965,15 +1224,20 @@ class WriteGateTest(unittest.TestCase):
         同受攔截（notebook 走 notebook_path 鍵）；經 symlink 別名指向 repo 內仍擋（R-020）。"""
         self._write_manifest("init")
         stats_py = self._abs(".claude/hooks/stats.py")
-        alias = os.path.join(os.path.dirname(self.repo), "alias-" + os.path.basename(self.repo))
+        alias = os.path.join(
+            os.path.dirname(self.repo), "alias-" + os.path.basename(self.repo)
+        )
         os.symlink(self.repo, alias)
         self.addCleanup(os.unlink, alias)
         for name, tool, tool_input in (
             ("write", "Write", {"file_path": stats_py}),
             ("edit", "Edit", {"file_path": stats_py}),
             ("notebook", "NotebookEdit", {"notebook_path": self._abs("nb.ipynb")}),
-            ("symlink_alias", "Write",
-             {"file_path": os.path.join(alias, ".claude", "hooks", "stats.py")}),
+            (
+                "symlink_alias",
+                "Write",
+                {"file_path": os.path.join(alias, ".claude", "hooks", "stats.py")},
+            ),
         ):
             with self.subTest(name=name):
                 result = self._run(tool_input, tool_name=tool)
@@ -986,7 +1250,9 @@ class WriteGateTest(unittest.TestCase):
         """R-008 組合測試：放行型早回的條件成立（payload 帶空 command，非 commit 指令）
         但攔截型也該觸發 → 仍須 exit 2。順序寫錯（攔截型排在早回之後）時本測試會綠轉紅。"""
         self._write_manifest("init")
-        result = self._run({"file_path": self._abs(".claude/hooks/stats.py"), "command": ""})
+        result = self._run(
+            {"file_path": self._abs(".claude/hooks/stats.py"), "command": ""}
+        )
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("phase=init", result.stderr)
 
@@ -1004,8 +1270,14 @@ class WriteGateTest(unittest.TestCase):
         ] + [
             # 豁免清單：前置階段要寫的溯源與規格檔照常可寫
             (f"exempt:{rel}", "init", "Write", {"file_path": self._abs(rel)})
-            for rel in ("task/2026-10-03.md", "spec/x.md", "run/2026-10-03-probe.json",
-                        "eval_state.json", "retro/RETRO.md", "evals/results/r.json")
+            for rel in (
+                "task/2026-10-03.md",
+                "spec/x.md",
+                "run/2026-10-03-probe.json",
+                "eval_state.json",
+                "retro/RETRO.md",
+                "evals/results/r.json",
+            )
         ]
         for name, manifest, tool, tool_input in cases:
             with self.subTest(name=name):

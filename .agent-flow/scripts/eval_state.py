@@ -933,6 +933,9 @@ def main():
     p.set_defaults(func=cmd_archive)
 
     args = parser.parse_args()
+    import work_root
+
+    work_root.check_cli(new_run=args.command == "init-run", toolchain=True)
     try:
         args.func(args)
     except flow_rules.RuleViolation as error:

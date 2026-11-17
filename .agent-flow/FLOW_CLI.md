@@ -3,6 +3,8 @@
 
 在專案根目錄執行 `python3 .agent-flow/scripts/flow.py`。這個入口使用現有 manifest、事件與驗證腳本；agent 仍負責需求判斷、實作及適用的自查或獨立審查。
 
+CLI 共用工作根判定。子目錄執行會指出正確狀態根並拒絕，不自動 chdir；既有有效子目錄安裝或舊 run 保留其根。互斥有效根會列出位置。輕量目標可在來源執行 `python3 install_harness.py --attach --target <B絕對路徑>`，核對輸出確認 Git hook 已接入；既有 hook/core.hooksPath 不覆寫。之後在 B cwd 用來源腳本絕對路徑呼叫 CLI。完整安裝 B 應使用 B 自己的工具鏈，不用外部版本操作同一 run。詳見 [HARNESS.md](HARNESS.md#從入口專案導航到目標)。
+
 ## 查看啟動狀態
 
 ```sh
@@ -133,7 +135,9 @@ python3 .agent-flow/scripts/flow.py finish --run-id <id> \
 
 Tier 1（含舊 run）要執行驗證時，必須提供非空的 `--verify-command`；缺少或只有空白時，在啟動測試前停止，不使用 manifest `test_command`。Tier 2 保留 manifest 全套預設；其他 tier 的預設不變。已完成 run 的核對與既有 commit 的 finalize 恢復路徑不需此參數。
 
-`finish` 依序核對範圍與既有憑據、執行 `run_verify.py`、歸檔符合條件的 Tier 2 狀態、執行 `run_commit.py prepare`、Git commit 與 finalize。它不推定審查通過，也不自動 stage 檔案；測試欄位由實際驗證結果產生。驗證命令依 test-strategy「依變更選擇驗證」；純設定使用必要設定／操作檢查，程式部分保留適用回歸範圍，專案另有要求時依專案規則。
+`finish` 依序核對範圍與既有憑據、執行 `run_verify.py`、歸檔符合條件的 Tier 2 狀態、執行 `run_commit.py prepare`、共用 commit 入口與 finalize。commit 入口在實際目標核對 staged 範圍、prepare 的 HEAD/index 快照、驗證及已接入的 Git hook，再以 argv 呼叫 Git；不先試跑有副作用的 hook。已有唯一匹配提交時只 finalize，不重複提交。它不推定審查通過，也不自動 stage 檔案；測試欄位由實際驗證結果產生。驗證命令依 test-strategy「依變更選擇驗證」；純設定使用必要設定／操作檢查，程式部分保留適用回歸範圍，專案另有要求時依專案規則。
+
+導航正式提交在目標 cwd 使用本入口；也可依 `run_commit.py commit --help` 使用同一提交核心。raw Git 命令仍受來源保守工具 gate 及實際目標 hook 約束；來源無法識別任意 shell 目標，未接入目標的 raw 提交不保證可攔截。
 
 已知命令只依本地輸入決定結果時，可加 `--reuse` 沿用同 run、同指令、同輸入與環境的成功證據；外部服務或實際環境檢查應實跑。`finish` 對 schema 2 的本地命令只顯示驗證摘要，完整輸出保存在 `run/<id>.verify-<序號>.log`；失敗時另顯示輸出末 40 行。若舊成功紀錄沒有完整輸出檔，首次使用精簡輸出時須提供 `--rerun-reason evidence_refresh` 才會實跑。直接使用 `run_verify.py` 也一律保存完整輸出，預設在命令結束後顯示輸出，可另加 `--quiet-success` 取得相同的精簡輸出。
 

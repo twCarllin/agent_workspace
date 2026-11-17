@@ -4,6 +4,8 @@
 import json
 import math
 import re
+import shlex
+from pathlib import Path
 
 HARNESSES = ("claude", "codex")
 PERMISSIONS = ("inherit", "edits", "unrestricted")
@@ -29,6 +31,8 @@ def build_argv(
     resume=None,
     permissions="inherit",
     budget_usd=None,
+    agents=None,
+    hooks=None,
 ):
     capabilities(harness)
     if permissions not in PERMISSIONS:
@@ -39,6 +43,10 @@ def build_argv(
         argv = ["claude", "-p", "--output-format", "json"]
         if role:
             argv += ["--agent", role]
+        if agents is not None:
+            argv += ["--agents", json.dumps(agents, ensure_ascii=False)]
+        if hooks is not None:
+            argv += ["--settings", json.dumps({"hooks": hooks}, ensure_ascii=False)]
         if model:
             argv += ["--model", model]
         if resume:
@@ -63,11 +71,66 @@ def build_argv(
         if model:
             argv += ["-m", model]
         argv += ["-c", f"model_reasoning_effort={reasoning_effort}"]
+        if hooks is not None:
+            argv += ["-c", "features.hooks=true"]
+            for event, groups in hooks.items():
+                argv += ["-c", f"hooks.{event}={toml_inline(groups)}"]
         if permissions == "edits" and not resume:
             argv += ["--sandbox", "workspace-write"]
         if permissions == "unrestricted":
             argv += ["--dangerously-bypass-approvals-and-sandbox"]
     return argv + ["-"]
+
+
+def toml_inline(value):
+    """Serialize the typed JSON hook declarations into Codex session TOML flags."""
+    if isinstance(value, dict):
+        return (
+            "{"
+            + ",".join(json.dumps(k) + "=" + toml_inline(v) for k, v in value.items())
+            + "}"
+        )
+    if isinstance(value, list):
+        return "[" + ",".join(toml_inline(v) for v in value) + "]"
+    return json.dumps(value, ensure_ascii=False)
+
+
+def flow_hooks(scripts, harness):
+    """Absolute commands keep the provider stable even when the target cwd changes."""
+    scripts = Path(scripts)
+    return {
+        "PreToolUse": [
+            {
+                "matcher": (
+                    "Bash|Task|Agent|Write|Edit|MultiEdit|NotebookEdit"
+                    if harness == "claude"
+                    else "Bash|Agent|apply_patch"
+                ),
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "python3 "
+                        + shlex.quote(str(scripts / "eval_gates.py"))
+                        + " --hook",
+                        "timeout": 30,
+                    }
+                ],
+            }
+        ],
+        "SessionStart": [
+            {
+                "matcher": "startup|resume|compact",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": f"AGENT_FLOW_HARNESS={harness} python3 "
+                        + shlex.quote(str(scripts / "session_start.py")),
+                        "timeout": 15,
+                    }
+                ],
+            }
+        ],
+    }
 
 
 def _integer(value):

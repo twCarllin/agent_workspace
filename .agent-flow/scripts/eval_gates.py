@@ -5,7 +5,7 @@
   --hook            PreToolUse hook：stdin 讀 hook JSON。
                     Bash → 攔 `git commit`，跑 commit gate；
                     Task/Agent → 依 manifest.phase 狀態機攔亂序的 subagent 呼叫；
-                    Bash `dispatch.py <role>`（headless 派工）同受該狀態機
+                    Bash 派工由 dispatch.py 在實際目標 cwd 檢查同一狀態機
   --validate <path> 獨立驗證單一 eval_state / eval 歸檔檔的不變量
 
 exit 0 = 放行；exit 2 = block（stderr 說明原因，回饋給 Claude 修正）。
@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import flow_rules
@@ -37,10 +38,8 @@ MANIFEST_RE = flow_rules.MANIFEST_RE
 #   - **不加行尾 `$` 錨點**——加了會讓上述常見寫法整條匹配失敗，靜默退化成「定位不到」
 RUN_ID_TRAILER_RE = re.compile(r"^[ \t]*Run-Id:[ \t]*([A-Za-z0-9._-]+)", re.MULTILINE)
 
-# Bash 派工指令（`dispatch.py <role>`，2026-09-29 headless 派工）：與 Task/Agent 的 subagent_type
-# 同受 gate 7 phase 狀態機。role＝`dispatch.py` 後第一個非旗標 token；旗標（`--x`／`--x value`）
-# 可在 role 之前。解析對象同 GIT_COMMIT_RE 是 Bash 指令原文，故 heredoc 內容含此字樣亦會觸發
-# （已知假陽性，與 commit gate 同型；phase 已達門檻時無害）。
+# Identify the dispatch entry point only; dispatch checks phase in its actual cwd.
+# Shell command text cannot establish a navigation target.
 DISPATCH_RE = re.compile(
     r"\bdispatch\.py\s+(?:--[A-Za-z0-9-]+(?:[= ]\S+)?\s+)*([A-Za-z][A-Za-z0-9-]*)"
 )
@@ -321,27 +320,6 @@ def check_inprogress_runs():
             )
 
 
-def _managed_commit_hook_available():
-    """The Git commit-msg hook validates the final message when command text cannot."""
-    try:
-        configured = subprocess.run(
-            ["git", "config", "--get", "core.hooksPath"], capture_output=True, text=True
-        )
-        if configured.returncode == 0:
-            return False  # An external hooksPath has not been wired by our installer.
-        result = subprocess.run(
-            ["git", "rev-parse", "--git-path", "hooks/commit-msg"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        path = result.stdout.strip()
-        with open(path, encoding="utf-8") as stream:
-            return "agent-workspace managed commit message gate" in stream.read()
-    except (OSError, subprocess.CalledProcessError):
-        return False
-
-
 def is_test_file(path):
     if not path.endswith(".py"):
         return False
@@ -373,25 +351,6 @@ def _find_unique_tier1_inprogress(*args, **kwargs):
     return _rule_call(run_evidence.find_unique_tier1_inprogress, *args, **kwargs)
 
 
-def _rel_to_cwd(file_path):
-    """payload 的 file_path 轉 cwd（repo 根）相對路徑；repo 外或無法解析回 None。
-
-    兩側都 realpath 不用 abspath：`--retro` 式的 symlink 與別名目錄（macOS `/tmp` → `/private/tmp`）
-    會讓字串比對失效，路徑判定靜默走偏（R-020 同型）。
-    """
-    if not isinstance(file_path, str) or not file_path:
-        return None  # 缺鍵或非字串（payload 形狀不可信任）→ 不屬本 gate 管轄，不拋例外
-    try:
-        rel = os.path.relpath(
-            os.path.realpath(file_path), os.path.realpath(os.getcwd())
-        )
-    except (ValueError, OSError, TypeError):
-        return None
-    if rel == ".." or rel.startswith(".." + os.sep):
-        return None
-    return rel
-
-
 def _runs_before_hitl():
     """回傳 [(manifest_path, manifest)]：status==in_progress 且 phase < decomposed 者。
 
@@ -411,13 +370,55 @@ def _runs_before_hitl():
     return out
 
 
-def check_write_gate(tool_input):
+def check_write_gate(tool_input, *, origin=None):
     """HITL 未過不得寫實作檔（攔截型，exit 2）。無進行中的 run 一律放行。"""
-    rel = _rel_to_cwd(
-        tool_input.get("file_path") or tool_input.get("notebook_path") or ""
-    )
-    if rel is None:
-        return  # repo 外的檔案不屬本 gate 管轄
+    import work_root
+
+    file_path = tool_input.get("file_path") or tool_input.get("notebook_path")
+    if not isinstance(file_path, str) or not file_path:
+        return
+    absolute = os.path.realpath(file_path)
+    previous = os.getcwd()
+    try:
+        directory = os.path.dirname(absolute)
+        if work_root.git_root(directory) is None:
+            # Preserve the legacy non-Git hook scope; new full runs still need Git.
+            origin = os.path.realpath(origin or previous)
+            if os.path.commonpath((origin, absolute)) != origin:
+                return
+            directory = origin
+        root = work_root.state_root(directory)
+        scripts = work_root.target_toolchain(root)
+        if scripts is not None and scripts != Path(__file__).resolve().parent:
+            child = subprocess.run(
+                [sys.executable, str(scripts / "eval_gates.py"), "--hook"],
+                input=json.dumps(
+                    {
+                        "cwd": str(root),
+                        "tool_name": "Write",
+                        "tool_input": {"file_path": absolute},
+                    }
+                ),
+                capture_output=True,
+                text=True,
+                cwd=root,
+            )
+            if child.returncode:
+                block(
+                    child.stderr.strip() or "目標工具鏈 gate 執行失敗",
+                    gate_id="gate.target_toolchain",
+                )
+            return
+        os.chdir(root)
+        _check_write_at_root(os.path.relpath(absolute, root))
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
+        block(str(error), gate_id="gate.work_root")
+    finally:
+        os.chdir(previous)
+
+
+def _check_write_at_root(rel):
+    """Run existing write decisions in the state owner's directory."""
     if rel in WRITE_GATE_EXEMPT_EXACT or rel.startswith(WRITE_GATE_EXEMPT_PREFIXES):
         return
     pending = _runs_before_hitl()
@@ -440,11 +441,13 @@ def check_write_gate(tool_input):
     )
 
 
-def check_task_gate(tool_input):
+def check_task_gate(tool_input, *, exit_on_success=True):
     agent = tool_input.get("subagent_type") or tool_input.get("agent_type") or ""
     required = AGENT_MIN_PHASE.get(agent)
     if not required:
-        sys.exit(0)  # 非流程管制的 agent，不擋
+        if exit_on_success:
+            sys.exit(0)  # 非流程管制的 agent，不擋
+        return
 
     # 前置步驟（單一判定點）：取得 manifest_path、manifest、state
     # eval_state.json 存在 → Tier 2 常規路徑；否則 → Tier 1 豁免路徑
@@ -511,61 +514,20 @@ def check_task_gate(tool_input):
         # risk_analysis.blocking 遍歷已移除（Q8：前置 1 風險分析連同本刪除，生產者消失、
         # 此 gate 永遠不觸發；`risk_analysis` 欄位寫入路徑同步自 eval_state.py 移除）。
 
-    sys.exit(0)
-
-
-def _git_toplevel(path):
-    """以 git rev-parse --show-toplevel 解析 path 所屬 git root；失敗回 None。
-    capture_output=True 吸掉 stderr（非 git 目錄會輸出 fatal: not a git repository）。
-    errors="replace"：路徑含非 UTF-8 位元組時不拋 UnicodeDecodeError（ValueError 子類，
-    不在下方 except 涵蓋範圍內，逸出會使 hook 以非 2 的碼結束＝gate 靜默不套用）。
-    兩側同屬一個 repo 時等量替換、比對仍相等 → 退回 CLAUDE_PROJECT_DIR（fail-safe）。
-    跨 worktree 且僅一側含非 UTF-8 位元組時比對不相等，會回傳含 U+FFFD 的路徑、使
-    run_hook 的 os.chdir 拋 OSError（fail-open）——此分支不另加防護：toplevel 是 cwd
-    的祖先，payload.cwd 既為合法 UTF-8 字串，其祖先亦然，故實務上不可達。"""
-    try:
-        result = subprocess.run(
-            ["git", "-C", path, "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=5,
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-        return None
-    except (OSError, subprocess.SubprocessError):
-        return None
+    if exit_on_success:
+        sys.exit(0)
 
 
 def _resolve_root(payload):
-    """解析 run_hook() 應 chdir 的工作區根目錄。H1 最小偏離設計：只有確認
-    cwd 與 CLAUDE_PROJECT_DIR 屬不同 git worktree 時才改變行為，其餘一律回 CPD。
-    """
-    cpd_env = os.environ.get("CLAUDE_PROJECT_DIR")
-    if not cpd_env:
-        return _git_toplevel(payload.get("cwd") or os.getcwd()) or os.getcwd()
-    cpd = cpd_env
+    """Use the same state owner as CLI, preserving the non-Git cwd fallback."""
+    import work_root
+
     cwd = payload.get("cwd")
-
-    # H1: 無 cwd 鍵 → 嚴格回 CPD（不落到 os.getcwd()；CPD 為 None 時已於上行退路）
-    if cwd is None:
-        return cpd
-
-    # H1: 字串相等短路，跳過 git（覆蓋主工作區最熱路徑）
-    if cpd == cwd:
-        return cpd
-
-    # 各跑一次 git rev-parse 吸收 symlink/尾斜線差異
-    cwd_top = _git_toplevel(cwd)
-    cpd_top = _git_toplevel(cpd)
-
-    # 兩者皆成功且 toplevel 不相等 → 回 cwd 的 toplevel（唯一改變行為的分支）
-    if cwd_top is not None and cpd_top is not None and cwd_top != cpd_top:
-        return cwd_top
-
-    # 其餘所有情況（任一失敗、或相等）→ 回 CPD
-    return cpd
+    project = os.environ.get("CLAUDE_PROJECT_DIR")
+    start = cwd or project or os.getcwd()
+    if cwd and work_root.git_root(cwd) is None:
+        start = project or os.getcwd()
+    return str(work_root.state_root(start))
 
 
 def run_hook():
@@ -581,7 +543,37 @@ def run_hook():
 
     payload = harness_adapter.normalize_hook(payload)
 
-    root = _resolve_root(payload)
+    tool_name = payload.get("tool_name", "")
+    tool_input = payload.get("tool_input") or {}
+    origin = payload.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    command = tool_input.get("command", "")
+    if (
+        tool_name == "Bash"
+        and DISPATCH_RE.search(command)
+        and not GIT_COMMIT_RE.search(command)
+    ):
+        # dispatch.py checks its own actual cwd before starting any child.
+        # Deferring its role check must not skip commit checks in the same text.
+        return
+    # File tools already identify their target. Do not let unrelated A state
+    # (including root conflicts) decide whether an operation in B is permitted.
+    if tool_name in WRITE_TOOLS or tool_name == "apply_patch":
+        paths = (
+            tool_input.get("_write_paths", [])
+            if tool_name == "apply_patch"
+            else [tool_input.get("file_path") or tool_input.get("notebook_path")]
+        )
+        for path in paths:
+            if isinstance(path, str) and path:
+                check_write_gate(
+                    {"file_path": os.path.join(origin, path)}, origin=origin
+                )
+        return
+
+    try:
+        root = _resolve_root(payload)
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
+        block(str(error), gate_id="gate.work_root")
     os.chdir(root)
     # 連結工具鏈進 linked worktree（缺才補、fail-open 回空清單）；放在任何 gate 判定之前，
     # 不是 gate、不改 exit code。
@@ -589,29 +581,13 @@ def run_hook():
 
     worktree_link.ensure_links(root)
 
-    tool_name = payload.get("tool_name", "")
-    tool_input = payload.get("tool_input") or {}
     trailer = RUN_ID_TRAILER_RE.search(tool_input.get("command", ""))
     _hook_run_id = trailer.group(1) if trailer else None
 
     if tool_name in ("Task", "Agent"):
         check_task_gate(tool_input)
 
-    # 攔截型先行（R-008）：本 gate 必須排在下方「非 commit 指令 → sys.exit(0)」這個放行型早回
-    # 之前，否則 Write／Edit 的 payload 無 command、會先被放行型帶離，攔截型永不執行
-    if tool_name in WRITE_TOOLS:
-        check_write_gate(tool_input)
-
-    if tool_name == "apply_patch":
-        # Check every touched path before the non-command early return (R-008).
-        for path in tool_input.get("_write_paths", []):
-            check_write_gate({"file_path": path})
-
     command = tool_input.get("command", "")
-    # 派工辨識排在 commit 辨識之前：一條 Bash 指令不會同時是兩者（check_task_gate 內部 sys.exit）
-    dispatch = DISPATCH_RE.search(command) if tool_name == "Bash" else None
-    if dispatch:
-        check_task_gate({"subagent_type": dispatch.group(1)})
     if not GIT_COMMIT_RE.search(command):
         sys.exit(0)
 
@@ -654,14 +630,6 @@ def run_hook():
     # 亦即該次 commit 不含任何 code、只為留痕放棄的 run；那條逃生門不該被另一個未收尾的 run
     # 卡死。兩者的 status 條件（aborted／failed vs in_progress）互斥，不存在互相遮蔽的情境。
     if not manifests:
-        if (
-            _managed_commit_hook_available()
-            and "--no-verify" not in command
-            and "core.hooksPath" not in command
-        ):
-            # Git's commit-msg hook receives the final message, including -F and editor input.
-            # The tool hook still blocks an unarchived scratchpad above.
-            return
         check_inprogress_runs()
 
     for path in manifests:

@@ -47,6 +47,7 @@ import subprocess
 import sys
 import time
 import tomllib
+from pathlib import Path
 
 HOOKS_DIR = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HOOKS_DIR)
@@ -192,33 +193,130 @@ def _child_result(backend, proc):
 
 
 def run_claude(role, prompt, resume, timeout, permissions="inherit"):
+    hooks, notes = shared_context("claude")
+    agents = None
+    if hooks is not None and not Path(f".claude/agents/{role}.md").is_file():
+        with open(MODELS_PATH, encoding="utf-8") as stream:
+            profile = json.load(stream)["claude"].get(role, {})
+        fields = dict(
+            line.split(":", 1)
+            for line in profile.get("frontmatter", "").splitlines()
+            if ":" in line and not line.startswith(" ")
+        )
+        role_path = Path(AGENTS_DIR) / f"{role}.md"
+        if not role_path.exists():
+            role_path = Path(LEGACY_AGENTS_DIR) / f"{role}.md"
+        definition = {
+            "description": f"Eval Flow role: {role}",
+            "prompt": role_path.read_text() + "\n\n" + notes,
+        }
+        if fields.get("model"):
+            definition["model"] = fields["model"].strip()
+        if fields.get("tools"):
+            definition["tools"] = [tool.strip() for tool in fields["tools"].split(",")]
+        agents = {role: definition}
     argv = harness_adapter.build_argv(
-        "claude", role=role, resume=resume, permissions=permissions
+        "claude",
+        role=role,
+        resume=resume,
+        permissions=permissions,
+        agents=agents,
+        hooks=hooks,
     )
+    if notes and agents is None:
+        argv[-1:-1] = ["--append-system-prompt", notes]
     return _child_result("claude", _run(argv, prompt, timeout))
 
 
 def load_codex_agent(role):
     path = os.path.join(".codex", "agents", f"{role}.toml")
     if not os.path.exists(path):
-        fail(f"{path} 不存在（codex 後端需先跑 install_codex.py 產生角色設定）", 1)
+        path = os.path.join(ROOT, ".codex", "agents", f"{role}.toml")
+    if not os.path.exists(path):
+        with open(MODELS_PATH, encoding="utf-8") as stream:
+            profile = json.load(stream)["codex"].get(role)
+        if profile is None:
+            fail(f"工具鏈沒有 Codex 角色設定：{role}", 1)
+        return {
+            "model": profile["model"],
+            "model_reasoning_effort": profile["reasoning_effort"],
+            "developer_instructions": (Path(AGENTS_DIR) / f"{role}.md").read_text(),
+        }
     with open(path, "rb") as f:
         return tomllib.load(f)
 
 
 def run_codex(role, prompt, resume, timeout, permissions="inherit"):
     agent = load_codex_agent(role)
+    hooks, notes = shared_context("codex")
     argv = harness_adapter.build_argv(
         "codex",
         model=agent.get("model"),
         reasoning_effort=agent.get("model_reasoning_effort", "low"),
         resume=resume,
         permissions=permissions,
+        hooks=hooks,
     )
-    stdin_text = f"{agent.get('developer_instructions', '')}\n\n{prompt}"
+    if hooks is not None:
+        import codex_hooks
+
+        try:
+            codex_hooks.require_trusted(argv, hooks)
+        except (OSError, ValueError) as error:
+            raise ChildError(str(error)) from error
+    stdin_text = f"{agent.get('developer_instructions', '')}\n\n{notes}\n\n{prompt}"
     report, meta = _child_result("codex", _run(argv, stdin_text, timeout))
     meta["model"] = agent.get("model")
     return report, meta
+
+
+def shared_context(backend):
+    """Supply source-owned runtime hooks and role paths without installing in B."""
+    import work_root
+
+    if work_root.target_toolchain(Path.cwd(), installed_only=True) is not None:
+        return None, ""
+    notes = (
+        f"目標工作根為 {Path.cwd()}。共用工具鏈來源為 {ROOT}。\n"
+        f"流程 scripts、roles、skills、adapter 的相對引用請在 {ROOT} 讀取；"
+        "run、task、驗證、staging 及提交留在目標。不可把工具鏈來源的 run 當目標狀態。\n"
+        "工作前讀目標和觸及模組的適用指示；下方已附讀取內容。"
+        "導航派工用來源 dispatch.py，正式提交用目標 cwd 的 flow.py finish。"
+        "路徑清單不是操作授權；遵守當次任務與適用文件的授權。\n"
+    )
+    return harness_adapter.flow_hooks(HOOKS_DIR, backend), notes
+
+
+def target_instructions(files):
+    """Read instructions from actual target/module ancestors, never the provider's cwd."""
+    import work_root
+
+    root = Path.cwd().resolve()
+    top = work_root.git_root(root) or root
+    directories = {top, root}
+    for name in files or []:
+        path = Path(name)
+        if path.is_absolute() or ".." in path.parts:
+            fail(f"--files 必須為目標 Git 工作樹內的相對路徑：{name}", 1)
+        directory = (top / path).parent
+        while directory.is_relative_to(top):
+            directories.add(directory)
+            if directory == top:
+                break
+            directory = directory.parent
+    content = []
+    for directory in sorted(directories, key=lambda p: (len(p.parts), str(p))):
+        for name in ("AGENTS.md", "CLAUDE.md", "CLAUDE.local.md"):
+            path = directory / name
+            if path.is_file():
+                content.append(f"### {path}\n{path.read_text()}")
+    return (
+        "## 目標與模組指示（依各文件適用範圍與 harness 遵守）\n"
+        + "\n\n".join(content)
+        + "\n\n"
+        if content
+        else ""
+    )
 
 
 BACKENDS = {"claude": run_claude, "codex": run_codex}
@@ -379,6 +477,9 @@ def main():
         "--max-output-chars", type=int, default=60000, dest="max_output_chars"
     )
     args = parser.parse_args()
+    import work_root
+
+    work_root.check_cli(toolchain=True)
     permissions = args.permissions or default_permissions(args.role)
 
     if not any(
@@ -387,6 +488,9 @@ def main():
     ):
         fail(f"角色 {args.role} 無對應 {AGENTS_DIR}/{args.role}.md", 1)
     prompt = read_prompt(args.prompt_file)
+    import eval_gates
+
+    eval_gates.check_task_gate({"subagent_type": args.role}, exit_on_success=False)
     run_id = resolve_run_id()
     if args.review_packet:
         if args.role != "task-verifier":
@@ -422,6 +526,9 @@ def main():
         {p.strip() for p in args.files.split(",") if p.strip()}
         if args.files is not None
         else None
+    )
+    prompt = (
+        target_instructions(sorted(allowed) if allowed is not None else []) + prompt
     )
     retro = None
     if args.role == "code-writer" and allowed is not None and not args.resume:

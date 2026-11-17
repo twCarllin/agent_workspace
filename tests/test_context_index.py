@@ -145,6 +145,18 @@ class ContextIndexTest(unittest.TestCase):
     def test_dispatch_reuses_hints_and_rejects_stale_before_backend(self):
         self.assertEqual(self.build().returncode, 0)
         (self.root / "eval_state.json").write_text(json.dumps({"run_id": "pilot"}))
+        (self.root / "run/pilot.json").write_text(
+            json.dumps(
+                {
+                    "run_id": "pilot",
+                    "tier": 2,
+                    "status": "in_progress",
+                    "phase": "decomposed",
+                    "spec_inline": "context fixture",
+                    "task_file": "task/plan.md",
+                }
+            )
+        )
         (self.root / "prompt.md").write_text("Do assigned work")
         bin_dir = self.root / "bin"
         bin_dir.mkdir()

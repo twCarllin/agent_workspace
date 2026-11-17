@@ -4,6 +4,8 @@
 
 writer 派工前，先依 [實作與 staging 的批次規則](writing.md) 決定本次 items；item 是驗收單位，不直接決定派工次數。
 
+導航到其他專案時，先讀目標與觸及模組的適用指示，於目標工作根執行來源 dispatch.py。路徑清單不構成操作授權；當次授權與計畫記在目標 run。dispatch 在自身 cwd 檢查 phase，再啟動子程序；錯誤 cwd 只指出正確根，不自動切換。完整安裝目標用自身工具鏈，輕量目標由來源傳入角色與 runtime hooks；兩 harness 的載入與正常信任要求依 adapter。原生 Agent 無明確目標時不保證導航路由，改走此入口。
+
 單一 run 預設由主 flow 直接協調 writer、reviewer 與必要角色，不另派只負責轉交指令及彙整回報的 agent。多條互不相依的執行線需要分開管理時，才依適用的 parallel-run／[P] fan-out 隔離規則委派；各執行線的責任、狀態與收尾憑據仍須明確。
 
 流程角色（`code-writer`／`task-verifier`／`code-reviewer`／`retro`／`task-decomposer`／`usage-analyzer`／`impact-analyzer`）可由目前 harness 的角色工具或 headless CLI 派工。兩路都遵守共用角色契約、獨立審查與 gate；工具與權限差異住 `.agent-flow/HARNESS.md` 及適配層：

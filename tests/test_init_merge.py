@@ -5,8 +5,10 @@
 
 執行：python3 -m unittest discover -s tests -v
 """
+
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -43,7 +45,9 @@ def build_framework_dir(dest):
     for name in ("init.sh", "install_harness.py", "harness_install_transaction.py"):
         shutil.copy(ROOT / name, dest / name)
     for name in (".agent-flow", "skills", "seed", "retro"):
-        shutil.copytree(ROOT / name, dest / name, ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(
+            ROOT / name, dest / name, ignore=shutil.ignore_patterns("__pycache__")
+        )
     return dest
 
 
@@ -53,7 +57,11 @@ def run_init_sh(framework_dir, home_dir):
     env = {**os.environ, "HOME": str(home_dir)}
     return subprocess.run(
         ["bash", str(framework_dir / "init.sh")],
-        cwd=str(framework_dir), capture_output=True, text=True, env=env, timeout=30,
+        cwd=str(framework_dir),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
     )
 
 
@@ -87,11 +95,18 @@ class SettingsMergeEndToEndTest(unittest.TestCase):
         pre = dst["hooks"]["PreToolUse"]
         # 同指令者就地更新 matcher，不新增重複項（框架改 matcher 時已部署專案不該累積舊筆）
         self.assertEqual(len(pre), 1, f"PreToolUse 不該累積重複項：{pre}")
-        self.assertEqual(pre[0]["matcher"], "Bash|Task|Agent|Write|Edit|MultiEdit|NotebookEdit",
-                         "matcher 應被就地更新為框架現值")
+        self.assertEqual(
+            pre[0]["matcher"],
+            "Bash|Task|Agent|Write|Edit|MultiEdit|NotebookEdit",
+            "matcher 應被就地更新為框架現值",
+        )
         self.assertEqual(
             pre[0]["hooks"][0]["command"],
-            "python3 \"$CLAUDE_PROJECT_DIR/.agent-flow/scripts/eval_gates.py\" --hook",
+            "python3 "
+            + shlex.quote(
+                str(self.parent_dir.resolve() / ".agent-flow/scripts/eval_gates.py")
+            )
+            + " --hook",
         )
 
         session_start = dst["hooks"]["SessionStart"]

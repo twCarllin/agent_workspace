@@ -10,7 +10,8 @@ import subprocess
 import tomllib
 import re
 import sys
-from harness_install_transaction import build_plan, apply_plan, snapshot
+import shlex
+from harness_install_transaction import build_plan, apply_plan, snapshot, replace_state
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parent
@@ -215,7 +216,7 @@ def exclude_target(target):
     return None if target == SOURCE else git_exclude_path(target)
 
 
-def git_side_effects(target, hook, exclude):
+def git_side_effects(target, hook, exclude, toolchain=None):
     """Finalize step and pre-apply state for the Git files written outside the planned tree."""
     external = {}
     if hook:
@@ -236,7 +237,7 @@ def git_side_effects(target, hook, exclude):
         )
 
     def finalize():
-        install_git_hook(target)
+        install_git_hook(target, toolchain=toolchain)
         if exclude:
             install_git_exclude(target)
 
@@ -370,7 +371,7 @@ def install_agents(target, harness):
         path.write_text(content)
 
 
-def merge_hooks(target, harness):
+def merge_hooks(target, harness, *, runtime_target=None):
     path = target / (
         ".claude/settings.json" if harness == "claude" else ".codex/hooks.json"
     )
@@ -404,6 +405,15 @@ def merge_hooks(target, harness):
             ],
         },
     }
+    if runtime_target is not None and runtime_target != SOURCE:
+        import harness_adapter
+
+        entries = {
+            event: groups[0]
+            for event, groups in harness_adapter.flow_hooks(
+                runtime_target / ".agent-flow/scripts", harness
+            ).items()
+        }
     if harness == "claude":
         entries["PostToolUse"] = {
             "matcher": "Task|Agent",
@@ -466,18 +476,33 @@ def register_codex_agents(target):
     path.write_text(text)
 
 
-def install_git_hook(target):
+def install_git_hook(target, toolchain=None):
+    import work_root
+
+    if toolchain is None and work_root.git_root(target) != target:
+        # Legacy subdirectory installs keep their own scripts; there is no copy at
+        # the Git root. The shared hook still resolves each worktree's state.
+        toolchain = target / ".agent-flow/scripts"
     result = subprocess.run(
         ["git", "-C", str(target), "config", "--get", "core.hooksPath"],
         capture_output=True,
         text=True,
     )
-    call = f'python3 "{MAIN_CHECKOUT}/.agent-flow/scripts/commit_message_gate.py" "$1"'
+    call = (
+        f'python3 {shlex.quote(str(toolchain / "commit_message_gate.py"))} "$1"'
+        if toolchain is not None
+        else f'python3 "{MAIN_CHECKOUT}/.agent-flow/scripts/commit_message_gate.py" "$1"'
+    )
+    source_line = (
+        f"# agent-workspace shared scripts: {toolchain}\n"
+        if toolchain is not None
+        else ""
+    )
     if result.returncode == 0:
         print(
-            f"[harness] existing core.hooksPath={result.stdout.strip()}; integrate: {call}"
+            f"[harness] commit gate 未啟用；existing core.hooksPath={result.stdout.strip()}; integrate:\n{source_line}{call}"
         )
-        return
+        return False
     result = subprocess.run(
         ["git", "-C", str(target), "rev-parse", "--git-path", "hooks/commit-msg"],
         capture_output=True,
@@ -485,7 +510,7 @@ def install_git_hook(target):
     )
     if result.returncode:
         print("[harness] not a Git repository; commit-msg hook not installed")
-        return
+        return False
     path = Path(result.stdout.strip())
     if not path.is_absolute():
         path = target / path
@@ -494,22 +519,27 @@ def install_git_hook(target):
         and "agent-workspace managed commit message gate" not in path.read_text()
     ):
         print(
-            f"[harness] preserved existing commit-msg hook: {path}; integrate: {call}"
+            f"[harness] commit gate 未啟用；preserved existing commit-msg hook: {path}; integrate:\n{source_line}{call}"
         )
-        return
+        return False
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        "#!/bin/sh\n# agent-workspace managed commit message gate\nexec " + call + "\n"
+        "#!/bin/sh\n# agent-workspace managed commit message gate\n"
+        + source_line
+        + "exec "
+        + call
+        + "\n"
     )
     path.chmod(0o755)
+    return True
 
 
-def populate(target, harness, repo_mode=False):
+def populate(target, harness, repo_mode=False, *, runtime_target=None):
     install_core(target, repo_mode)
     for side in ("claude", "codex") if harness == "both" else (harness,):
         instructions(target, side, repo_mode)
         install_agents(target, side)
-        merge_hooks(target, side)
+        merge_hooks(target, side, runtime_target=runtime_target or target)
         if side == "codex":
             register_codex_agents(target)
         else:
@@ -552,6 +582,11 @@ def main(default="both"):
     parser.add_argument("--target", type=Path, default=SOURCE.parent)
     parser.add_argument("--git-hook-only", action="store_true")
     parser.add_argument(
+        "--attach",
+        action="store_true",
+        help="只接入共用工具鏈的 Git hook 及流程暫存排除規則",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="Preview without changing the target"
     )
     args = parser.parse_args()
@@ -560,6 +595,76 @@ def main(default="both"):
         parser.exit(1, f"[harness] refusing symlink target: {args.target}\n")
     target = args.target.resolve()
     try:
+        if args.attach:
+            import work_root
+
+            if args.git_hook_only:
+                raise ValueError("--attach 不可與 --git-hook-only 同用")
+            if work_root.git_root(target) is None:
+                raise ValueError("輕量接入需要 Git 工作樹")
+            root = work_root.state_root(target)
+            if root != target:
+                raise ValueError(f"請在工作根接入：{root}")
+            if (root / ".agent-flow/scripts/eval_state.py").is_file():
+                raise ValueError(
+                    f"目標已完整安裝，請使用目標工具鏈：{root / '.agent-flow/scripts'}"
+                )
+            previous_tools = work_root.target_toolchain(root)
+            if (
+                previous_tools is not None
+                and previous_tools != SOURCE / ".agent-flow/scripts"
+            ):
+                pending = (
+                    any(
+                        isinstance((manifest := json.loads(path.read_text())), dict)
+                        and manifest.get("status")
+                        in ("in_progress", "ready_to_commit", "paused")
+                        for path in (root / "run").glob("*.json")
+                        if work_root.flow_rules.MANIFEST_RE.fullmatch(
+                            "run/" + path.name
+                        )
+                    )
+                    or (root / "eval_state.json").exists()
+                )
+                if pending:
+                    raise ValueError(
+                        f"目標有未完成 run，不可更換工具鏈：{previous_tools}"
+                    )
+            hook, exclude = git_hook_path(target), git_exclude_path(target)
+            hook_available = (
+                hook is not None
+                and not hook.is_symlink()
+                and (
+                    not hook.exists()
+                    or "agent-workspace managed commit message gate" in hook.read_text()
+                )
+            )
+            print(
+                f"[harness] attach: {target}; toolchain: {SOURCE / '.agent-flow/scripts'}"
+            )
+            if args.dry_run:
+                print("[harness] preview; no target writes; hook execution unverified")
+                return
+            finalize, external = git_side_effects(
+                target, hook, exclude, SOURCE / ".agent-flow/scripts"
+            )
+            # Only Git files change. Reuse their snapshots/restore operation,
+            # without walking or validating the untouched project's asset tree.
+            try:
+                finalize()
+            except (OSError, ValueError):
+                for path, before in external.items():
+                    replace_state(path, before)
+                raise
+            if not hook_available:
+                print(
+                    "[harness] commit gate 未啟用；原有 hook/core.hooksPath 已保留，請依上方指令手動接入"
+                )
+                parser.exit(2)
+            print(
+                "[harness] attached; commit gate installed; client hook execution unverified"
+            )
+            return
         plan = (
             build_plan(target, args.harness, populate, source=SOURCE)
             if not args.git_hook_only

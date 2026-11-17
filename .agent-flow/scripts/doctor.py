@@ -17,15 +17,35 @@ exit 0 = 全過；exit 1 = 有問題（逐條列出）。修法：重跑 agent_w
   python3 .agent-flow/scripts/doctor.py            完整輸出（OK＋ISSUE 逐條，全過再印健檢通過）
   python3 .agent-flow/scripts/doctor.py --brief    僅輸出異常行；全綠時無任何輸出（供其他 hook 內嵌呼叫）
 """
+
 import argparse
 import json
 import os
 import py_compile
+import shutil
 import sys
 import tomllib
 
-HOOKS = ["eval_gates.py", "flow_rules.py", "run_evidence.py", "test_baseline.py", "test_lint.py", "eval_state.py", "stats.py", "session_start.py",
-         "dispatch.py", "retro_select.py", "cite_check.py", "skill_eval.py", "harness_adapter.py", "harness_smoke.py", "flow.py", "flow_preflight.py", "review_packet.py"]
+HOOKS = [
+    "eval_gates.py",
+    "flow_rules.py",
+    "run_evidence.py",
+    "test_baseline.py",
+    "test_lint.py",
+    "eval_state.py",
+    "stats.py",
+    "session_start.py",
+    "dispatch.py",
+    "retro_select.py",
+    "cite_check.py",
+    "skill_eval.py",
+    "harness_adapter.py",
+    "harness_smoke.py",
+    "flow.py",
+    "flow_preflight.py",
+    "review_packet.py",
+    "work_root.py",
+]
 CORE_SKILLS = ["eval-flow", "eval-flow-resume", "test-strategy", "task-decomposition"]
 
 
@@ -48,7 +68,13 @@ def check_skills_sync(repo_skills_dir, deploy_skills_dir):
         return ok, issues
 
     def list_skills(d):
-        return {n for n in os.listdir(d) if _non_dotfile(n) and n != "_deprecated" and os.path.isdir(os.path.join(d, n))}
+        return {
+            n
+            for n in os.listdir(d)
+            if _non_dotfile(n)
+            and n != "_deprecated"
+            and os.path.isdir(os.path.join(d, n))
+        }
 
     def dirs_equal(a, b):
         a_entries = {n for n in os.listdir(a) if _non_dotfile(n)}
@@ -84,7 +110,9 @@ def check_skills_sync(repo_skills_dir, deploy_skills_dir):
         issues.append(f"skill '{skill}' 在部署層有但未納入版控")
 
     for skill in sorted(common):
-        if not dirs_equal(os.path.join(repo_skills_dir, skill), os.path.join(deploy_skills_dir, skill)):
+        if not dirs_equal(
+            os.path.join(repo_skills_dir, skill), os.path.join(deploy_skills_dir, skill)
+        ):
             issues.append(f"skill '{skill}' 兩邊都有但內容不同步")
 
     if not issues:
@@ -102,10 +130,16 @@ def run_checks(harness=None):
     # check the payload-resolved cwd project, including worktrees.
     settings_root = project_root if harness else script_root
     if harness is None:
-        has_claude = os.path.isfile(os.path.join(project_root, ".claude", "settings.json"))
+        has_claude = os.path.isfile(
+            os.path.join(project_root, ".claude", "settings.json")
+        )
         has_codex = os.path.isfile(os.path.join(project_root, ".codex", "config.toml"))
         if has_claude or has_codex:
-            harness = "both" if has_claude and has_codex else ("claude" if has_claude else "codex")
+            harness = (
+                "both"
+                if has_claude and has_codex
+                else ("claude" if has_claude else "codex")
+            )
             settings_root = project_root
     issues = []
     ok = []
@@ -128,6 +162,38 @@ def run_checks(harness=None):
     else:
         issues.append("hooks 缺 VERSION（無法判斷部署版本）")
 
+    # A lightweight target intentionally has no copied settings, roles or skills.
+    # Check its actual attachment and the provider this doctor belongs to instead.
+    if not os.path.isfile(os.path.join(hooks_dir, "work_root.py")):
+        return ok, issues
+    from pathlib import Path
+    import work_root
+
+    target = Path(project_root)
+    provider = work_root.target_toolchain(target) if shutil.which("git") else None
+    if (
+        provider is not None
+        and work_root.target_toolchain(target, installed_only=True) is None
+        and provider.resolve() == Path(hooks_dir).resolve()
+    ):
+        try:
+            work_root.require_commit_hook(target)
+            ok.append(
+                f"輕量 Git 接入已設定；工具鏈來源：{provider}（runtime hooks 仍須客戶端實測）"
+            )
+        except ValueError as error:
+            issues.append(str(error))
+        missing = [
+            name
+            for name in CORE_SKILLS
+            if not (
+                provider.parents[1] / ".agents/skills" / name / "SKILL.md"
+            ).is_file()
+        ]
+        if missing:
+            issues.append("來源缺核心 skill：" + ", ".join(missing))
+        return ok, issues
+
     if harness in (None, "claude", "both"):
         settings_path = os.path.join(settings_root, ".claude", "settings.json")
         try:
@@ -137,7 +203,9 @@ def run_checks(harness=None):
             if "gate-check" in entries or "eval_gates.py" in entries:
                 ok.append("settings.json PreToolUse 含 gate-check")
             else:
-                issues.append("settings.json 的 PreToolUse 沒接 gate-check——gate 防線未生效")
+                issues.append(
+                    "settings.json 的 PreToolUse 沒接 gate-check——gate 防線未生效"
+                )
         except (OSError, json.JSONDecodeError) as e:
             issues.append(f"settings.json 讀不到或非法 JSON（{e}）")
 
@@ -147,9 +215,16 @@ def run_checks(harness=None):
             with open(config_path, "rb") as f:
                 config = tomllib.load(f)
             agents = config.get("agents", {})
-            if not isinstance(agents, dict) or not isinstance(agents.get("code-writer"), dict):
+            if not isinstance(agents, dict) or not isinstance(
+                agents.get("code-writer"), dict
+            ):
                 issues.append(".codex/config.toml 缺 code-writer 角色設定")
-            elif not os.path.isfile(os.path.join(os.path.dirname(config_path), agents["code-writer"].get("config_file", ""))):
+            elif not os.path.isfile(
+                os.path.join(
+                    os.path.dirname(config_path),
+                    agents["code-writer"].get("config_file", ""),
+                )
+            ):
                 issues.append(".codex/config.toml 的 code-writer config_file 不存在")
             else:
                 ok.append("Codex 角色設定已部署")
@@ -165,14 +240,23 @@ def run_checks(harness=None):
             marker = "<!-- agent-workspace codex instructions -->"
             notes = config.get("developer_instructions")
             agents_md = os.path.join(settings_root, "AGENTS.md")
-            in_agents = os.path.isfile(agents_md) and marker in open(agents_md, encoding="utf-8").read()
+            in_agents = (
+                os.path.isfile(agents_md)
+                and marker in open(agents_md, encoding="utf-8").read()
+            )
             if not (isinstance(notes, str) and marker in notes) and not in_agents:
-                issues.append("Codex 流程入口未部署（.codex/config.toml developer_instructions 與 AGENTS.md 皆無 Eval Flow 區塊）")
+                issues.append(
+                    "Codex 流程入口未部署（.codex/config.toml developer_instructions 與 AGENTS.md 皆無 Eval Flow 區塊）"
+                )
         except (OSError, tomllib.TOMLDecodeError, json.JSONDecodeError) as e:
             issues.append(f".codex/config.toml 讀不到或非法 TOML（{e}）")
 
     project_skills = os.path.join(settings_root, ".agents", "skills")
-    skills_dir = project_skills if harness else os.path.join(os.path.expanduser("~"), ".claude", "skills")
+    skills_dir = (
+        project_skills
+        if harness
+        else os.path.join(os.path.expanduser("~"), ".claude", "skills")
+    )
     repo_skills_dir = os.path.join(script_root, "skills")
     # skills/ 是流程 skill 的來源只在框架 repo 成立；部署後的專案可有同名的領域 skill 目錄
     if os.path.isfile(os.path.join(script_root, "install_harness.py")):
@@ -201,7 +285,9 @@ def run_checks(harness=None):
         except (OSError, json.JSONDecodeError):
             pass
         rid = state.get("run_id") if isinstance(state, dict) else "?"
-        ok.append(f"⚠ eval_state.json 存在（run_id: {rid}）——有 in_progress 的 run，依 eval-flow-resume 續跑或收尾")
+        ok.append(
+            f"⚠ eval_state.json 存在（run_id: {rid}）——有 in_progress 的 run，依 eval-flow-resume 續跑或收尾"
+        )
 
     return ok, issues
 
@@ -216,7 +302,10 @@ def report(ok, issues, brief=False):
         print(f"[doctor] ISSUE: {line}", file=sys.stderr)
     if issues:
         if not brief:
-            print(f"[doctor] {len(issues)} 個問題——修法：重跑 agent_workspace 的 ./init.sh", file=sys.stderr)
+            print(
+                f"[doctor] {len(issues)} 個問題——修法：重跑 agent_workspace 的 ./init.sh",
+                file=sys.stderr,
+            )
         return 1
     if not brief:
         print("[doctor] 健檢通過")
@@ -225,10 +314,15 @@ def report(ok, issues, brief=False):
 
 def main():
     parser = argparse.ArgumentParser(description="部署健檢")
-    parser.add_argument("--brief", action="store_true",
-                         help="僅輸出異常行；全綠時無任何輸出")
-    parser.add_argument("--harness", choices=("claude", "codex", "both"), default=None,
-                        help="檢查指定 harness；省略時依專案配置偵測")
+    parser.add_argument(
+        "--brief", action="store_true", help="僅輸出異常行；全綠時無任何輸出"
+    )
+    parser.add_argument(
+        "--harness",
+        choices=("claude", "codex", "both"),
+        default=None,
+        help="檢查指定 harness；省略時依專案配置偵測",
+    )
     args = parser.parse_args()
     ok, issues = run_checks(harness=args.harness)
     sys.exit(report(ok, issues, brief=args.brief))

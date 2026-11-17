@@ -9,7 +9,9 @@
 
 dispatch.py 使用 Claude CLI 的 claude -p --agent。省略 --permissions 時，有寫入工具的角色用 edits（--permission-mode acceptEdits，只自動允許工作目錄內的檔案編輯；Bash 仍依專案設定），其他角色用 inherit（不附權限覆寫，不能保證繼承未保存的父程序權限）。只有明確指定 --permissions unrestricted 才使用完整權限旗標。子 agent 有工具呼叫被權限拒絕時，dispatch 列出工具名並 exit 2。
 
-worktree 的 tool payload cwd 由共用 _resolve_root 解析。CLAUDE_PROJECT_DIR 固定於 session 起點；不要直接用它讀 worktree 的 run。起點是 Git 子目錄的舊 Claude 路徑仍不支援 fan-out。模型由 harnesses/models.json 的 Claude 設定產生。用量解析僅適用 Claude transcript；session_id/config_dir 的環境變數細節屬此適配層。SessionStart 透過 AGENT_FLOW_HARNESS=claude 明示 harness。
+worktree 的 tool payload cwd 與實際寫入路徑由共用 work_root 解析。CLAUDE_PROJECT_DIR 固定於 session 起點；不要直接用它讀目標的 run。模型由 harnesses/models.json 的 Claude 設定產生。用量解析僅適用 Claude transcript；session_id/config_dir 的環境變數細節屬此適配層。SessionStart 透過 AGENT_FLOW_HARNESS=claude 明示 harness。
+
+輕量目標在其 cwd 使用來源 dispatch.py。來源以 `--agents` 傳入缺少的角色定義、模型及工具，以 `--settings` 傳入絕對路徑 PreToolUse/SessionStart hooks；不複製整套角色或 skills。派工 prompt 附目標及 `--files` 模組祖先指示，來源文件引用明示來源路徑。目標自訂角色保留。這些設定不增加 Bash 或附加目錄權限；權限拒絕與 gate 拒絕分開記錄，命令未進到 Git 時不能宣稱 Git hook 已驗證。
 
 ## Claude worktree 相容限制
 

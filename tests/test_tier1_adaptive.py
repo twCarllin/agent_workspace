@@ -213,11 +213,9 @@ class AdaptiveTier1Test(unittest.TestCase):
             self.write(manifest)
         self.git("add", ".gitignore", "source.py", "task.md")
         self.git("commit", "-qm", "initial")
-        hook = self.root / ".git/hooks/commit-msg"
-        hook.write_text(
-            f'#!/bin/sh\nexec "{sys.executable}" "{SCRIPTS / "commit_message_gate.py"}" "$1"\n'
+        self.cli(
+            "--attach", "--target", str(self.root), entry=ROOT / "install_harness.py"
         )
-        hook.chmod(0o755)
         self.start()
         (self.root / "source.py").write_text("value = 2\n")
         self.git("add", "source.py")

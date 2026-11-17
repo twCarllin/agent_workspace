@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flow_rules
 import run_evidence
 import run_commit
+from run_commit import head, matching_commit, scope_check
 import run_verify
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -456,56 +457,6 @@ def git(*argv):
     return result.stdout.strip()
 
 
-def head():
-    result = subprocess.run(
-        ["git", "rev-parse", "--verify", "HEAD"], capture_output=True, text=True
-    )
-    return result.stdout.strip() if result.returncode == 0 else None
-
-
-def matching_commit(manifest, completed=False):
-    sha = head()
-    if not sha:
-        return False
-    message = git("show", "-s", "--format=%B", sha)
-    trailers = re.findall(r"^Run-Id:[ \t]*(\S+)[ \t]*$", message, re.MULTILINE)
-    if trailers != [manifest["run_id"]]:
-        return False
-    if completed:
-        return sha == manifest.get("commit_sha")
-    parents = git("show", "-s", "--format=%P", sha).split()
-    expected = manifest.get("pre_commit_head")
-    return parents == ([expected] if expected else [])
-
-
-def scope_check(files):
-    scope = set(files)
-    if not scope:
-        raise ValueError("--files requires an explicit file scope")
-    for path in scope:
-        if (
-            Path(path).is_absolute()
-            or ".." in Path(path).parts
-            or str(Path(path)) != path
-            or path.startswith("-")
-            or (Path(path).is_dir() and not Path(path).is_symlink())
-        ):
-            raise ValueError(f"invalid file scope: {path}")
-    staged = set(
-        git("diff", "--cached", "--name-only", "-z", "--no-renames").split("\0")
-    ) - {""}
-    if staged != scope:
-        raise ValueError(
-            f"staged paths must equal scope; extra={sorted(staged-scope)}, missing={sorted(scope-staged)}"
-        )
-    dirty = set(git("diff", "--name-only", "-z", "--no-renames").split("\0")) - {""}
-    if dirty & scope:
-        raise ValueError(
-            f"working files differ from staged scope: {sorted(dirty & scope)}"
-        )
-    return staged
-
-
 def push():
     branch = git("symbolic-ref", "--quiet", "--short", "HEAD")
     if not branch:
@@ -612,22 +563,14 @@ def finish(args):
             manifest.pop("finish_error", None)
             run_commit.save(path, manifest)
             run_commit.prepare(path, manifest)
-            staged = scope_check(files)
-            run_evidence.check_manifest(path, staged, allow_in_progress=True)
-            message = args.message
-            if re.search(r"^Run-Id:", message, re.MULTILINE):
-                raise ValueError("--message must not contain a Run-Id trailer")
-            call("git", "commit", "-m", message + "\n\nRun-Id: " + args.run_id)
-            if not matching_commit(manifest):
-                raise ValueError("new commit parent/trailer mismatch; cannot finalize")
-            run_commit.finalize(path, manifest)
+            run_commit.commit(path, manifest, args.message, files)
         if args.push:
             push()
         current = read(path)
         if "finish_error" in current:
             current.pop("finish_error")
             run_commit.save(path, current)
-    except (ValueError, OSError, SystemExit) as error:
+    except (ValueError, OSError, SystemExit, subprocess.CalledProcessError) as error:
         current = read(path)
         current["finish_error"] = str(error)
         run_commit.save(path, current)
@@ -678,6 +621,9 @@ def main(argv=None):
         choices=("user_requested", "environment_changed", "evidence_refresh"),
     )
     args = parser.parse_args(argv)
+    import work_root
+
+    work_root.check_cli(toolchain=True)
     try:
         if args.command == "review-packet":
             return review_packet.execute(args)

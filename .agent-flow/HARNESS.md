@@ -33,6 +33,20 @@ CLI 與事件適配由 `.agent-flow/scripts/harness_adapter.py` 提供 build_arg
 
 本地操作入口為 `python3 .agent-flow/scripts/flow.py`：`preflight` 檢查環境，`status/watch` 讀取進度，`finish` 串接既有驗證與提交。用法與能力邊界見 [FLOW_CLI.md](FLOW_CLI.md)。
 
+## 從入口專案導航到目標
+
+A 的 AGENTS.md 可列 B/C 路徑。工作前先讀目標與觸及模組的適用指示；路徑清單本身不授予操作權限。沿用當次使用者授權，在目標 run 記錄。單一 repo 使用同一規則，不增加導航步驟。
+
+CLI 與 gate 共用 `work_root.py`。通常以 Git 工作樹根存狀態；既有子目錄安裝或可辨識的舊 run 保留原位置，不搬移、不重寫 manifest。發現範圍為該工作樹的已知標記及目標祖先；任意 `run/` 資料夾不構成狀態根。互斥的有效根會列出位置並拒絕。CLI 在錯誤 cwd 執行時指出正確根，不自動切換 cwd，以免改變相對參數含義。狀態根與工具鏈來源可不同；父目錄安裝、子目錄唯一有效 run 可共用父工具鏈。
+
+B 不需完整安裝：在來源執行 `python3 install_harness.py --attach --target <B>`，只接 Git exclude 與指向來源的 commit-msg hook。既有 hook 或 core.hooksPath 保留；未接妥會明確回報未啟用，須依輸出手動整合。已完整安裝的 B 使用自身工具鏈；同一 run 不切換來源版本。來源路徑須持續存在。
+
+Write/Edit 及 patch 的每個新增、修改、刪除、搬移目標依實際路徑讀取目標狀態。導航角色派工在目標 cwd 呼叫來源 `dispatch.py`；script 在啟動子程序前執行目標 phase gate。無可確定目標的原生 Agent 呼叫仍依本身 cwd 檢查，不能假稱已檢查 B。輕量目標的角色、指示與 runtime hooks 由來源傳入，方法與信任要求見各 adapter。
+
+正式導航提交在目標 cwd 使用來源 `flow.py finish`。共用 `run_commit.py commit` 核對實際 run、staged 範圍、驗證、prepare 的 HEAD/index 快照及目標 hook，再以 argv 呼叫 Git。來源 A 的 hook 不證明 B 已接入。raw Git 工具命令維持既有保守檢查，可能被 A 未完成狀態先擋；不解析 shell 的 cd/git -C 猜目標，也不保證未接入 B 的所有 raw 提交都能攔截。能進到 Git 的提交由目標 hook 核對。
+
+真實導航驗證使用 `navigation_smoke.py --harness claude|codex --output <JSON>`，僅操作自建暫存 repo；`--prepare-only` 準備現場，`--fixture <JSON> --case <名稱>` 可續驗失敗或缺席案例。正常 hook trust、客戶端權限或帳號未就緒時記 blocked，不以設定存在或 client exit 0 當通過。非 Git 完整 flow、跨 repo 原子提交與完整跨 repo 相依證據不在支援範圍。
+
 新 Tier 1 採 `adaptive-v1`，依 `skills/eval-flow/references/tier1.md` 決定開始、主 flow 自查或獨立審查。Tier 2 仍直接派 reviewer；舊 Tier 1 保留 checker 相容路徑。資料包只供資料與來源核對，不因固定報告章節退件，也不代表審查通過；用法見 [REVIEW_PACKET.md](REVIEW_PACKET.md)。
 
 2026.10.19.1 起的新 Tier 1／2 run 加入 item 對帳。開始時固定 `item_plan`（adaptive 依已授權需求，其餘依 HITL），

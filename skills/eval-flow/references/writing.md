@@ -1,5 +1,7 @@
 # 循環 step 1–2：實作與 staging
 
+工作前先讀目標專案及觸及模組的適用指示。入口 A 的路徑清單只供導航；操作授權依當次使用者與適用指示，記於目標 run。跨專案角色派工依 dispatch-control.md，在目標 cwd 呼叫目標所用工具鏈的 dispatch.py；來源 A 的 run 或 hook 不能代替目標憑據。
+
 1. 實作與 code-writer 派工方法由適用路徑決定；adaptive Tier 1 依 `tier1.md`，不預設委派。下列派工前置只在實際派 writer 時使用，主 flow 直寫仍守適用的品質、契約與實際驗證要求。
 
    程式測試需扣除既有失敗時，第一次產品修改前先依 test-strategy「Baseline」建立可信基準；已有修改且缺可信基準的處置同該節。純設定依「依變更選擇驗證」。再依「派工機制」節派工 `code-writer` subagent 產出程式碼
