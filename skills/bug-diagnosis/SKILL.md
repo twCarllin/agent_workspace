@@ -109,6 +109,8 @@ Phase 1 完成 = 能指名**一條命令**（測試呼叫／curl／script 路徑
 
 ### 診斷結論（固定三行）
 
+主 flow 將可重現的 bug 交給 writer 時，依[派工機制](../eval-flow/references/dispatch-control.md)引用既有案例與驗收命令。
+
 ```
 根因：<一句>
 影響面：<一句>
