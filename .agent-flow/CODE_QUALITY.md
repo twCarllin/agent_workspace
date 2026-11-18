@@ -17,19 +17,22 @@ smell 是調查線索，候選修法不自動要求抽象、拆分或新增型�
 
 ## 格式
 
-- Python 無既定 formatter 時使用 Black；預設資源在 `.agents/skills/eval-flow/assets/black.toml` 與 `requirements-format.txt`。固定版本、88 字元行寬，不啟用 preview。其他語言使用專案既有 formatter。
+- Python 無既定 formatter 時使用 Ruff；預設資源在 `.agents/skills/eval-flow/assets/ruff.toml` 與 `requirements-format.txt`。固定版本、88 字元行寬，不啟用 preview。其他語言使用專案既有 formatter。
 - 依專案開發環境安装固定依賴；格式化及檢查使用同一個直譯器、版本與設定。保留專案已選定的 formatter，不為導入模板覆寫根目錄設定。
 - 對本次新增／修改且仍存在的 Python 檔案明列路徑，先格式化，再執行 `--check`。包含測試檔；不以 `.` 掃整個歷史庫、不用 `--line-ranges` 當作整檔驗收。移除檔案不傳給 formatter。
-- Black 會重排整檔；若造成超出 task 範圍的大量變更，先調整 task 範圍與審查計畫，不靜默省略檔案。生成檔先改來源，再重新生成。
+- Formatter 可能重排整檔；若造成超出 task 範圍的大量變更，先調整 task 範圍與審查計畫，不靜默省略檔案。生成檔先改來源，再重新生成。
 - 交付附版本、設定路徑、受檢檔案、命令及退出碼。沒有適用檔案時記「不適用」及原因。工具缺失或檢查失敗時修復後再驗，不記通過。
 
 無專案設定時的命令（`python3` 換成專案直譯器，檔名換成 task 的實際檔案）：
 
 ```sh
 python3 -m pip install -r .agents/skills/eval-flow/assets/requirements-format.txt
-python3 -m black --config .agents/skills/eval-flow/assets/black.toml src/example.py
-python3 -m black --config .agents/skills/eval-flow/assets/black.toml --check src/example.py
+python3 -m ruff format --config .agents/skills/eval-flow/assets/ruff.toml src/example.py
+python3 -m ruff format --config .agents/skills/eval-flow/assets/ruff.toml --check src/example.py
+python3 -m ruff check --config .agents/skills/eval-flow/assets/ruff.toml src/example.py
 ```
+
+使用 Ruff 預設時，格式檢查後依專案既定 lint 指令執行。未指定時使用上述 Ruff lint 指令。
 
 ## 可閱讀性
 
@@ -75,7 +78,7 @@ python3 -m black --config .agents/skills/eval-flow/assets/black.toml --check src
 | 15 | 布林值命名為 flag | 用名稱說明判斷，例如 has_pending_changes。 |
 | 16 | 函式混合太多職責 | 依具體的理解與維護問題調整結構。 |
 | 17 | 缺少測試 | 依 test-strategy 選擇適用證據，按缺口補驗。 |
-| 18 | 忽略 lint | 候選：專案有既定 lint 時依其指令執行。 |
+| 18 | 忽略 lint | 依格式章節執行適用 lint。 |
 | 19 | 缺少 README | 候選：安裝、啟動或驗證方式有變時同步操作文件。 |
 | 20 | 保留用不到的程式碼 | 清除本次引入的無用程式碼。歷史清理另列工作。 |
 
@@ -110,6 +113,6 @@ python3 -m black --config .agents/skills/eval-flow/assets/black.toml --check src
 
 測試或實跑應核對：level 與結果一致、欄位可定位操作、同一失敗不重複、stdout 協定保持、敏感值未輸出；有 level 切換時核對診斷篩選不影響必要證據。斷言 event、level、欄位與可觀察結果，避免鎖住完整訊息文字。沿用既有測試與契約預算，不為每條文案另建案例。
 
-writer 附格式檢查及適用 log 證據；主 flow 在 step 5 核對並將實際命令納入驗證紀錄。checker 核對憑據，reviewer 審查可閱讀性與 log 語意。這些是交付與審查要求；現有 Git hook 不會另行執行 Black 或自動判斷 log 語意。
+writer 附格式檢查及適用 log 證據；主 flow 在 step 5 核對並將實際命令納入驗證紀錄。checker 核對憑據，reviewer 審查可閱讀性與 log 語意。這些是交付與審查要求；現有 Git hook 不會另行執行 Ruff 或自動判斷 log 語意。
 
-參考：[Black code style](https://black.readthedocs.io/en/stable/the_black_code_style/current_style.html)、[Python Logging HOWTO](https://docs.python.org/3/howto/logging.html)。
+參考：[Ruff formatter](https://docs.astral.sh/ruff/formatter/)、[Python Logging HOWTO](https://docs.python.org/3/howto/logging.html)。

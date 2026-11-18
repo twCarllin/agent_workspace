@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".agent-flow/scripts"))
-from document_inventory import skill_directories, skill_documents
+from document_inventory import skill_directories, skill_documents  # noqa: E402
 
 
 class DocumentInventoryTest(unittest.TestCase):
@@ -75,14 +75,12 @@ class DocumentInventoryTest(unittest.TestCase):
                 policy.read_bytes(), (ROOT / ".agent-flow/CODE_QUALITY.md").read_bytes()
             )
             assets = deployed / "eval-flow/assets"
-            settings = tomllib.loads((assets / "black.toml").read_text())["tool"][
-                "black"
-            ]
+            settings = tomllib.loads((assets / "ruff.toml").read_text())
             self.assertEqual(settings["line-length"], 88)
             self.assertFalse(settings["preview"])
             self.assertEqual(
                 (assets / "requirements-format.txt").read_text().strip(),
-                "black==" + settings["required-version"],
+                "ruff==" + settings["required-version"],
             )
             for role in ("code-writer", "code-reviewer"):
                 common = (target / ".agent-flow/roles" / f"{role}.md").read_text()
