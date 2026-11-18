@@ -9,10 +9,10 @@
    - **`[憑據:step5]` 條目在本步收口**：主 flow 逐條核對帶記號的 DoD 條目憑據已補——實跑輸出，或依 test-strategy「視覺類 DoD 的使用者驗收」路徑取得使用者裁決——未補不得通過本 gate（記號定義住 task-decomposition skill；step 3 的 checker 對這些條目只記 🔍 待驗，收口責任在此、不在審查輪）
    - 未通過本步不可進入收尾與 commit。細則（相關測試選擇、零測試專案、豁免窗口）住在 test-strategy skill，不在此重述
 6. **收尾順序（**hook 強制**，見「Gate 的硬性執行」，完整清單見 `SKILL.md「Gate 的硬性執行」`）**：
-   - ⓪先跑**收尾測試檢查**——方法與範圍依 test-strategy「依變更選擇驗證」；程式測試的指令與空集合處置住 test-strategy skill「Commit 前收尾檢查與重開路徑」節，單一枚舉點、此處不重列；本 run 的最後一條收尾驗證須由 `run_verify.py --run-id <run_id> --cmd "<收尾檢查指令>"` 執行並記錄程式樹快照。出現新失敗代表相關測試沒抓到的跨 sub_task 破壞，依 skill 的「重開路徑」把肇事 sub_task 改回 in_progress 從步驟 3 重走，**不可收尾**
+   - ⓪先核對已有證據，再補必要的**收尾測試檢查**——方法與範圍依 test-strategy「依變更選擇驗證」；程式測試的指令與空集合處置住 test-strategy skill「Commit 前收尾檢查與重開路徑」節，單一枚舉點、此處不重列；本 run 的最後一條收尾驗證須由 `run_verify.py --run-id <run_id> --cmd "<收尾檢查指令>"` 執行或依重用規則沿用，並記錄程式樹快照。出現新失敗代表相關測試沒抓到的跨 sub_task 破壞，依 skill 的「重開路徑」把肇事 sub_task 改回 in_progress 從步驟 3 重走，**不可收尾**
    - ①將 `eval_state.json` 歸檔為 `run/<run_id>.eval.json`（保留審查記錄的永久紀錄），**清除 `eval_state.json`**（熱 scratchpad，收尾即清；失敗收尾則保留現場）。manifest 此時仍為 `in_progress`；提交前跑 `python3 .agent-flow/scripts/run_commit.py prepare <run_id>`，憑據過關後改為 `ready_to_commit` 並記下原 HEAD
    - ②**冷溯源檔的進版控範圍**（單一枚舉點，分三類）：
-     - **不進版控**（只留在工作目錄、永不清除，不 `git add`）：manifest `run/<run_id>.json`、eval 歸檔檔 `run/<run_id>.eval.json`、測試 baseline `run/<run_id>.test_baseline.json`、事件日誌 `run/<run_id>.events.jsonl`、task 檔 `task/YYYY-MM-DD.md`。本次 commit 的 staged 內容＝循環 step 2 已陸續加入的**程式碼與測試檔**，此處不追加上述任何檔案
+     - **不進版控**（只留在工作目錄、永不清除，不 `git add`）：manifest `run/<run_id>.json`、eval 歸檔檔 `run/<run_id>.eval.json`、測試 baseline `run/<run_id>.test_baseline.json`、事件日誌 `run/<run_id>.events.jsonl`、task 檔 `task/YYYY-MM-DD-<run_id>.md`。本次 commit 的 staged 內容＝循環 step 2 已陸續加入的**程式碼與測試檔**，此處不追加上述任何檔案
      - **進版控**：`spec/<run_id>.md`。它是 intent gate 的依據（manifest `spec_path` 指向它），且具名問題觸發 usage-analyzer／impact-analyzer 後答案寫進 Spec（見 `SKILL.md「Tier 2 完整路徑」`「具名問題觸發」節）——Spec 是本 run 需求的唯一來源，換手者必須讀得到，故隨程式碼一併 `git add`、正常 commit
      - **歷史產物**（`usage/`、`risk/`、`impact/` 三目錄）：既有歷史報告（冷溯源）保留在版控中，**不刪**；這三個目錄無新檔產生，無需 `git add`
      - **依據**：所有消費端（`eval_gates.py`／`stats.py`／`test_baseline.py`／`session_start.py`）都以 `glob("run/*.json")` 從工作目錄讀檔，無一從 git 歷史讀，故「不進版控」那組檔案進不進版控不影響任何既有功能
@@ -31,6 +31,8 @@
 
 進入收尾時，依 `.agent-flow/FLOW_CLI.md`「唯讀下一步建議」預設查詢一次；同一現場已有有效判斷時可省略。`resume_task` 只指向記錄步驟，須核對實際完成證據；`finish` 不代表 gate 已通過。
 
-執行 step 6 前，必讀 `.agent-flow/FLOW_CLI.md`「收尾」節。標準路徑使用 `flow.py finish --run-id <id> --message <訊息> --files <本次檔案> --verify-command <依變更選定的實際驗證命令>`；只有明確要求才用 `--reuse`，只有已授權推送且明確加 `--push` 才推送。工具不推定審查通過、不自動 stage、不使用全樹 git add；測試欄位由驗證結果產生。先完成適用的獨立審查或主 flow 自查與 step 5，再只 stage 本 run 的檔案。
+讀取或恢復 task 檔時，以 manifest 的 `task_file` 為準，不以日期重組路徑。
+
+執行 step 6 前，必讀 `.agent-flow/FLOW_CLI.md`「收尾」節。先依 test-strategy 核對目前版本、變更涵蓋範圍與 gate，沿用有效成功證據或指出補驗缺口，再選驗證命令。標準路徑使用 `flow.py finish --run-id <id> --message <訊息> --files <本次檔案> --verify-command <依變更選定的實際驗證命令>`；只有明確要求才用 `--reuse`，只有已授權推送且明確加 `--push` 才推送。工具不推定審查通過、不自動 stage、不使用全樹 git add；測試欄位由驗證結果產生。先完成適用的獨立審查或主 flow 自查與 step 5，再只 stage 本 run 的檔案。
 
 此入口執行本文件 step 6 的順序與 gate，不改冷溯源檔範圍。舊 run 或入口不可用時，依上方原手動 prepare → commit（Run-Id）→ finalize 路徑執行；中斷恢復依根入口「中斷恢復」節核對現場，不重複提交。

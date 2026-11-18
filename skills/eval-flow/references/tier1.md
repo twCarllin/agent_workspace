@@ -36,7 +36,7 @@
    模組分工時才派 writer。委派時完整投放適用契約與知識前置（R-011），檔案與權限範圍明列。
    主 flow 直寫同守 `.agent-flow/CODE_QUALITY.md`。涉及資料接入或轉換時，實作前必讀並執行 [資料接入前核對](writing.md#資料接入前核對)。`executor_notes` 可記有用的選擇理由，
    不為每個 item 產生固定格式的空白說明。
-5. **驗證與交付**：只 stage 本次檔案，選足以覆蓋需求的測試或實際運行驗證，以
+5. **驗證與交付**：先依 test-strategy「Commit 前收尾檢查與重開路徑」核對目前版本、變更涵蓋範圍與 gate；有效成功證據沿用，需補驗時先記明缺口。只 stage 本次檔案，選足以覆蓋需求的測試或實際運行驗證，以
    `run_verify.py --run-id <id> --cmd '<適用驗證>'` 記實際結果。用 `item_accounting.py --run-id <id> deliver <item-id> --files <本次檔案> --evidence <憑據> --observed '<使用者會看到什麼>' --observed-evidence <ran:…|file:…|pending-manual:…>` 逐項對帳（憑據三選一：`existing:<檔:函式>`／`ran:<命令>`／`new:<函式>|<既有為何不夠>`，見 test-strategy「測試取捨」；可觀察證據兩級見 test-strategy「依變更選擇驗證」），完成 task 勾選與所有來源更新後，再記自查或獨立結論。記錄後不得再改 task 檔；有變更須重新檢查並記錄結論。最後用 `flow.py finish --run-id <id> --message '<訊息>' --files <本次檔案> --verify-command '<適用驗證>'` 驗證、提交並 finalize。`--verify-command` 不可省略或留空；命令選擇與候選的限制依 `.agent-flow/FLOW_CLI.md`「收尾」及「唯讀下一步建議」。疑難用法與欄位查同文件。
    自查由 `eval_state.py review-run <id> 0 --checked-by self --evidence '<完成度與驗證範圍>' --passed` 記錄；
    須已有目前來源的有效成功驗證且無審查原因。來源變更或測試失敗後不可沿用。

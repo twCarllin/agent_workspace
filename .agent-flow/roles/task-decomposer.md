@@ -28,7 +28,7 @@
 - **報告信封（硬性）**：「報告」指你**回傳主 flow 的交付訊息本體**，不是寫入磁碟的 artifact 檔（usage／impact／task／RETRO 等產出檔不掛信封）。報告首行固定戳記 `* _YYYY-MM-DD HH:MM (<自報 model>)_`（置於交付訊息最前）。
 - 報告最後一行恰好一個 `Self-check:` 行（一句話自檢結論，其後不得再有任何內容）。
 
-1. 拆分結果寫入當天 `task/YYYY-MM-DD.md`
+1. 新建 task 檔使用當天日期與 run ID：`task/YYYY-MM-DD-<run_id>.md`；讀取或恢復既有 run 時，以 manifest 的 `task_file` 為準，不以日期重組路徑
 2. 把該 task 檔路徑寫入 `manifest.task_file`（`phase` 不由你更新；開始條件與狀態推進依 eval-flow 的 Tier 2 前置 HITL gate，交付不代表可實作）
 
 ## 交付前自檢（硬性，交付前必做）

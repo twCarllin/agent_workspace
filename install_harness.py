@@ -161,6 +161,8 @@ def instructions(target, harness, repo_mode=False):
         block = f"""{marker}
 ## Eval Flow
 
+Read and follow `.agent-flow/WORK_RULES.md` before starting work.
+
 For implementation, read `.agent-flow/ROUTER.md` and load the selected `.agents/skills/<name>/SKILL.md`. Diagnose bugs first; resume interrupted runs with eval-flow-resume. Pure questions do not start a run.
 New Tier 1/2 manifests use `harness: "codex"` and `evidence_schema: 2`.
 Use the selected skill for verification, review, and completion. Read `.agent-flow/CODEX_ADAPTER.md` for Codex-specific operations. Preserve project instructions and current session permissions.
@@ -168,6 +170,8 @@ Use the selected skill for verification, review, and completion. Read `.agent-fl
     else:
         block = f"""{marker}
 ## Eval Flow
+
+Read and follow `.agent-flow/WORK_RULES.md` before starting work.
 
 Read `.agent-flow/HARNESS.md`, `.agent-flow/{harness.upper()}_ADAPTER.md`, and `.agent-flow/PRACTICES.md`.
 For implementation, read `.agent-flow/ROUTER.md`, then load only the selected `.agents/skills/<name>/SKILL.md`. Diagnose bugs before routing; use eval-flow-resume for an interrupted run.

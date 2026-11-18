@@ -47,6 +47,15 @@ class HarnessInstallTest(unittest.TestCase):
                 for name in ("CLAUDE.md", "AGENTS.md"):
                     (project / name).write_text("Project convention\n")
                 self.install(project, "--harness", harness)
+                rules = ".agent-flow/WORK_RULES.md"
+                self.assertEqual(
+                    (project / rules).read_text(), (ROOT / rules).read_text()
+                )
+                for side in ("codex", "claude"):
+                    if harness not in (side, "both"):  # testlint: allow
+                        continue
+                    entry = "AGENTS.md" if side == "codex" else "CLAUDE.local.md"
+                    self.assertIn(rules, (project / entry).read_text())
                 first = {
                     str(p.relative_to(project)): p.read_bytes()
                     for p in project.rglob("*")

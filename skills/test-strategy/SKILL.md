@@ -113,6 +113,8 @@ writer 須依變更跑相關測試，既有證據足夠時不新增案例。派 
 
 ## 真新失敗的處置（script 確認可重現後才進這裡）
 
+旁支問題與必要驗證失敗須分開處理：不影響本次 DoD 或 gate 的範圍外問題，記錄問題、觸發條件及影響後繼續，不自行擴修。必要驗證未通過時，仍依本節分類、裁示及重開規則處理；不得把失敗改列旁支問題來通過 gate。
+
 script 重跑確認可重現的真新失敗，先判是否屬下列三類；前兩類可依既定規則處理，第三類須使用者裁決：
 
 | 分類 | 判定 | 處置 |
@@ -142,11 +144,11 @@ script 重跑確認可重現的真新失敗，先判是否屬下列三類；前�
 
 ## Commit 前收尾檢查與重開路徑（跨 sub_task 破壞的最後防線，分 tier）
 
-step 6 收尾**之前**（Tier 2 歸檔 eval_state 前）跑一次收尾檢查，純設定使用既定設定／操作驗證；以下測試範圍**依 tier**（收尾全套從未抓到累積聯集漏掉的破壞，而全套成本隨測試數線性上漲）：
+step 6 收尾**之前**（Tier 2 歸檔 eval_state 前），先檢查已有成功證據是否對應目前版本、涵蓋本次全部變更，且符合本次 gate。三項皆符合時，依 eval-flow「增量審查與驗證重用」沿用；不得只因進入收尾就重跑。證據不足時，先指出新變更、新失敗、失效證據或具名覆蓋缺口，再選必要驗證命令。純設定使用既定設定／操作驗證；需要執行時，範圍依下表。parallel-run 的合併 gate 仍須驗證合併後版本，不以合併前證據代替。
 
 | Tier | 收尾檢查範圍 | 指令 |
 |---|---|---|
-| **Tier 1** | **累積聯集**（本 run staged 檔的相關測試），**不跑全套** | `python3 .agent-flow/scripts/test_baseline.py check --cmd 'python3 -m pytest -q $(python3 .agent-flow/scripts/test_baseline.py related --files $(git diff --cached --name-only))' --strike-key wrapup_related`（`--cmd` **必須單引號**：讓 `$(…)` 在 test_baseline 的 sh 內展開才會依換行分詞，外層 shell 先展開會把換行塞進單一字串、pytest 之後的檔名被當命令執行而報 `__suite__`；測試框架指令依專案 `test_command` 的直譯器改寫；Tier 1 無 `eval_state.json`，files 聯集取 staged 清單） |
+| **Tier 1** | **累積聯集**（本 run staged 檔的相關測試），**不為收尾另跑全套** | `python3 .agent-flow/scripts/test_baseline.py check --cmd 'python3 -m pytest -q $(python3 .agent-flow/scripts/test_baseline.py related --files $(git diff --cached --name-only))' --strike-key wrapup_related`（`--cmd` **必須單引號**：讓 `$(…)` 在 test_baseline 的 sh 內展開才會依換行分詞，外層 shell 先展開會把換行塞進單一字串、pytest 之後的檔名被當命令執行而報 `__suite__`；測試框架指令依專案 `test_command` 的直譯器改寫；Tier 1 無 `eval_state.json`，files 聯集取 staged 清單） |
 | **Tier 2** | **全套**（manifest `test_command`） | `python3 .agent-flow/scripts/test_baseline.py check --strike-key full_suite`（省略 `--cmd` → 讀 manifest，與 baseline 同源同範圍） |
 | parallel-run merge gate | 全套（規則住 parallel-run skill，不變） | 同 Tier 2 |
 
