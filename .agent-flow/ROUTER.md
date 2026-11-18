@@ -1,6 +1,8 @@
 <!-- agent-workspace managed -->
 # Eval Flow Router
 
+新增或修改 Python 程式碼前，所有 tier（含 Tier 0）都須讀取 `.agent-flow/CODE_QUALITY.md` 並遵守適用條文。
+
 ## 部署規則（最重要）
 
 - **禁止** 未完成適用的部署前驗證就直接部署到遠端
