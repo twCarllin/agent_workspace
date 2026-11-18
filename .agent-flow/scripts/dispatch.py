@@ -52,7 +52,7 @@ from pathlib import Path
 HOOKS_DIR = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HOOKS_DIR)
 import harness_adapter  # noqa: E402
-import flow_rules
+import flow_rules  # noqa: E402
 import run_evidence  # noqa: E402
 import report_envelope_check  # noqa: E402
 import retro_select  # noqa: E402
@@ -538,7 +538,7 @@ def main():
             print(f"[dispatch] {note}", file=sys.stderr)
     before = git_status_paths() if allowed is not None else None
     if allowed is not None and before is None:
-        print("[dispatch] 非 git repo，略過越界檢查", file=sys.stderr)
+        print("[dispatch] 無法取得派工前快照", file=sys.stderr)
 
     record = {
         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -599,7 +599,14 @@ def main():
         )
     out_of_scope = record["out_of_scope"] or []
     denials = record["permission_denials"]
-    record["exit_code"] = 4 if out_of_scope else (2 if blocking or denials else 0)
+    scope_unknown = allowed is not None and record["out_of_scope"] is None
+    if scope_unknown:
+        print(
+            "[dispatch] 範圍待確認：保留交付，由主 flow 核對實際變更", file=sys.stderr
+        )
+    record["exit_code"] = (
+        4 if out_of_scope else (2 if blocking or denials or scope_unknown else 0)
+    )
 
     sys.stdout.write(report if report.endswith("\n") else report + "\n")
     sys.stdout.flush()

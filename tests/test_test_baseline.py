@@ -115,6 +115,34 @@ class BaselineScriptTest(RepoCase):
         path = self.dir / "m"
         return int(path.read_text().strip()) if path.exists() else 0
 
+    def test_merge_resume_checks_once_per_batch_and_head(self):
+        cmd = "echo tested >> ran"
+        for batch in ("parallel-first", "parallel-second"):
+            result = self.run_script(
+                "baseline", "--fresh", "--run-id", batch, "--cmd", cmd
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.git("checkout", "-qb", "worker")
+        self.git("commit", "--allow-empty", "-qm", "worker change")
+        self.git("checkout", "-q", "-")
+        self.git("merge", "--ff-only", "worker")
+        for batch, count in (
+            ("parallel-first", 3),
+            ("parallel-first", 3),
+            ("parallel-second", 4),
+        ):
+            result = self.run_script(
+                "check", "--merged-head", "--run-id", batch, "--cmd", cmd
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(len((self.dir / "ran").read_text().splitlines()), count)
+
+        self.git("commit", "--allow-empty", "-qm", "next merge")
+        result = self.run_script(
+            "check", "--merged-head", "--run-id", "parallel-first", "--cmd", cmd
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len((self.dir / "ran").read_text().splitlines()), 5)
 
     def test_baseline_only_intersects_repeated_failure_ids(self):
         data = self.build_baseline(CMD_NEW_NONREPRODUCIBLE)
@@ -131,7 +159,9 @@ class BaselineScriptTest(RepoCase):
         saved = self.read_baseline()["check_observations"][-1]
         self.assertEqual(saved["key"], "s1")
         self.assertEqual(saved["cmd"], CMD_STABLE)
-        self.assertEqual(saved["observations"][0]["failures"], ["tests/test_broken.py::test_a"])
+        self.assertEqual(
+            saved["observations"][0]["failures"], ["tests/test_broken.py::test_a"]
+        )
 
     def test_check_blocks_reproducible_new_failure_and_logs(self):
         self.build_baseline()
@@ -300,7 +330,15 @@ class BaselineScriptTest(RepoCase):
     def test_no_head_rejects_baseline(self):
         with tempfile.TemporaryDirectory() as empty:
             result = subprocess.run(
-                [sys.executable, str(SCRIPT), "baseline", "--run-id", "t", "--cmd", "exit 0"],
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "baseline",
+                    "--run-id",
+                    "t",
+                    "--cmd",
+                    "exit 0",
+                ],
                 cwd=empty,
                 capture_output=True,
                 text=True,
@@ -383,10 +421,14 @@ class BaselineScriptTest(RepoCase):
                 result = self.run_script("check", "--cmd", cmd, script=entry)
                 self.assertEqual(result.returncode, 2, result.stdout)
                 self.assertIn("test_sample.T.test_b", result.stderr)
-                self.assertNotIn("(failures=1)", self.read_baseline()["stable_failures"])
+                self.assertNotIn(
+                    "(failures=1)", self.read_baseline()["stable_failures"]
+                )
 
     def test_timeout_cleans_child_and_preserves_external_process(self):
-        external = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"])
+        external = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(10)"]
+        )
         try:
             cmd = "sleep 10 & echo $! > run/child.log; wait"
             (self.dir / "run").mkdir()
@@ -452,7 +494,11 @@ class BaselineScriptTest(RepoCase):
         try:
             start = time.monotonic()
             result = self.run_script(
-                "mine", "--cmd", shlex.join([sys.executable, "-c", code]), "--timeout", "0.4"
+                "mine",
+                "--cmd",
+                shlex.join([sys.executable, "-c", code]),
+                "--timeout",
+                "0.4",
             )
             self.assertEqual(result.returncode, 2, result.stdout)
             self.assertIn("timeout", result.stderr)
@@ -543,7 +589,12 @@ class VenvMismatchTest(unittest.TestCase):
 
     def test_venv_mismatch(self):
         for name, venv_dir, cmd, expected in (
-            ("dotvenv 存在、cmd 未用 → 回傳名稱", ".venv", "python3 -m pytest -q", ".venv"),
+            (
+                "dotvenv 存在、cmd 未用 → 回傳名稱",
+                ".venv",
+                "python3 -m pytest -q",
+                ".venv",
+            ),
             ("dotvenv 存在、cmd 已用", ".venv", ".venv/bin/python3 -m pytest", None),
             ("無 venv 目錄", None, "python3 -m pytest", None),
             ("一般 venv 目錄", "venv", "pytest -q", "venv"),
@@ -563,13 +614,20 @@ class MineSubcommandTest(RepoCase):
 
     def write_baseline(self):
         (self.dir / "run").mkdir(exist_ok=True)
-        data = {"run_id": "t", "cmd": "exit 0", "head_sha": "abc", "stable_failures": []}
+        data = {
+            "run_id": "t",
+            "cmd": "exit 0",
+            "head_sha": "abc",
+            "stable_failures": [],
+        }
         (self.dir / "run" / "t.test_baseline.json").write_text(json.dumps(data))
 
     def test_mine_with_test_file_runs_only_that_file(self):
         """untracked 測試檔存在時，mine 只跑該測試檔（runner 收到的路徑正確）。"""
         self.write_test("test_foo.py", "")
-        (self.dir / "main.py").write_text("", encoding="utf-8")  # 非測試檔不得被餵給 runner
+        (self.dir / "main.py").write_text(
+            "", encoding="utf-8"
+        )  # 非測試檔不得被餵給 runner
         sentinel = self.dir / "ran.txt"
         runner = self.dir / "fake_runner.sh"
         runner.write_text(f'#!/bin/sh\necho "$@" > {sentinel}\n', encoding="utf-8")
@@ -590,7 +648,9 @@ class MineSubcommandTest(RepoCase):
         """D1／strike 已移除：失敗 → exit 2；有 --strike-key ＋既有 baseline 也不寫計數、不落 mine_log。"""
         self.write_test("test_foo.py", UNIT_FAIL)
         self.write_baseline()
-        result = self.run_script("mine", "--cmd", UNITTEST_DISCOVER, "--strike-key", "sk1")
+        result = self.run_script(
+            "mine", "--cmd", UNITTEST_DISCOVER, "--strike-key", "sk1"
+        )
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertNotIn("strikes", self.read_baseline())
         self.assertFalse((self.dir / "run" / "t.mine_log.json").exists())
@@ -599,7 +659,9 @@ class MineSubcommandTest(RepoCase):
         """通過：不建立 baseline／mine_log；discover 型 cmd 不把 discover 傳給 unittest；
         含空白的測試檔名不造成 shell 注入、能真實執行。"""
         self.write_test("test_a b.py", UNIT_OK)
-        result = self.run_script("mine", "--cmd", UNITTEST_DISCOVER, "--strike-key", "sk1")
+        result = self.run_script(
+            "mine", "--cmd", UNITTEST_DISCOVER, "--strike-key", "sk1"
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("PASS", result.stdout)
         self.assertNotIn("discover", result.stderr)
@@ -620,7 +682,7 @@ class GitChangedFilesTest(RepoCase):
         p = subprocess.run(
             [sys.executable, "-c", code], cwd=self.dir, capture_output=True, text=True
         )
-        return [l for l in p.stdout.splitlines() if l]
+        return [line for line in p.stdout.splitlines() if line]
 
     def test_rename_takes_new_path_and_deleted_excluded(self):
         for name in ("old.py", "del.py"):

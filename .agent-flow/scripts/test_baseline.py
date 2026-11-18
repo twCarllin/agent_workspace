@@ -132,7 +132,9 @@ def _execute(command, *, shell, timeout):
         else (
             "execution_error"
             if rc not in (0, 1) or "__suite__" in fails
-            else "test_failure" if fails else "success"
+            else "test_failure"
+            if fails
+            else "success"
         )
     )
     return {
@@ -349,6 +351,7 @@ def cmd_baseline(args):
             data = dict(previous, run_id=run_id, reused_from=previous["run_id"])
             data.pop("failure_log", None)
             data.pop("check_observations", None)
+            data.pop("verified_merge_head", None)
             os.makedirs("run", exist_ok=True)
             _save(baseline_path(run_id), data)
             print(
@@ -441,6 +444,13 @@ def cmd_check(args):
     )
     if ancestry.returncode != 0:
         fail("baseline 來源不是目前 HEAD 的祖先：拒絕扣除")
+    merge_source = source_snapshot() if args.merged_head else None
+    if merge_source:
+        if cmd != base["cmd"] or base["run_id"] != run_id:
+            fail("合併驗證須沿用同批次的全套命令")
+        if base.get("verified_merge_head") == merge_source["head_sha"]:
+            print(f"[test-gate] 沿用本批已通過的合併版本 {merge_source['head_sha']}")
+            return
     known = set(base["stable_failures"])
     key = args.strike_key or "_default"
     observations = [run_tests(cmd, args.timeout)]
@@ -469,6 +479,14 @@ def cmd_check(args):
         for test in real:
             print(f"  - {test}", file=sys.stderr)
         sys.exit(2)
+    if merge_source:
+        if (
+            source_snapshot() != merge_source
+            or environment_fingerprint() != base["environment"]
+        ):
+            fail("合併驗證期間來源或環境改變")
+        base["verified_merge_head"] = merge_source["head_sha"]
+        _save(path, base)
     ignored = set(observations[0]["failures"]) & known
     print(
         "[test-gate] PASS: 無新增穩定失敗"
@@ -643,6 +661,7 @@ def main():
 
     p_check = sub.add_parser("check")
     p_check.add_argument("--cmd")
+    p_check.add_argument("--merged-head", action="store_true")
     p_check.add_argument("--strike-key")
     p_check.add_argument("--run-id")
     p_check.set_defaults(func=cmd_check)

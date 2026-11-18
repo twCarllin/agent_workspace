@@ -66,7 +66,8 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
    3. **後合者先同步**：在自己 worktree `git merge main`，重跑自己的相關測試，綠了才進下一步（真衝突 → 停下回報，不自行硬解）。
       - **副作用（無害，但別誤讀 log）**：同步是在 worktree 側執行，之後把該 branch 合入 main 時會留下 `Merge branch 'main' into <branch>` 這種方向看起來相反的 merge commit——那是同步那一步的紀錄，不是把 main 合進 main。
    4. `git merge <branch>` 進 main → 跑**全套測試**，判準為「相對 merge 前 main 的 baseline 無新增失敗」（非絕對全綠，避免 main 既有 flaky 卡死收尾）。
-      - 全套 baseline 在合**第一支前**跑一次快照，存 `run/parallel-merge-YYYY-MM-DD.test_baseline.json`（批次層級，不屬於任一 run）
+      - 全套 baseline 在合**第一支前**跑一次快照，存 `run/parallel-merge-<首支 run_id>.test_baseline.json`（批次層級，不屬於任一 run）
+      - 兩階段均指定同一批次的 `--run-id parallel-merge-<首支 run_id>`，把此 ID 記入各支的計畫。合併後用 `check --merged-head` 記錄已通過的 HEAD，成功才清理。
       - **此處必須手動帶 `--cmd "<全套指令>"`**——該 run_id 沒有對應的 manifest，而 `test_baseline.py` 預設從 manifest 讀 `test_command`，省略 `--cmd` 會直接失敗
    5. 綠 → append 該 run 帶回的 BUGLOG 條目（append 前先 grep 舊條目做兩層制升級判定）→ 清理 worktree 與 branch。
       - **清理可能失敗，且失敗時不可強拆**：harness 建的 worktree 帶 lock，`git worktree remove --force` 會被擋（提示需 `-f -f` 或先 unlock）。強拆有破壞 harness 狀態的風險，屬**應回報而非硬幹**的情況——工作已合入 main，殘留 worktree 無害
@@ -85,7 +86,7 @@ description: 多個互不相依的 Tier 1 需求並行執行：主 session 批�
 14. **批次沒有獨立狀態檔，用既有痕跡機械重建**，不靠記憶：
     - 還有哪些 worktree／哪些 run：`git worktree list` ＋ 各 worktree 的 manifest（`status`：in_progress／blocked／completed）。
     - 哪支已 merge：main 的 `git log` 找 `Run-Id` trailer。
-    - 全套 baseline 是否已快照：`run/parallel-merge-*.test_baseline.json` 存在與否。
+    - 依該批次 ID 找原 baseline。trailer 只證明已合入。對目前 main 用同一全套命令執行 `check --merged-head`：已有本批同版本成功紀錄即沿用，否則補跑；成功才清理。舊批次須先核對原 baseline 歸屬，無法確認時保留現場。
     - 單一 run 內部跑到哪，照常走 `eval-flow-resume`。重建後從對應的收尾步驟續跑。
 
 ## 被 Tier 2 [P] fan-out 重用（單向指向）

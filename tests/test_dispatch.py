@@ -744,12 +744,21 @@ class DispatchGuardsTest(DispatchFixture, unittest.TestCase):
                 self.assertIn(outside, proc.stderr)
 
     def test_b5_no_files_flag_and_non_git_dir(self):
-        """B5 [邊界]：無 --files → out_of_scope=null；非 git 目錄給 --files → 略過檢查、exit 依信封、out_of_scope=null。"""
         for extra in ((), ("--files", "a.py")):
             with self.subTest(extra=extra):
                 proc = self.run_role(*extra, role="code-writer", touch=("b.py",))
-                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.returncode, 2 if extra else 0, proc.stderr)
                 self.assertIsNone(self.records()[-1]["out_of_scope"])
+
+    def test_writer_report_survives_missing_final_snapshot(self):
+        self.init_git()
+        proc = self.run_role(
+            "--files", "a.py", role="code-writer", rewrite=".git/index"
+        )
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertIn("範圍待確認", proc.stderr)
+        self.assertEqual(proc.stdout, COMPLIANT + "\n")
+        self.assertIsNone(self.records()[-1]["out_of_scope"])
 
     def test_empty_prompt_rejected(self):
         """空指令派工等於沒派工（run 2026-10-03-parked-fixes，使用者裁示「應該要擋空的 prompt」）：
